@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tidal Racing</title>
+  <meta name="description" content="Powerboat racing on a physically simulated ocean, in the browser.">
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+    canvas#c { display: block; width: 100vw; height: 100vh; }
+    .err { position: fixed; inset: 16px; color: #f88; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; z-index: 9; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
