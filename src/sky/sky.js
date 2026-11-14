@@ -15,6 +15,9 @@ uniform float uSunVis;
 uniform float uIsMoon;
 uniform float uPixelAngle;
 uniform float uTime;
+uniform sampler3D uCirrusShape;
+uniform sampler2D uCirrusWeather;
+uniform vec4 uCirrus;        // xy: advection aloft (m), z: amount, w: altitude (m)
 const float SUN_COS = 0.99998917; // cos(0.2666 deg)
 float mhash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float mnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -38,6 +41,46 @@ vec4 cloudBicubic(vec2 uv, vec2 size) {
   vec4 a = texelFetch(uClouds, clamp(ip, ivec2(0), mx), 0), b = texelFetch(uClouds, clamp(ip + ivec2(1, 0), ivec2(0), mx), 0);
   vec4 c = texelFetch(uClouds, clamp(ip + ivec2(0, 1), ivec2(0), mx), 0), d = texelFetch(uClouds, clamp(ip + ivec2(1, 1), ivec2(0), mx), 0);
   return clamp(r, min(min(a, b), min(c, d)), max(max(a, b), max(c, d)));
+}
+float hgc(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
+// Cirrus: a thin sheet of ice crystals at ~8.5 km, above the haze and the cumulus. It is evaluated
+// per pixel from fixed noise (no ray march, no history), so it is as sharp as the screen is and
+// costs three texture fetches. Streaks are stretched along the jet (anisotropic noise, warped), the
+// sheet thickens towards the horizon (longer slant path) and fades into the haze there.
+vec4 cirrusLayer(vec3 d) {
+  float amount = uCirrus.z;
+  if (amount < 0.01 || d.y < 0.004) return vec4(0.0, 0.0, 0.0, 1.0);
+  const float RG = 6360000.0;
+  float R = RG + uCirrus.w;
+  vec3 o = vec3(0.0, RG + uCamPos.y, 0.0);
+  float b = dot(o, d);
+  float t = -b + sqrt(max(b * b - (dot(o, o) - R * R), 0.0));
+  vec2 xz = uCamPos.xz + d.xz * t + uCirrus.xy;
+  vec2 ax = vec2(0.9, 0.44);
+  vec2 q = vec2(dot(xz, ax), dot(xz, vec2(-ax.y, ax.x)));
+  vec4 wm = texture(uCirrusWeather, xz / 120000.0 + 0.31);
+  vec3 wp = texture(uCirrusShape, vec3(q.x / 30000.0, q.y / 11000.0, 0.15)).rgb;
+  vec2 qw = q + (wp.rg - 0.5) * vec2(5000.0, 2200.0);
+  float f1 = texture(uCirrusShape, vec3(qw.x / 20000.0, qw.y / 2800.0, 0.55)).r;
+  float f2 = texture(uCirrusShape, vec3(qw.x / 6500.0, qw.y / 800.0, 0.83)).b;
+  float cover = smoothstep(0.56, 0.9, wm.b * 0.7 + wm.r * 0.3 + (wp.b - 0.5) * 0.6);
+  float dens = smoothstep(0.56, 1.0, f1 * 0.6 + f2 * 0.4) * cover;
+  float slant = clamp(0.35 / max(d.y, 0.02), 1.0, 3.0);
+  float tau = amount * 0.7 * dens * slant * smoothstep(0.004, 0.05, d.y);
+  float Tc = exp(-tau);
+  float cosT = dot(d, uSunDir);
+  vec3 sunE = sunTransmittanceAt(uCirrus.w * 0.001, uSunDir.y);
+  // ice crystals: a diffraction peak forward and a broad, nearly isotropic remainder
+  float ph = mix(0.0796, hgc(cosT, 0.6), 0.2);
+  vec3 L = (1.0 - Tc) * (sunE * ph * 2.4 + skyIrradiance() / 3.14159 * 0.5);
+  float distKm = t * 0.001;
+  vec3 aL, aT;
+  aerial(d, min(distKm, uAerialMax), aL, aT);
+  float sEl = d.y * distKm / 2.0;
+  float fsl = sEl > 1e-3 ? (1.0 - exp(-sEl)) / sEl : 1.0;
+  vec3 aT2 = pow(max(aT, vec3(1e-4)), vec3(fsl));
+  aL *= (1.0 - aT2) / max(1.0 - aT, vec3(1e-4));
+  return vec4(L * aT2, Tc);
 }
 void main() {
   vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
@@ -71,7 +114,10 @@ void main() {
     // the billows into mush), clamped to the four nearest texels so edges cannot ring
     vec4 cl = ct.x > 0.0 ? cloudBicubic(vUv, cts) : texture(uClouds, vUv);
     vec3 sunPart = col - skyRadiance(d);
-    vec3 skyCol = skyRadiance(d) + sunPart * cl.a * cl.a;
+    vec4 ci = cirrusLayer(d);
+    // (the blue of the sky is scattered mostly below the cirrus, in front of it: the sheet only dims the
+    // part beyond it, about a fifth, and the sun's direct beam)
+    vec3 skyCol = skyRadiance(d) * mix(1.0, ci.a, 0.2) + sunPart * cl.a * cl.a * ci.a + ci.rgb;
     // rain and mist lie in front of the clouds only up to the clouds' distance (single scattering:
     // fog(x, s) = x T(s) + Lf (1 - T(s)), so cloud light and sky light are fogged separately)
     float cmd = max(texture(uCloudDepth, vUv).r * 1000.0, 1.0);

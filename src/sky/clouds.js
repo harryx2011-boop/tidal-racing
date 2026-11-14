@@ -5,6 +5,8 @@
 import { Program, Texture, Target, fullscreen, FULLSCREEN_VS } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from './atmosphere.js';
 
+const smoothstep = (a, b, x) => { const t = Math.min(Math.max((x - a) / (b - a), 0), 1); return t * t * (3 - 2 * t); };
+
 const NOISE_COMMON = `
 vec3 hash33(vec3 p3) {
   p3 = fract(p3 * vec3(0.1031, 0.1030, 0.0973));
@@ -165,6 +167,10 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   if (h > top) return 0.0;
   float hf = (h - base) / (top - base);
   float cov = R.x, dark = R.y;
+  // (a calm sky still holds a scatter of cumulus humilis: the thin end of the coverage ramp is lifted)
+  cov += 0.07 * (1.0 - smoothstep(0.2, 0.45, cov)) * smoothstep(0.02, 0.1, cov) * (1.0 - dark);
+  // broken stratocumulus: a closed-ish but thin, flat-topped layer with gaps, between fair weather and a storm deck
+  float strat = smoothstep(0.55, 0.8, cov) * (1.0 - smoothstep(0.5, 0.75, dark));
   vec2 wuv = (p.xz + uWindOffset.xz) / 30000.0;
   vec4 wm = textureLod(uWeather, wuv, lodFor(30000.0 / 512.0));
   float c = smoothstep(1.0 - cov - 0.18, 1.0 - cov + 0.2, wm.r * 0.85 + wm.b * 0.25 * cov);
@@ -176,7 +182,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   vec4 n = textureLod(uShape, (p + wo) / 3000.0, uShapeLod < 0.0 ? lodFor(3000.0 / 128.0) : uShapeLod);
   if (dark < 0.85) {
     vec4 nc = textureLod(uShape, (p + wo) / 1400.0 + 0.37, uShapeLod < 0.0 ? lodFor(1400.0 / 128.0) : uShapeLod);
-    n = mix(nc, n, smoothstep(0.15, 0.85, dark));
+    n = mix(nc, n, max(smoothstep(0.15, 0.85, dark), 0.7 * strat));
   }
   float wf = n.g * 0.625 + n.b * 0.25 + n.a * 0.125;
   // vertical profile. Fair weather: cumulus towers with type-dependent tops.
@@ -184,16 +190,24 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // which is what gives an overcast its mottled light and dark patches.
   // storm decks: a rolling, lumpy base
   float baseFrac = mix(0.0, ((wf - 0.45) * 400.0 + 60.0) / max(top - base, 100.0), dark);
-  float topCu = mix(0.45, 1.0, wm.g);
+  // (cumulus grow taller and larger as the coverage rises: humilis, mediocris, congestus)
+  float topCu = mix(0.45, 1.0, wm.g) * mix(0.62, 1.0, smoothstep(0.1, 0.5, cov));
   float cells = uFront.w > 0.0 ? smoothstep(0.35, 0.75, wm.b * 0.6 + sin(dot(p.xz, vec2(-uFront.y, uFront.x)) / 5200.0) * 0.25 + 0.3) : 0.0;
   float topSt = mix(0.18, 1.0, clamp(wm.b * 0.9 + n.r * 0.7 - 0.3 + cells * 0.6, 0.0, 1.0));
   // the anvil itself: a flat, smooth spreading layer near the top of the storm
   topSt = max(topSt, step(0.86, hf) * dark);
   // cumulus tops dome over the core of the coverage cell instead of a flat slab
   float tf = mix(topCu * mix(0.55, 1.0, smoothstep(0.0, 0.85, c)), topSt, dark);
+  // stratocumulus: a layer a fraction of the shell thick, with a rolling base
+  tf = min(tf, mix(1.0, 0.3 + 0.1 * n.r, strat));
+  baseFrac += strat * (wf - 0.5) * 0.06;
+  // cauliflower tops: the ceiling follows the Worley cells of the shape noise (a lobe per ~750 m
+  // cell) and falls away over a short distance, so the top is a row of turrets, not a soft dome
+  float lobe = mix(0.78 + 0.42 * smoothstep(0.35, 0.85, n.g), 1.0, max(dark, strat));
+  float topW = mix(0.28, 0.45, max(dark, strat));
   // per-cloud base height (flat bases that differ from cloud to cloud)
   baseFrac += (wm.g - 0.5) * 0.05 * (1.0 - dark);
-  float hg = smoothstep(baseFrac, baseFrac + mix(110.0, 140.0, dark) / max(top - base, 100.0), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
+  float hg = smoothstep(baseFrac, baseFrac + mix(110.0, 140.0, dark) / max(top - base, 100.0), hf) * (1.0 - smoothstep(tf * lobe * (1.0 - topW), tf * lobe, hf));
   bool anvilSlab = dark > 0.5 && hf > 0.8;
   if (anvilSlab) hg = smoothstep(baseFrac, baseFrac + 0.05, hf) * (1.0 - smoothstep(0.95, 1.0, hf));
   float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
@@ -211,10 +225,13 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     vec3 dn = textureLod(uDetail, dp, lodFor(420.0 / 32.0)).rgb;
     float df = dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125;
     // a finer octave (~140 m) for cauliflower lobes
-    vec3 dn2 = textureLod(uDetail, dp * 3.0 + 0.41, lodFor(140.0 / 32.0)).rgb;
-    // (only where it is resolved, and not on closed decks: no sub-pixel speckle, no cotton balls)
+    // (only where it is resolved, and not on closed decks: no sub-pixel speckle, no cotton balls;
+    // where it is not wanted the tap is skipped, which pays for the extra reach of the first one)
     float w2 = 0.3 * (1.0 - smoothstep(1.0, 2.0, lodFor(140.0 / 32.0))) * (1.0 - smoothstep(0.88, 0.97, cov));
-    df = mix(df, dn2.r * 0.625 + dn2.g * 0.25 + dn2.b * 0.125, w2);
+    if (w2 > 0.0) {
+      vec3 dn2 = textureLod(uDetail, dp * 3.0 + 0.41, lodFor(140.0 / 32.0)).rgb;
+      df = mix(df, dn2.r * 0.625 + dn2.g * 0.25 + dn2.b * 0.125, w2);
+    }
     // wispy at the base, billowy towards the tops
     // fair-weather cumulus are billowy everywhere; decks wispy at the base
     float dm = mix(1.0 - df, mix(df, 1.0 - df, clamp(hf * 5.0, 0.0, 1.0)), dark);
@@ -222,7 +239,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     // (a fair-weather base is flat: the detail erodes it only a little)
     thr *= mix(mix(0.35, 1.0, smoothstep(0.02, 0.12, hf)), 1.0, dark);
     thr *= mix(1.0, 0.7, smoothstep(0.6, 0.9, dark));
-    d = clamp(remapc(d, thr, thr + (1.0 - thr) * mix(0.25, 0.5, dark), 0.0, 1.0), 0.0, 1.0);
+    d = clamp(remapc(d, thr, thr + (1.0 - thr) * mix(0.16, 0.5, dark), 0.0, 1.0), 0.0, 1.0);
   }
   // a storm deck seen from below is mottled because its optical thickness varies 2-3x over a few km
   // (the base radiance goes ~1/tau): thicker, darker masses beside thinner, brighter patches
@@ -359,7 +376,9 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // scud sits under the deck: sunlight must cross the whole layer above it
       if (scud) tau += R.z * (top - base) * 0.8 / max(uSunDir.y, 0.1);
       float msK = 1.0 - exp(-(tau + sigma * 30.0));
-      float ms = ph0 * exp(-tau) + msK * (0.7 * ph1 * exp(-0.5 * tau) + 0.49 * ph2 * exp(-0.25 * tau) + 0.343 * ph3 * exp(-0.125 * tau));
+      // silver lining: thin cloud toward the sun passes the forward diffraction lobe almost unattenuated
+      float silver = 1.0 + 1.6 * exp(-1.5 * tau) * smoothstep(0.8, 0.99, cosT) * (1.0 - R.y);
+      float ms = silver * ph0 * exp(-tau) + msK * (0.7 * ph1 * exp(-0.5 * tau) + 0.49 * ph2 * exp(-0.25 * tau) + 0.343 * ph3 * exp(-0.125 * tau));
       // powder: in-scattering probability is low at cloud edges facing the light
       float powder = 1.0 - exp(-2.0 * tau - sigma * 80.0);
       // optical depth of the column above: diffuse light filtering down through the deck
@@ -395,7 +414,8 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // diffused deck light mixes sun and blue skylight: neutral-cool (~6500 K) at the sun's luminance
       vec3 diffCol = dot(sunE, vec3(0.2126, 0.7152, 0.0722)) * vec3(0.93, 1.0, 1.09);
       vec3 sun = sunE * ms * mix(1.0, powder, 0.25 * (1.0 - max(cosT, 0.0))) + diffCol * diffuse;
-      vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 0.6;
+      // (the shaded underside of a fair-weather cumulus sees little of the sky: darker bases, a lit crown)
+      vec3 amb = ambTop * diffUp * mix(mix(0.32, 0.6, R.y), 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 0.6;
       // the face toward the camera reflects the sky/sea light behind the camera where the column
       // above no longer lets skylight through
       // (a storm face: its shadowed sides fall to ~30% of the sunlit side)
@@ -446,6 +466,30 @@ uniform int uLightDetail;
 uniform int uCheck;   // 1: raymarch one pixel of every 2x2 block per frame, reproject the rest
 uniform vec3 uPrevWindOffset;
 float jhash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
+// History fetch. A bilinear fetch blurs a little every time it is repeated, and a moving camera repeats
+// it every frame (and for three pixels in four every frame of a checkerboard): the clouds melt into
+// mush. Catmull-Rom (five taps, the corner weights dropped) keeps the resampling loss near zero; the
+// result is clamped to the four nearest texels so an edge cannot ring or grow a halo.
+vec4 histCR(vec2 uv) {
+  vec2 size = vec2(textureSize(uHistory, 0));
+  vec2 sp = uv * size - 0.5;
+  vec2 tp = floor(sp) + 0.5;
+  vec2 f = sp - floor(sp);
+  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+  vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+  vec2 w3 = f * f * (-0.5 + 0.5 * f);
+  vec2 w12 = w1 + w2;
+  vec2 t0 = (tp - 1.0) / size, t3 = (tp + 2.0) / size, t12 = (tp + w2 / w12) / size;
+  vec4 r = texture(uHistory, vec2(t12.x, t0.y)) * (w12.x * w0.y)
+    + texture(uHistory, vec2(t0.x, t12.y)) * (w0.x * w12.y) + texture(uHistory, t12) * (w12.x * w12.y) + texture(uHistory, vec2(t3.x, t12.y)) * (w3.x * w12.y)
+    + texture(uHistory, vec2(t12.x, t3.y)) * (w12.x * w3.y);
+  r /= w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+  ivec2 ip = ivec2(floor(sp)), mx = ivec2(size) - 1;
+  vec4 a = texelFetch(uHistory, clamp(ip, ivec2(0), mx), 0), b = texelFetch(uHistory, clamp(ip + ivec2(1, 0), ivec2(0), mx), 0);
+  vec4 c = texelFetch(uHistory, clamp(ip + ivec2(0, 1), ivec2(0), mx), 0), d = texelFetch(uHistory, clamp(ip + ivec2(1, 1), ivec2(0), mx), 0);
+  return clamp(r, min(min(a, b), min(c, d)), max(max(a, b), max(c, d)));
+}
 void main() {
   vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
   vec4 w = uInvViewProj * ndc;
@@ -455,7 +499,7 @@ void main() {
   vec2 puv = prevClip.xy / prevClip.w * 0.5 + 0.5;
   vec2 bord = 1.0 / vec2(textureSize(uHistory, 0));
   bool valid = prevClip.w > 0.0 && all(greaterThanEqual(puv, bord)) && all(lessThanEqual(puv, 1.0 - bord)) && uBlend < 1.0;
-  vec4 hist = valid ? texture(uHistory, puv) : vec4(0.0);
+  vec4 hist = valid ? histCR(puv) : vec4(0.0);
   float histD = valid ? texture(uHistoryD, puv).r : 0.0;
   ivec2 ip = ivec2(gl_FragCoord.xy);
   int slot = (ip.x & 1) + 2 * (ip.y & 1);
@@ -464,7 +508,7 @@ void main() {
   // spatial pattern: a low-discrepancy pattern in space, IGN, leaves a crosshatch no photograph has)
   float j = fract(jhash(vec3(gl_FragCoord.xy, 17.0)) + uFrame * 0.618034);
   float hKm = max(uBase, 0.0) * 0.001;
-  vec3 sunE = sunTransmittanceAt(hKm + 0.5, uSunDir.y);
+  vec3 sunE = sunTransmittanceAt(hKm + 0.5, uSunDir.y) * mix(vec3(1.0), vec3(1.0, 0.84, 0.64), smoothstep(0.32, 0.06, uSunDir.y));
   vec3 zen = skyRadiance(vec3(0.0, 1.0, 0.0));
   vec3 hor = skyRadiance(normalize(vec3(uSunDir.z, 0.15, -uSunDir.x)));
   vec3 ambTop = (zen * 0.55 + hor * 0.45) * uAmbTop;
@@ -494,7 +538,7 @@ void main() {
     vec4 pc = uPrevViewProj * vec4(X, 1.0);
     vec2 pu = pc.xy / pc.w * 0.5 + 0.5;
     valid = pc.w > 0.0 && all(greaterThanEqual(pu, bord)) && all(lessThanEqual(pu, 1.0 - bord));
-    if (valid) { hist = texture(uHistory, pu); histD = texture(uHistoryD, pu).r; }
+    if (valid) { hist = histCR(pu); histD = texture(uHistoryD, pu).r; }
   }
   // temporal accumulation (a checkerboarded pixel is refreshed every 4th frame: blend harder)
   float dk = md * 0.001;
@@ -502,6 +546,12 @@ void main() {
     float bl = uCheck == 1 ? min(uBlend * 2.5, 1.0) : uBlend;
     // (a non-finite history texel would persist and spread through the bilinear reprojection)
     if (any(isnan(hist)) || any(isinf(hist)) || !(abs(hist.r) + abs(hist.g) + abs(hist.b) + abs(hist.a) < 1e5) || !(abs(histD) < 1e6)) { hist = c; histD = dk; }
+    // history rejection: where the fresh sample disagrees with the history about how much sky is
+    // covered, the history is stale (a newly uncovered edge, a turret that grew), so it is dropped
+    // quickly; while the view turns (the history was resampled by whole pixels) it is refreshed faster
+    float mv = length((puv - vUv) * vec2(textureSize(uHistory, 0)));
+    bl = max(bl, smoothstep(0.12, 0.4, abs(hist.a - c.a)) * 0.75);
+    bl = max(bl, 0.3 * smoothstep(2.0, 10.0, mv));
     c = mix(hist, c, bl);
     dk = mix(histD, dk, bl);
   }
@@ -527,7 +577,7 @@ void main() {
   // jitter: a golden-ratio sequence in time from a random offset per pixel (stratified in time, no
   // spatial pattern: a low-discrepancy pattern in space, IGN, leaves a crosshatch no photograph has)
   float j = fract(jhash(vec3(gl_FragCoord.xy, 17.0)) + uFrame * 0.618034);
-  vec3 sunE = sunTransmittanceAt(uBase * 0.001 + 0.5, uSunDir.y);
+  vec3 sunE = sunTransmittanceAt(uBase * 0.001 + 0.5, uSunDir.y) * mix(vec3(1.0), vec3(1.0, 0.84, 0.64), smoothstep(0.32, 0.06, uSunDir.y));
   vec3 zen = skyRadiance(vec3(0.0, 1.0, 0.0));
   vec3 hor = skyRadiance(normalize(vec3(uSunDir.z, 0.15, -uSunDir.x)));
   vec3 ambTop = (zen * 0.55 + hor * 0.45) * uAmbTop;
@@ -632,6 +682,12 @@ export class Clouds {
     const gl = this.gl;
     this.frame++;
     const cu = this.uniforms(u);
+    // the cirrus sheet is drawn by the sky pass (full resolution, no history): hand it its inputs
+    // through the sky uniform set, which the caller spreads into that pass
+    const cirrus = (1 - smoothstep(0.55, 0.95, u.coverage)) * (1 - smoothstep(0.3, 0.7, u.dark)) * (0.55 + 0.45 * smoothstep(0.1, 0.5, u.coverage));
+    skyU.uCirrus = [u.windOffset[0] * 2.2, u.windOffset[2] * 2.2, cirrus, 8500];
+    skyU.uCirrusShape = this.shape;
+    skyU.uCirrusWeather = this.weatherMap;
     // cloud shadow map centred on the camera, snapped to texels to avoid crawling
     const texel = this.shadowSize / 256;
     const ox = Math.floor((cam.pos[0] - this.shadowSize / 2) / texel) * texel;
