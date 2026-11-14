@@ -274,7 +274,7 @@ void main() {
   } else if (mid == 3) {
     // upholstery: matte, with piped panel seams and a soft quilted puff between them
     vec2 uv2 = abs(On.y) > 0.55 ? vObj.xz : (abs(On.z) > abs(On.x) ? vObj.xy : vObj.zy);
-    const vec2 P = vec2(0.34, 0.26);
+    const vec2 P = vec2(0.44, 0.36);
     vec2 f = fract(uv2 / P);
     vec2 dd = min(f, 1.0 - f) * P;
     float aa = max(pf * 1.2, 0.002);
@@ -282,7 +282,8 @@ void main() {
     float puff = smoothstep(0.0, 0.07, dd.x) * smoothstep(0.0, 0.07, dd.y);
     float fg = fadeOut(pf, 140.0);
     float grain = vnoise(vObj * 140.0) * fg + 0.5 * (1.0 - fg);
-    albedo *= (0.84 + 0.16 * puff) * (0.94 + 0.12 * grain) * mix(1.0, 0.7, seam);
+    // (subtle: from the chase camera heavy seams read as a grid drawn on the cushions)
+    albedo *= (0.92 + 0.08 * puff) * (0.94 + 0.12 * grain) * mix(1.0, 0.86, seam);
     ra = 0.85; sheen = 0.35;
   } else if (mid == 4) {
     // tinted glass: nearly black, a strong clean reflection

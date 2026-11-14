@@ -6,7 +6,7 @@ import { Program } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { clamp } from '../math.js';
 import { BOAT_ANCHORS } from './models/boat.js';
-import { hullHalfWidth, WK } from './wake.js';
+import { waterlineHalf, WK } from './wake.js';
 
 const MAX = 3000;          // particles per boat at full level
 const G = 9.81;
@@ -158,7 +158,8 @@ export class BoatSpray {
       pool.carry[0] += 2 * 380 * q * q * level * dt;
       for (; pool.carry[0] >= 1; pool.carry[0]--) {
         const side = rnd() < 0.5 ? -1 : 1;
-        const lx = A.bow[0] - 0.4 - rnd() * 3.0, lz = side * (hullHalfWidth(lx, A) * 0.92);
+        // (where the stem cuts the water: the forward part of the waterline, not the overhanging bow)
+        const lx = A.bow[0] - 1.2 - rnd() * 2.6, lz = side * waterlineHalf(lx);
         const [px, py, pz] = at(lx, 0.1, lz);
         const out = (1.2 + 2.6 * rnd()) * (0.6 + 0.7 * q), up = (1.8 + 3.6 * rnd()) * (0.5 + 0.6 * q);
         pool.spawn(cap, px, py, pz,

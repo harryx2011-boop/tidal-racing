@@ -20,7 +20,8 @@ uniform vec4 uBoatZ[4];
 uniform vec4 uBoatCol[4];   // rgb: accent colour, a: speed / 36
 uniform vec4 uBoatFx[4];    // x: in the water (0..1), y: throttle, z: boosting
 uniform vec4 uHull;         // transom x, bow x, half beam, gunwale height
-uniform vec4 uCockpit;      // x0, x1, half width
+uniform float uWl[12];      // half-width of the hull at the waterline, at 12 stations from the transom to uWlEnd
+uniform float uWlEnd;       // where the waterline ends forward (the stem has risen clear of the water)
 uniform vec3 uProps[3];     // propellers (boat space)
 uniform float uWaterShadow;
 uniform float uGlow;        // radiance of the underwater lights (scene units)
@@ -29,6 +30,18 @@ float hullHalf(float x) {
   if (u <= 0.0 || u >= 1.0) return 0.0;
   float tb = max(0.0, (u - 0.42) / 0.58);
   return uHull.z * pow(max(1.0 - tb * tb, 0.0), 0.8) * (0.9 + 0.1 * min(u / 0.25, 1.0));
+}
+float wlHalf(float x) {
+  float t = (x - uHull.x) / (uWlEnd - uHull.x) * 11.0;
+  if (t < 0.0 || t > 11.0) return 0.0;
+  int i = min(int(t), 10);
+  return mix(uWl[i], uWl[i + 1], t - float(i));
+}
+// Half-width of the hull's cross-section at height y: flaring from the waterline out to the sheer
+// above it, narrowing to the keel (0.42 m down) below it. A sea point inside this is inside the hull.
+float hullSection(float x, float y) {
+  float w0 = wlHalf(x);
+  return y >= 0.0 ? mix(w0, hullHalf(x), clamp(y / 0.9, 0.0, 1.0)) : w0 * clamp(1.0 + y / 0.42, 0.0, 1.0);
 }
 struct BoatFx { float hide; float act; float shadow; float ao; vec3 glow; };
 BoatFx boatFx(vec3 P, vec3 L) {
@@ -42,11 +55,13 @@ BoatFx boatFx(vec3 P, vec3 L) {
     vec3 X = uBoatX[b].xyz, Y = uBoatY[b].xyz, Z = uBoatZ[b].xyz;
     vec3 l = vec3(dot(rel, X), dot(rel, Y), dot(rel, Z));
     float spd = uBoatCol[b].a, gate = uBoatFx[b].x;
-    // metres inside the waterline outline (the chine sits at about 0.9 of the deck beam)
-    float din = min(hullHalf(l.x) * 0.9 - abs(l.z), l.x - uHull.x);
+    // metres inside the waterline outline
+    float din = min(wlHalf(l.x) - abs(l.z), l.x - uHull.x);
     float low = smoothstep(-1.0, -0.6, l.y) * (1.0 - smoothstep(0.5, 1.0, l.y));
-    bool cock = l.x > uCockpit.x && l.x < uCockpit.y && abs(l.z) < uCockpit.z;
-    if ((din > 0.0 || cock) && l.y > -0.9 && l.y < uHull.w) r.hide = 1.0;
+    // The sea is hidden only where it lies inside the hull's volume (so the open cockpit stays dry).
+    // Anything wider would cut a hole in the sea beside or beneath a hull that has lifted, and the
+    // hole shows as black. A few centimetres of margin keep the cut behind the hull's own skin.
+    if (abs(l.z) < hullSection(l.x, l.y) - 0.05 && l.x > uHull.x + 0.05 && l.y < uHull.w) r.hide = 1.0;
     float out_ = max(-din, 0.0);
     // the outline matters only alongside the hull, not ahead of the stem or behind the transom
     float xm = smoothstep(uHull.x - 0.3, uHull.x + 0.3, l.x) * (1.0 - smoothstep(uHull.y + 0.2, uHull.y + 0.8, l.x));

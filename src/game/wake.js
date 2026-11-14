@@ -30,6 +30,19 @@ export const WK = {
   REACH: 70,      // m from the path the arms are looked for
 };
 
+// The hull's half-width at the design waterline, resampled to 12 even stations from the transom to
+// where the waterline ends forward (the model's own outline: the sea shader hides the sea inside it).
+const WL = (() => {
+  const o = BOAT_ANCHORS.outline.waterline, x0 = BOAT_ANCHORS.transom[0], end = o[o.length - 1][0];
+  const at = (x) => {
+    if (x <= o[0][0]) return o[0][1];
+    for (let i = 1; i < o.length; i++) if (x <= o[i][0]) { const a = o[i - 1], b = o[i]; return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]); }
+    return 0;
+  };
+  return { end, at, half: Array.from({ length: 12 }, (_, i) => at(x0 + (end - x0) * i / 11)) };
+})();
+export const waterlineHalf = (x) => (x > WL.end ? 0 : WL.at(x));
+
 // Hull plan outline: half beam at x for a hull from the transom to the bow. Used by the sea shader
 // (hiding the sea inside the hull, the foam line, the bow wash) and by the spray emitters.
 export function hullHalfWidth(x, A = BOAT_ANCHORS) {
@@ -271,7 +284,7 @@ export class Wake {
       uWake: this.tex, uWkHead: this.head, uWkChunk: this.chunk, uWkN: n,
       uBoatN: n, uBoatPos: pos, uBoatX: X, uBoatY: Y, uBoatZ: Z, uBoatCol: col, uBoatFx: bfx,
       uHull: [A.transom[0], A.bow[0], A.halfBeam, 1.0],
-      uCockpit: [A.cockpit[0], A.cockpit[1], A.cockpit[2], 0],
+      uWl: WL.half, uWlEnd: WL.end,
       uProps: pr.flat(),
       uWaterShadow: clamp(fx.waterShadow ?? 1, 0, 1),
       uGlow: GLOW,

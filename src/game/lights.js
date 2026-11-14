@@ -65,8 +65,8 @@ export class Lights {
     this.stripY = A.helm[1] - 0.12;   // the model's LED strip runs just under the coaming
     this.points = [
       [A.navPort, RED, 0.4], [A.navStbd, GREEN, 0.4], [A.sternLight, WHITE, 0.3],
-      [[(cx0 + cx1) / 2, this.stripY, -chw + 0.05], null, 0.6], [[(cx0 + cx1) / 2, this.stripY, chw - 0.05], null, 0.6],
-      [[cx0 + 0.35, this.stripY, 0], null, 0.5],
+      [[(cx0 + cx1) / 2, this.stripY, -chw + 0.05], null, 0.3], [[(cx0 + cx1) / 2, this.stripY, chw - 0.05], null, 0.3],
+      [[cx0 + 0.35, this.stripY, 0], null, 0.25],
     ];
   }
 
