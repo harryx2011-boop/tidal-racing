@@ -33,10 +33,10 @@ const mixv = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 //    integrated GPUs; this card can afford medium's 512/256.
 //  - MSAA 4 on an rgba16f target at 1080p is about 66 MB of colour: bandwidth-bound but
 //    affordable, and it is the only anti-aliasing there is. It cannot be changed live, so it stays.
-//  - Start scale 1.0: native 1920x1080 on a 1x display. The page is never rendered above 1
-//    pixel per CSS pixel (a 2x display gets 1x), because supersampling is the first thing
-//    to give up and nobody should pay for it unasked. The governor only goes below 1, and
-//    only after the three effect levels (spray, water shadow, boat shadows) are at 0.
+//  - Start scale: the display's own pixels, capped at the pixel count of 1080p (see App). A
+//    larger or denser display is not rendered above that unasked. The governor only goes below
+//    the start scale, and only after the three effect levels (spray, water shadow, boat
+//    shadows) are at 0.
 const DEFAULT_TIER = 'medium';
 const QUALITY = {
   low: { cloudDiv: 2, detailFoot: 50, steps: 80, lightSteps: 5, lightDetail: 2, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400, upSteps: 2 },
@@ -84,7 +84,10 @@ export class App {
     // Effect levels 0..1, lowered by the frame-rate governor before resolution is touched.
     this.fx = { spray: 1, shadows: 1, waterShadow: 1 };
     this.time = Number(params.get('t') || 0);
-    this.scale = Number(params.get('scale') || Math.min(window.devicePixelRatio || 1, 1));
+    // Start at the display's own pixels, but never more of them than 1080p has: a 1080p panel at
+    // 125% display scaling still renders native, and a high-density display is not supersampled.
+    const css = Math.max(canvas.clientWidth * canvas.clientHeight, 1);
+    this.scale = Number(params.get('scale') || Math.min(window.devicePixelRatio || 1, Math.max(1, Math.sqrt(1920 * 1080 / css))));
     this.msaa = Number(params.get('msaa') || Q.msaa);
     this.resize();
     window.addEventListener('resize', () => this.resize());

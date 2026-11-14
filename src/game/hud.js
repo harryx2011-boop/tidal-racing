@@ -1,77 +1,78 @@
-// Menus and the in-race HUD (plain DOM over the canvas).
+// Menus and the in-race HUD: DOM over the canvas, drawn as pixel art. Two tones and one accent;
+// every shade between them is an ordered dither, all text is the bitmap font in pixel.js, and
+// every length is in logical pixels (1em inside #ui, a whole number of device pixels).
 import { COURSES, CONDITIONS } from './courses.js';
 import { settings, SWATCHES, STRIPES, TIERS } from './settings.js';
+import { T, dither, unit, Bitmap, PAPER, INK, ACCENT } from './pixel.js';
 
+const DITHER = 'background-size: 4em 4em; background-attachment: fixed; image-rendering: pixelated;';
 export const HUD_CSS = `
-#ui { position: fixed; inset: 0; pointer-events: none; color: #f2f6f8; font: 500 14px/1.3 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; user-select: none; text-shadow: 0 1px 3px rgba(0,0,0,.55); }
+#ui { position: fixed; inset: 0; pointer-events: none; user-select: none; line-height: 0; color: ${PAPER}; }
 #ui .hide { display: none !important; }
-#ui button { font: inherit; color: inherit; cursor: pointer; pointer-events: auto; }
-.num { font-variant-numeric: tabular-nums; font-style: italic; font-weight: 800; letter-spacing: -.01em; }
-.lbl { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; opacity: .72; font-weight: 700; }
-#tl { position: absolute; left: 28px; top: 22px; }
-#tl .time { font-size: 40px; line-height: 1; }
-#tl .row { margin-top: 6px; display: flex; gap: 18px; align-items: baseline; }
-#tl .row b { font-size: 20px; }
-#br { position: absolute; right: 30px; bottom: 26px; text-align: right; }
-#br .spd { font-size: 76px; line-height: .9; }
-#boost { width: 230px; height: 10px; margin-top: 10px; background: rgba(8,14,20,.5); border-radius: 5px; overflow: hidden; transform: skewX(-14deg); }
-#boost i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #ffb020, #ff5a1f); }
-#boost.on i { background: linear-gradient(90deg, #fff3c2, #ffd23f); }
-#big { position: absolute; left: 0; right: 0; top: 22%; text-align: center; font-size: 120px; opacity: 0; transition: opacity .25s; }
-#msg { position: absolute; left: 0; right: 0; top: 13%; text-align: center; font-size: 20px; letter-spacing: .12em; font-weight: 800; color: #ffd23f; }
+#ui button { appearance: none; -webkit-appearance: none; border: 0; margin: 0; padding: 0; background: none; font: inherit; color: inherit; cursor: pointer; pointer-events: auto; box-sizing: border-box; display: block; }
+#ui button:focus-visible, #ui input:focus-visible { outline: 1em solid ${ACCENT}; outline-offset: 1em; }
+#ui .col { display: flex; flex-direction: column; }
+#ui .wrap { position: absolute; inset: 0; display: grid; place-items: center; }
+#ui .wrap.left { justify-items: start; padding-left: 14em; }
+
+/* race HUD: outlined text straight on the picture */
+#tl { position: absolute; left: 8em; top: 7em; gap: 2em; align-items: flex-start; }
+#tl .row { display: flex; gap: 9em; margin-top: 3em; }
+#tl .row .col { gap: 1em; align-items: flex-start; }
+#br { position: absolute; right: 8em; bottom: 8em; gap: 2em; align-items: flex-end; }
+#boost { display: flex; gap: 1em; padding: 1em; background: ${INK}; border: 1em solid ${PAPER}; margin-top: 2em; }
+#boost i { width: 5em; height: 5em; background-image: var(--dp4); ${DITHER} }
+#boost i.on { background: ${ACCENT}; }
+#boost.on i.on { background: ${PAPER}; }
+#big { position: absolute; left: 0; right: 0; top: 64em; display: grid; place-items: center; }
+#msg { position: absolute; left: 0; right: 0; top: 40em; display: grid; place-items: center; }
 #mark { position: absolute; left: 0; top: 0; width: 0; height: 0; }
-#mark div { position: absolute; transform: translate(-50%, -100%); text-align: center; white-space: nowrap; }
-#mark .arrow { width: 0; height: 0; margin: 0 auto 2px; border: 9px solid transparent; border-top-color: #ffd23f; border-bottom: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
-#map { position: absolute; left: 24px; bottom: 22px; width: 190px; height: 190px; opacity: .92; }
-#keys { position: absolute; left: 0; right: 0; bottom: 14px; text-align: center; font-size: 12px; opacity: .6; }
-.panel { position: absolute; pointer-events: auto; background: rgba(8,14,20,.62); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.12); border-radius: 14px; padding: 26px 28px; text-shadow: none; }
-#menu { left: 44px; top: 50%; transform: translateY(-50%); width: 400px; max-height: 92vh; overflow: auto; box-sizing: border-box; }
-#menu h1 { margin: 0; font-size: 44px; font-style: italic; font-weight: 900; letter-spacing: -.02em; line-height: .95; }
-#menu h1 span { color: #ff8a2a; }
-#menu p.tag { margin: 6px 0 20px; opacity: .7; }
-.opts { display: grid; gap: 8px; margin: 8px 0 18px; }
-.opts.row { grid-template-columns: repeat(5, 1fr); }
-.opt { text-align: left; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 9px; padding: 10px 12px; }
-.opt:hover { background: rgba(255,255,255,.12); }
-.opt.sel { border-color: #ff8a2a; background: rgba(255,138,42,.18); }
-.opt b { display: block; font-size: 15px; }
-.opt small { opacity: .68; }
-.opts.row .opt { text-align: center; padding: 8px 2px; font-size: 13px; }
-.go { width: 100%; padding: 14px; border: 0; border-radius: 10px; background: #ff8a2a; color: #14100a !important; font-size: 17px !important; font-weight: 900 !important; font-style: italic; letter-spacing: .04em; }
-.go:hover { background: #ffa24f; }
-.ghost { width: 100%; margin-top: 8px; padding: 11px; border-radius: 10px; background: transparent; border: 1px solid rgba(255,255,255,.22); font-weight: 700 !important; }
-.ghost:hover { background: rgba(255,255,255,.1); }
-.help { margin-top: 16px; font-size: 12px; opacity: .68; line-height: 1.6; }
-.help kbd { font: inherit; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: rgba(255,255,255,.14); }
-#best { margin: -8px 0 16px; font-size: 13px; opacity: .85; }
-.centre { left: 50%; top: 50%; transform: translate(-50%, -50%); width: 340px; text-align: center; }
-.centre h2 { margin: 0 0 4px; font-size: 30px; font-style: italic; font-weight: 900; }
-.centre .t { font-size: 56px; line-height: 1.05; }
-.centre .laps { margin: 10px 0 18px; opacity: .8; font-variant-numeric: tabular-nums; }
-.nb { color: #ffd23f; font-weight: 800; letter-spacing: .1em; }
-#ui input { pointer-events: auto; }
-#settings { width: 470px; max-height: 94vh; overflow: auto; box-sizing: border-box; text-align: left; padding: 14px 24px 12px; }
-#settings h2 { margin: 0 0 2px; font-size: 28px; font-style: italic; font-weight: 900; }
-#settings .sec { margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.1); }
-#settings .sec:first-of-type { border-top: 0; margin-top: 0; }
-#settings .srow { display: flex; align-items: center; gap: 10px; margin: 4px 0; min-height: 26px; }
-#settings .srow .nm { flex: 0 0 112px; font-size: 13px; opacity: .9; }
-#settings .srow .val { flex: 0 0 38px; text-align: right; font-size: 12px; opacity: .75; font-variant-numeric: tabular-nums; }
-#settings .seg { display: flex; gap: 6px; flex: 1; }
-#settings .seg .opt { flex: 1; text-align: center; padding: 5px 4px; font-size: 13px; }
-#settings .note { font-size: 11.5px; opacity: .72; line-height: 1.4; margin: 3px 0 0; }
-#settings .note button { padding: 2px 9px; border-radius: 6px; background: #ff8a2a; color: #14100a; border: 0; font-weight: 800; margin-left: 6px; }
-#settings input[type=range] { flex: 1; min-width: 0; accent-color: #ff8a2a; margin: 0; }
-#settings input[type=range]:disabled { opacity: .4; }
-#settings .sw { display: flex; gap: 7px; flex: 1; }
-#settings .sw button { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); padding: 0; }
-#settings .sw button.sel { border-color: #fff; box-shadow: 0 0 0 2px #14100a, 0 0 0 4px #ff8a2a; }
-#settings .num-in { width: 54px; padding: 5px 6px; text-align: center; font: inherit; font-weight: 800; color: inherit; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.22); border-radius: 7px; }
-#settings .step { width: 30px; padding: 4px 0; border-radius: 7px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.22); font-weight: 800; }
-#settings .step:hover { background: rgba(255,255,255,.18); }
-#settings button:focus-visible, #settings input:focus-visible { outline: 2px solid #ffd23f; outline-offset: 2px; }
-@media (max-height: 820px) { #menu { padding: 16px 20px; width: 360px; } #menu h1 { font-size: 30px; } #menu h1 br { display: none; } #menu p.tag { margin: 2px 0 10px; } .opts { gap: 5px; margin: 5px 0 10px; } .opt { padding: 6px 10px; } #best { margin: -4px 0 10px; font-size: 12px; } .go { padding: 10px; } .help { margin-top: 10px; font-size: 11px; line-height: 1.45; } }
-@media (max-height: 600px) { .help { display: none; } }
+#mark .col { position: absolute; transform: translate(-50%, -100%); align-items: center; gap: 1em; }
+#map { position: absolute; left: 8em; bottom: 8em; width: 66em; height: 66em; border: 1em solid ${PAPER}; outline: 1em solid ${INK}; background-image: var(--dk10); ${DITHER} }
+#keys { position: absolute; left: 0; right: 0; bottom: 5em; display: grid; place-items: center; }
+
+/* plates: dithered ink you can still see the sea through, hard double border, dithered drop shadow */
+.plate { position: relative; pointer-events: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 4em; padding: 8em 9em; border: 1em solid ${PAPER}; outline: 1em solid ${INK}; background-image: var(--dk14); ${DITHER} }
+.plate::before, .plate::after { content: ''; position: absolute; background-image: var(--dk8); ${DITHER} }
+.plate::before { left: calc(100% + 2em); top: 3em; bottom: -5em; width: 4em; }
+.plate::after { top: calc(100% + 2em); left: 3em; right: -2em; height: 4em; }
+.lbl { margin-top: 3em; }
+.btn { background: ${INK}; border: 1em solid ${PAPER}; padding: 3em 4em; display: grid !important; place-items: center; }
+.btn:hover { background-image: var(--dp5); ${DITHER} }
+.btn.sel { background: ${PAPER}; }
+.btn.sel px-t { filter: invert(1); }
+.btn.left { place-items: start; gap: 2em; padding: 4em 5em; }
+.go { background: ${ACCENT}; border: 1em solid ${INK}; outline: 1em solid ${PAPER}; padding: 5em 4em; margin: 2em 1em; display: grid !important; place-items: center; }
+.go:hover { background: ${PAPER}; }
+.go:active { background-image: var(--dp8); ${DITHER} }
+.seg { display: flex; gap: 2em; flex: 1; }
+.seg .btn { flex: 1; padding: 2em 1em; }
+#menu { width: 172em; }
+#menu .title { display: flex; flex-direction: column; gap: 3em; align-items: flex-start; margin-bottom: 1em; }
+#courses { gap: 2em; }
+.centre { align-items: stretch; text-align: center; min-width: 120em; }
+.centre > px-t { align-self: center; }
+#results { min-width: 150em; }
+
+/* settings */
+#settings { width: 252em; gap: 2em; padding: 7em 9em; }
+#settings .sec { display: flex; flex-direction: column; gap: 2em; padding-top: 4em; margin-top: 2em; border-top: 1em solid ${PAPER}; }
+#settings .srow { display: flex; align-items: center; gap: 4em; min-height: 11em; }
+#settings .nm { flex: 0 0 64em; }
+#settings .val { flex: 0 0 22em; display: flex; justify-content: flex-end; }
+#settings .sw { display: flex; gap: 4em; flex: 1; }
+#settings .sw button { width: 12em; height: 12em; border: 1em solid ${INK}; outline: 1em solid ${PAPER}; }
+#settings .sw button.sel { outline: 2em solid ${ACCENT}; }
+#settings .step { width: 15em; padding: 2em 0; }
+#settings .numv { flex: 0 0 30em; display: grid; place-items: center; }
+#ui input[type=range] { -webkit-appearance: none; appearance: none; flex: 1; min-width: 0; height: 11em; margin: 0; padding: 0; background: transparent; font: inherit; cursor: pointer; pointer-events: auto; }
+#ui input[type=range]::-webkit-slider-runnable-track { height: 3em; border: 1em solid ${PAPER}; background-image: var(--dp5); ${DITHER} }
+#ui input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 5em; height: 9em; margin-top: -4em; border: 1em solid ${INK}; border-radius: 0; background: ${PAPER}; box-shadow: 0 0 0 1em ${PAPER}; }
+#ui input[type=range]::-moz-range-track { height: 3em; border: 1em solid ${PAPER}; background-image: var(--dp5); ${DITHER} }
+#ui input[type=range]::-moz-range-thumb { width: 3em; height: 7em; border: 1em solid ${INK}; border-radius: 0; background: ${PAPER}; }
+#ui input[type=range]:disabled { cursor: default; }
+#ui input[type=range]:disabled::-webkit-slider-thumb { background-image: var(--dp8); ${DITHER} box-shadow: none; }
+#ui input[type=range]:disabled::-moz-range-thumb { background-image: var(--dp8); ${DITHER} }
 `;
 
 export const fmt = (t) => {
@@ -80,60 +81,75 @@ export const fmt = (t) => {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 };
 
+const BOOST_CELLS = 12, MAP = 64;
+
 export class HUD {
   constructor(game) {
     this.game = game;
     this.sel = { course: COURSES[0].id, cond: 'random' };
     const root = (this.root = document.createElement('div'));
     root.id = 'ui';
+    // dither patterns: ink over the picture (k), paper over ink (p); the number is how many of 16 pixels are set
+    for (const n of [8, 10, 14]) root.style.setProperty(`--dk${n}`, dither(n, INK));
+    for (const n of [4, 5, 8]) root.style.setProperty(`--dp${n}`, dither(n, PAPER, INK));
+    const fit = () => { this.u = unit(); root.style.fontSize = `${this.u}px`; };
+    fit();
+    window.addEventListener('resize', fit);
     const conds = [['random', 'Random'], ...Object.entries(CONDITIONS).map(([k, v]) => [k, v.name])];
+    const stat = (label, id) => `<div class="col">${T(label, 'f=t o')}<px-t id="${id}" o></px-t></div>`;
+    const row = (name, body, title = '') => `<div class="srow"><span class="nm"${title ? ` title="${title}"` : ''}>${T(name, 'f=t')}</span>${body}</div>`;
+    const onoff = (key) => `<div class="seg"><button class="btn" data-${key}="1">${T('On', 'f=t')}</button><button class="btn" data-${key}="0">${T('Off', 'f=t')}</button></div>`;
     root.innerHTML = `
       <div id="race" class="hide">
-        <div id="tl"><div class="lbl">Time</div><div class="time num" id="time">0:00.00</div>
-          <div class="row"><span><span class="lbl">Lap</span> <b class="num" id="lap">1/3</b></span><span><span class="lbl">Gate</span> <b class="num" id="gate">0/0</b></span><span><span class="lbl">Best</span> <b class="num" id="pb">--</b></span></div></div>
-        <div id="msg"></div>
-        <div id="big" class="num"></div>
-        <div id="mark"><div><div class="arrow"></div><span class="num" id="dist"></span></div></div>
-        <canvas id="map" width="380" height="380"></canvas>
-        <div id="br"><div class="spd num" id="spd">0</div><div class="lbl">knots</div><div id="boost"><i></i></div><div class="lbl" style="margin-top:5px">Boost</div></div>
-        <div id="keys">W/S throttle · A/D steer · Shift boost · C camera · R reset to last gate · Esc pause</div>
+        <div id="tl" class="col">${T('Time', 'f=t o')}<px-t id="time" s="2" o>0:00.00</px-t>
+          <div class="row">${stat('Lap', 'lap')}${stat('Gate', 'gate')}${stat('Best', 'pb')}</div></div>
+        <div id="msg"><px-t id="msgt" c="accent" o></px-t></div>
+        <div id="big"><px-t id="bigt" s="8" o></px-t></div>
+        <div id="mark"><div class="col">${T('▼', 'c=accent o')}<px-t id="dist" f="t" o></px-t></div></div>
+        <canvas id="map"></canvas>
+        <div id="br" class="col"><px-t id="spd" s="4" o>0</px-t>${T('Knots', 'f=t o')}<div id="boost">${'<i></i>'.repeat(BOOST_CELLS)}</div>${T('Boost', 'f=t o')}</div>
+        <div id="keys">${T('W/S throttle · A/D steer · Shift boost · C camera · R reset · Esc pause', 'f=t o')}</div>
       </div>
-      <div id="menu" class="panel">
-        <h1>TIDAL<br><span>RACING</span></h1>
-        <p class="tag">Powerboats on a living sea. Time trial.</p>
-        <div class="lbl">Course</div>
-        <div class="opts" id="courses">${COURSES.map((c) => `<button class="opt" data-course="${c.id}"><b>${c.name}</b><small>${c.blurb}</small></button>`).join('')}</div>
-        <div class="lbl">Conditions</div>
-        <div class="opts row" id="conds">${conds.map(([k, n]) => `<button class="opt" data-cond="${k}">${n}</button>`).join('')}</div>
-        <div id="best"></div>
-        <button class="go" id="start">START</button>
-        <button class="ghost" id="settings-btn">Settings</button>
-        <div class="help"><kbd>W</kbd><kbd>S</kbd> throttle · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Shift</kbd> boost<br><kbd>C</kbd> camera · <kbd>R</kbd> reset · <kbd>Esc</kbd> pause · <kbd>M</kbd> sound<br>Gamepad: triggers, left stick, A to boost.<br>Airtime off wave crests fills your boost.</div>
-      </div>
-      <div id="pause" class="panel centre hide"><h2>PAUSED</h2><button class="go" id="resume">RESUME</button><button class="ghost" id="pause-settings">Settings</button><button class="ghost" id="restart">Restart</button><button class="ghost" id="quit">Quit to menu</button></div>
-      <div id="settings" class="panel centre hide" role="dialog" aria-label="Settings">
-        <h2>SETTINGS</h2>
-        <div class="sec"><div class="lbl">Graphics quality</div>
-          <div class="srow"><div class="seg" id="set-q">${TIERS.map((t) => `<button class="opt" data-q="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
-          <div class="note" id="set-qnote"></div></div>
-        <div class="sec"><div class="lbl">Sound and effects</div>
-          <div class="srow"><span class="nm">Volume</span><input type="range" id="set-vol" min="0" max="100" step="1" aria-label="Master volume"><span class="val" id="set-volv"></span><button class="opt" id="set-mute" style="padding:5px 10px">Mute</button></div>
-          <div class="srow"><span class="nm" title="Camera shake and edge blur that grow with speed and boost">Speed effects</span><div class="seg"><button class="opt" data-sfx="1">On</button><button class="opt" data-sfx="0">Off</button></div></div></div>
-        <div class="sec"><div class="lbl">Performance</div>
-          <div class="srow"><span class="nm">Automatic</span><div class="seg"><button class="opt" data-auto="1">On</button><button class="opt" data-auto="0">Off</button></div></div>
-          <div class="note" id="set-anote"></div>
-          ${[['spray', 'Spray'], ['waterShadow', 'Water shadow'], ['shadows', 'Boat shadows']].map(([k, n]) => `<div class="srow"><span class="nm">${n}</span><input type="range" data-fx="${k}" min="0" max="100" step="5" aria-label="${n} level"><span class="val" data-fxv="${k}"></span></div>`).join('')}</div>
-        <div class="sec"><div class="lbl">Livery</div>
-          <div class="srow"><span class="nm">Colour</span><div class="sw" id="set-sw">${SWATCHES.map((c, i) => `<button data-sw="${i}" title="${c.name}" aria-label="${c.name}" style="background:#${c.hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div></div>
-          <div class="srow"><span class="nm">Stripe</span><div class="seg" id="set-stripe">${STRIPES.map((n, i) => `<button class="opt" data-stripe="${i}" title="${n}">${i === 0 ? 'None' : i}</button>`).join('')}</div></div>
-          <div class="srow"><span class="nm">Race number</span><button class="step" id="set-nm" aria-label="Number down">&minus;</button><input class="num-in num" id="set-num" type="number" min="0" max="99" step="1" aria-label="Race number"><button class="step" id="set-np" aria-label="Number up">+</button></div></div>
-        <button class="go" id="set-back" style="margin-top:8px;padding:9px">DONE</button>
-      </div>
-      <div id="results" class="panel centre hide"><h2 id="rtitle">FINISH</h2><div class="t num" id="rtime"></div><div id="rbest"></div><div class="laps" id="rlaps"></div><button class="go" id="again">RACE AGAIN</button><button class="ghost" id="rquit">Menu</button></div>`;
+      <div class="wrap left"><div id="menu" class="plate">
+        <div class="title">${T('Tidal', 's=3')}${T('Racing', 's=3 c=accent')}</div>
+        ${T('Powerboats on a living sea · Time trial', 'f=t')}
+        <div class="lbl">${T('Course', 'f=t c=accent')}</div>
+        <div class="col" id="courses">${COURSES.map((c) => `<button class="btn left" data-course="${c.id}">${T(c.name)}${T(c.blurb, 'f=t')}</button>`).join('')}</div>
+        <div class="lbl">${T('Conditions', 'f=t c=accent')}</div>
+        <div class="seg" id="conds">${conds.map(([k, n]) => `<button class="btn" data-cond="${k}">${T(n, 'f=t')}</button>`).join('')}</div>
+        <px-t id="best" f="t" w="152"></px-t>
+        <button class="go" id="start">${T('Start', 's=2 c=ink')}</button>
+        <button class="btn" id="settings-btn">${T('Settings')}</button>
+        <div class="lbl">${T('W/S throttle · A/D steer · Shift boost\nC camera · R reset · Esc pause · M sound\nGamepad: triggers, left stick, A boost\nAirtime off wave crests fills your boost', 'f=t')}</div>
+      </div></div>
+      <div class="wrap">
+        <div id="pause" class="plate centre hide">${T('Paused', 's=2')}<button class="go" id="resume">${T('Resume', 'c=ink')}</button><button class="btn" id="pause-settings">${T('Settings')}</button><button class="btn" id="restart">${T('Restart')}</button><button class="btn" id="quit">${T('Quit to menu')}</button></div>
+        <div id="settings" class="plate hide" role="dialog" aria-label="Settings">
+          ${T('Settings', 's=2')}
+          <div class="sec">${T('Graphics quality', 'f=t c=accent')}
+            <div class="srow"><div class="seg" id="set-q">${TIERS.map((t) => `<button class="btn" data-q="${t}">${T(t)}</button>`).join('')}</div></div>
+            <div class="srow"><px-t id="set-qnote" f="t" w="176"></px-t><button class="btn hide" id="set-reload">${T('Reload now', 'f=t')}</button></div></div>
+          <div class="sec">${T('Sound and effects', 'f=t c=accent')}
+            ${row('Volume', `<input type="range" id="set-vol" min="0" max="100" step="1" aria-label="Master volume"><span class="val"><px-t id="set-volv" f="t"></px-t></span><button class="btn" id="set-mute" style="padding:2em 4em"><px-t id="set-mutet" f="t">Mute</px-t></button>`)}
+            ${row('Speed effects', onoff('sfx'), 'Camera shake and edge blur that grow with speed and boost')}</div>
+          <div class="sec">${T('Performance', 'f=t c=accent')}
+            ${row('Automatic', onoff('auto'))}
+            <px-t id="set-anote" f="t" w="232"></px-t>
+            ${[['spray', 'Spray'], ['waterShadow', 'Water shadow'], ['shadows', 'Boat shadows']].map(([k, n]) => row(n, `<input type="range" data-fx="${k}" min="0" max="100" step="5" aria-label="${n} level"><span class="val"><px-t data-fxv="${k}" f="t"></px-t></span>`)).join('')}</div>
+          <div class="sec">${T('Livery', 'f=t c=accent')}
+            ${row('Colour', `<div class="sw" id="set-sw">${SWATCHES.map((c, i) => `<button data-sw="${i}" title="${c.name}" aria-label="${c.name}" style="background:#${c.hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div>`)}
+            ${row('Stripe', `<div class="seg" id="set-stripe">${STRIPES.map((n, i) => `<button class="btn" data-stripe="${i}" title="${n}">${T(i === 0 ? 'None' : String(i), 'f=t')}</button>`).join('')}</div>`)}
+            ${row('Race number', `<button class="btn step" id="set-nm" aria-label="Number down">${T('-')}</button><span class="numv"><px-t id="set-num" s="2"></px-t></span><button class="btn step" id="set-np" aria-label="Number up">${T('+')}</button>`)}</div>
+          <button class="go" id="set-back" style="margin-top:5em;padding:3em">${T('Done', 'c=ink')}</button>
+        </div>
+        <div id="results" class="plate centre hide"><px-t id="rtitle" f="t"></px-t><px-t id="rtime" s="3"></px-t><px-t id="rbest"></px-t><px-t id="rlaps" f="t" a="center"></px-t><button class="go" id="again">${T('Race again', 'c=ink')}</button><button class="btn" id="rquit">${T('Menu')}</button></div>
+      </div>`;
     document.body.appendChild(root);
     const $ = (id) => root.querySelector('#' + id);
-    this.el = Object.fromEntries(['race', 'menu', 'pause', 'results', 'time', 'lap', 'gate', 'pb', 'msg', 'big', 'mark', 'dist', 'map', 'spd', 'boost', 'best', 'rtitle', 'rtime', 'rbest', 'rlaps', 'keys'].map((k) => [k, $(k)]));
-    this.ctx = this.el.map.getContext('2d');
+    this.el = Object.fromEntries(['race', 'menu', 'pause', 'results', 'time', 'lap', 'gate', 'pb', 'msgt', 'bigt', 'mark', 'dist', 'map', 'spd', 'boost', 'best', 'rtitle', 'rtime', 'rbest', 'rlaps', 'keys'].map((k) => [k, $(k)]));
+    this.map = new Bitmap(this.el.map, MAP, MAP);
+    this.cells = Array.from(this.el.boost.children);
+    this.cellsOn = -1;
     root.querySelector('#courses').addEventListener('click', (e) => { const b = e.target.closest('[data-course]'); if (b) { this.sel.course = b.dataset.course; game.setCourse(COURSES.find((c) => c.id === this.sel.course)); this.sync(); } });
     root.querySelector('#conds').addEventListener('click', (e) => { const b = e.target.closest('[data-cond]'); if (b) { this.sel.cond = b.dataset.cond; this.sync(); } });
     const go = () => game.start(this.sel.course, this.sel.cond);
@@ -180,9 +196,7 @@ export class HUD {
     for (const r of root.querySelectorAll('[data-fx]')) r.addEventListener('input', () => { S.update({ fx: { ...S.fx, [r.dataset.fx]: r.value / 100 } }); this.syncSettings(); });
     q('#set-sw').addEventListener('click', (e) => { const b = e.target.closest('[data-sw]'); if (b) { S.update({ swatch: +b.dataset.sw }); this.syncSettings(); } });
     q('#set-stripe').addEventListener('click', (e) => { const b = e.target.closest('[data-stripe]'); if (b) { S.update({ stripe: +b.dataset.stripe }); this.syncSettings(); } });
-    const num = q('#set-num');
-    num.addEventListener('input', () => { if (num.value !== '') S.update({ number: num.value }); });
-    num.addEventListener('change', () => this.syncSettings(true));
+    q('#set-reload').addEventListener('click', () => location.reload());
     q('#set-nm').addEventListener('click', () => { S.update({ number: (S.number + 99) % 100 }); this.syncSettings(true); });
     q('#set-np').addEventListener('click', () => { S.update({ number: (S.number + 1) % 100 }); this.syncSettings(true); });
     this.syncSettings(true);
@@ -193,20 +207,15 @@ export class HUD {
     const S = settings, q = (sel) => this.root.querySelector(sel), fx = this.game.app.fx;
     const tier = S.quality || S.active;
     for (const b of this.root.querySelectorAll('[data-q]')) b.classList.toggle('sel', b.dataset.q === tier);
-    const note = q('#set-qnote'), urlQ = new URLSearchParams(location.search).has('q');
-    note.textContent = '';
-    if (tier !== S.active) {
-      note.append(`${tier[0].toUpperCase() + tier.slice(1)} needs a reload: the sea and cloud buffers are sized when the page starts.`);
-      const b = document.createElement('button');
-      b.textContent = 'Reload now';
-      b.addEventListener('click', () => location.reload());
-      note.append(b);
-      if (urlQ) note.append(' (A ?q= in the address overrides the saved choice.)');
-    } else note.textContent = `Running ${S.active}. A change applies after a reload.`;
+    const urlQ = new URLSearchParams(location.search).has('q');
+    q('#set-reload').classList.toggle('hide', tier === S.active);
+    q('#set-qnote').textContent = tier !== S.active
+      ? `${tier} needs a reload: the sea and cloud buffers are sized at start.${urlQ ? ' A ?q= in the address overrides the saved choice.' : ''}`
+      : `Running ${S.active}. A change applies after a reload.`;
     q('#set-vol').value = Math.round(S.volume * 100);
     q('#set-volv').textContent = `${Math.round(S.volume * 100)}%`;
     q('#set-mute').classList.toggle('sel', S.muted);
-    q('#set-mute').textContent = S.muted ? 'Muted' : 'Mute';
+    q('#set-mutet').textContent = S.muted ? 'Muted' : 'Mute';
     for (const b of this.root.querySelectorAll('[data-sfx]')) b.classList.toggle('sel', (b.dataset.sfx === '1') === S.speedFx);
     for (const b of this.root.querySelectorAll('[data-auto]')) b.classList.toggle('sel', (b.dataset.auto === '1') === S.auto);
     q('#set-anote').textContent = S.auto ? 'Gives up spray, then water shadow, then boat shadows, then resolution, to hold 60 fps.' : 'Fixed levels at full resolution. 0 turns an effect off.';
@@ -218,8 +227,7 @@ export class HUD {
     }
     for (const b of this.root.querySelectorAll('[data-sw]')) b.classList.toggle('sel', +b.dataset.sw === S.swatch);
     for (const b of this.root.querySelectorAll('[data-stripe]')) b.classList.toggle('sel', +b.dataset.stripe === S.stripe);
-    const num = q('#set-num');
-    if (all || document.activeElement !== num) num.value = S.number;
+    q('#set-num').textContent = String(S.number).padStart(2, '0');
   }
 
   closeSettings(restore) {
@@ -244,17 +252,19 @@ export class HUD {
     e.results.classList.toggle('hide', state !== 'finished');
     e.pause.classList.add('hide');
     if (state === 'menu') this.sync();
-    if (state === 'countdown') { e.pb.textContent = g.best ? fmt(g.best.time) : '--'; this.lastCount = ''; e.keys.style.opacity = ''; }
+    if (state === 'countdown') { e.pb.textContent = g.best ? fmt(g.best.time) : '--'; this.lastCount = ''; e.keys.style.visibility = ''; }
     if (state === 'finished') {
       e.rtitle.textContent = `${g.course.name} · ${CONDITIONS[g.cond].name}`;
       e.rtime.textContent = fmt(g.finishTime);
-      e.rbest.innerHTML = g.newBest ? `<span class="nb">NEW BEST</span>${g.prevBest ? ` &nbsp;−${(g.prevBest - g.finishTime).toFixed(2)}s` : ''}` : `Best ${fmt(g.prevBest)} &nbsp;+${(g.finishTime - g.prevBest).toFixed(2)}s`;
-      e.rlaps.innerHTML = g.laps.map((t, i) => `Lap ${i + 1} &nbsp; ${fmt(t)}`).join('<br>');
+      e.rbest.setAttribute('c', g.newBest ? 'accent' : 'paper');
+      e.rbest.textContent = g.newBest ? `New best${g.prevBest ? `  -${(g.prevBest - g.finishTime).toFixed(2)}s` : ''}` : `Best ${fmt(g.prevBest)}  +${(g.finishTime - g.prevBest).toFixed(2)}s`;
+      e.rlaps.textContent = g.laps.map((t, i) => `Lap ${i + 1}  ${fmt(t)}`).join('\n');
     }
   }
 
   pause(on) { if (!on) this.closeSettings(false); this.el.pause.classList.toggle('hide', !on || !this.setEl.classList.contains('hide')); }
-  flash(text) { this.el.big.textContent = text; this.el.big.style.fontSize = '84px'; this.el.big.style.opacity = 1; this.flashT = 1.3; }
+  flash(text) { this.big(text, 6); this.flashT = 1.3; }
+  big(text, scale) { const b = this.el.bigt; b.setAttribute('s', scale); b.textContent = text; }
   toggleSound() { const a = this.game.audio; a.muted = !a.muted; a.enable(!a.muted).catch(() => {}); settings.update({ muted: a.muted }); if (this.setEl) this.syncSettings(); }
 
   update(dt) {
@@ -266,17 +276,18 @@ export class HUD {
     const P = g.progress, n = g.course.gates.length;
     this.text(e.lap, g.course.loop ? `${P.lap}/${g.course.laps}` : '1/1');
     this.text(e.gate, `${Math.min(P.next, g.course.total)}/${g.course.total}`);
-    e.boost.firstElementChild.style.width = `${boat.boost * 100}%`;
+    const on = Math.round(boat.boost * BOOST_CELLS);
+    if (on !== this.cellsOn) { this.cellsOn = on; this.cells.forEach((c, i) => c.classList.toggle('on', i < on)); }
     e.boost.classList.toggle('on', boat.boosting);
     // countdown and flashes
     if (g.state === 'countdown') {
       const left = g.t0 - g.app.time;
       const c = left > 3 ? '' : String(Math.ceil(left));
-      if (c !== this.lastCount) { this.lastCount = c; e.big.textContent = c; e.big.style.fontSize = '120px'; e.big.style.opacity = c ? 1 : 0; }
+      if (c !== this.lastCount) { this.lastCount = c; this.big(c, 8); }
     } else if (this.lastCount) { this.lastCount = ''; this.flash('GO'); }
-    else if (this.flashT > 0 && (this.flashT -= dt) <= 0) e.big.style.opacity = 0;
-    if (t > 12) e.keys.style.opacity = 0;
-    this.text(e.msg, g.state === 'racing' && P.missed > 0 ? 'MISSED GATE · TURN BACK OR PRESS R' : '');
+    else if (this.flashT > 0 && (this.flashT -= dt) <= 0) this.big('', 6);
+    if (t > 12) e.keys.style.visibility = 'hidden';
+    this.text(e.msgt, g.state === 'racing' && P.missed > 0 ? 'Missed gate \u00b7 turn back or press R' : '');
     this.marker();
     this.minimap();
   }
@@ -293,33 +304,28 @@ export class HUD {
     if (cw < 0) { nx = cx < 0 ? -1 : 1; ny = -0.2; }
     nx = Math.max(-0.92, Math.min(0.92, nx)); ny = Math.max(-0.8, Math.min(0.78, ny));
     e.mark.style.display = '';
-    e.mark.style.transform = `translate(${((nx * 0.5 + 0.5) * innerWidth).toFixed(1)}px, ${((0.5 - ny * 0.5) * innerHeight).toFixed(1)}px)`;
+    const u = this.u, snap = (v) => Math.round(v / u) * u;
+    e.mark.style.transform = `translate(${snap((nx * 0.5 + 0.5) * innerWidth)}px, ${snap((0.5 - ny * 0.5) * innerHeight)}px)`;
     this.text(e.dist, `${Math.round(Math.hypot(x - g.boat.pos[0], z - g.boat.pos[2]))} m`);
   }
 
   minimap() {
-    const g = this.game, c = this.ctx, S = 380, gates = g.course.gates;
+    const g = this.game, m = this.map, gates = g.course.gates;
     let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
     for (const q of gates) { x0 = Math.min(x0, q.c[0]); x1 = Math.max(x1, q.c[0]); z0 = Math.min(z0, q.c[1]); z1 = Math.max(z1, q.c[1]); }
-    const sc = (S - 60) / Math.max(x1 - x0, z1 - z0, 1), ox = (S - (x1 - x0) * sc) / 2, oz = (S - (z1 - z0) * sc) / 2;
+    const sc = (MAP - 14) / Math.max(x1 - x0, z1 - z0, 1), ox = (MAP - (x1 - x0) * sc) / 2, oz = (MAP - (z1 - z0) * sc) / 2;
     const X = (x) => ox + (x - x0) * sc, Z = (z) => oz + (z - z0) * sc;
-    c.clearRect(0, 0, S, S);
-    c.lineJoin = 'round'; c.lineCap = 'round';
-    c.beginPath();
-    gates.forEach((q, i) => (i ? c.lineTo(X(q.c[0]), Z(q.c[1])) : c.moveTo(X(q.c[0]), Z(q.c[1]))));
-    if (g.course.loop) c.closePath();
-    c.strokeStyle = 'rgba(8,14,20,.55)'; c.lineWidth = 16; c.stroke();
-    c.strokeStyle = 'rgba(255,255,255,.75)'; c.lineWidth = 4; c.stroke();
-    const nextI = g.progress.done ? -1 : g.progress.next % gates.length;
-    gates.forEach((q, i) => {
-      c.beginPath(); c.moveTo(X(q.port[0]), Z(q.port[1])); c.lineTo(X(q.stbd[0]), Z(q.stbd[1]));
-      c.strokeStyle = i === nextI ? '#ffd23f' : 'rgba(255,255,255,.5)'; c.lineWidth = i === nextI ? 7 : 3; c.stroke();
-    });
-    const dot = (b, col, r) => { c.beginPath(); c.arc(X(b.pos[0]), Z(b.pos[2]), r, 0, 6.3); c.fillStyle = col; c.fill(); };
-    if (g.ghostAt(g.raceTime)) dot(g.ghostBoat, 'rgba(160,210,255,.9)', 7);
-    const b = g.boat;
-    c.save(); c.translate(X(b.pos[0]), Z(b.pos[2])); c.rotate(b.yaw);
-    c.beginPath(); c.moveTo(15, 0); c.lineTo(-10, -9); c.lineTo(-5, 0); c.lineTo(-10, 9); c.closePath();
-    c.fillStyle = '#ff8a2a'; c.strokeStyle = '#14100a'; c.lineWidth = 2.5; c.fill(); c.stroke(); c.restore();
+    m.clear();
+    const n = gates.length, last = g.course.loop ? n : n - 1;
+    // the course: an ink line three pixels wide with a paper line down its middle
+    for (const [r, col] of [[1, INK], [0, PAPER]])
+      for (let i = 0; i < last; i++) { const a = gates[i].c, b = gates[(i + 1) % n].c; m.line(X(a[0]), Z(a[1]), X(b[0]), Z(b[1]), r, col); }
+    const nextI = g.progress.done ? -1 : g.progress.next % n;
+    if (nextI >= 0) { const q = gates[nextI]; m.block(X(q.c[0]), Z(q.c[1]), 2, INK); m.block(X(q.c[0]), Z(q.c[1]), 1, ACCENT); }
+    if (g.ghostAt(g.raceTime)) { const p = g.ghostBoat.pos; m.block(X(p[0]), Z(p[2]), 1, INK); m.block(X(p[0]), Z(p[2]), 0, PAPER); }
+    // the boat: a block with one pixel showing which way it points
+    const b = g.boat, bx = X(b.pos[0]), bz = Z(b.pos[2]);
+    m.block(bx, bz, 2, INK); m.block(bx, bz, 1, PAPER);
+    m.block(bx + Math.cos(b.yaw) * 3, bz + Math.sin(b.yaw) * 3, 0, PAPER);
   }
 }
