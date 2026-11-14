@@ -1,5 +1,6 @@
 // Menus and the in-race HUD (plain DOM over the canvas).
 import { COURSES, CONDITIONS } from './courses.js';
+import { settings, SWATCHES, STRIPES, TIERS } from './settings.js';
 
 export const HUD_CSS = `
 #ui { position: fixed; inset: 0; pointer-events: none; color: #f2f6f8; font: 500 14px/1.3 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; user-select: none; text-shadow: 0 1px 3px rgba(0,0,0,.55); }
@@ -48,6 +49,27 @@ export const HUD_CSS = `
 .centre .t { font-size: 56px; line-height: 1.05; }
 .centre .laps { margin: 10px 0 18px; opacity: .8; font-variant-numeric: tabular-nums; }
 .nb { color: #ffd23f; font-weight: 800; letter-spacing: .1em; }
+#ui input { pointer-events: auto; }
+#settings { width: 470px; max-height: 94vh; overflow: auto; box-sizing: border-box; text-align: left; padding: 14px 24px 12px; }
+#settings h2 { margin: 0 0 2px; font-size: 28px; font-style: italic; font-weight: 900; }
+#settings .sec { margin-top: 7px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.1); }
+#settings .sec:first-of-type { border-top: 0; margin-top: 0; }
+#settings .srow { display: flex; align-items: center; gap: 10px; margin: 4px 0; min-height: 26px; }
+#settings .srow .nm { flex: 0 0 112px; font-size: 13px; opacity: .9; }
+#settings .srow .val { flex: 0 0 38px; text-align: right; font-size: 12px; opacity: .75; font-variant-numeric: tabular-nums; }
+#settings .seg { display: flex; gap: 6px; flex: 1; }
+#settings .seg .opt { flex: 1; text-align: center; padding: 5px 4px; font-size: 13px; }
+#settings .note { font-size: 11.5px; opacity: .72; line-height: 1.4; margin: 3px 0 0; }
+#settings .note button { padding: 2px 9px; border-radius: 6px; background: #ff8a2a; color: #14100a; border: 0; font-weight: 800; margin-left: 6px; }
+#settings input[type=range] { flex: 1; min-width: 0; accent-color: #ff8a2a; margin: 0; }
+#settings input[type=range]:disabled { opacity: .4; }
+#settings .sw { display: flex; gap: 7px; flex: 1; }
+#settings .sw button { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); padding: 0; }
+#settings .sw button.sel { border-color: #fff; box-shadow: 0 0 0 2px #14100a, 0 0 0 4px #ff8a2a; }
+#settings .num-in { width: 54px; padding: 5px 6px; text-align: center; font: inherit; font-weight: 800; color: inherit; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.22); border-radius: 7px; }
+#settings .step { width: 30px; padding: 4px 0; border-radius: 7px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.22); font-weight: 800; }
+#settings .step:hover { background: rgba(255,255,255,.18); }
+#settings button:focus-visible, #settings input:focus-visible { outline: 2px solid #ffd23f; outline-offset: 2px; }
 @media (max-height: 820px) { #menu { padding: 16px 20px; width: 360px; } #menu h1 { font-size: 30px; } #menu h1 br { display: none; } #menu p.tag { margin: 2px 0 10px; } .opts { gap: 5px; margin: 5px 0 10px; } .opt { padding: 6px 10px; } #best { margin: -4px 0 10px; font-size: 12px; } .go { padding: 10px; } .help { margin-top: 10px; font-size: 11px; line-height: 1.45; } }
 @media (max-height: 600px) { .help { display: none; } }
 `;
@@ -85,9 +107,28 @@ export class HUD {
         <div class="opts row" id="conds">${conds.map(([k, n]) => `<button class="opt" data-cond="${k}">${n}</button>`).join('')}</div>
         <div id="best"></div>
         <button class="go" id="start">START</button>
+        <button class="ghost" id="settings-btn">Settings</button>
         <div class="help"><kbd>W</kbd><kbd>S</kbd> throttle · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Shift</kbd> boost<br><kbd>C</kbd> camera · <kbd>R</kbd> reset · <kbd>Esc</kbd> pause · <kbd>M</kbd> sound<br>Gamepad: triggers, left stick, A to boost.<br>Airtime off wave crests fills your boost.</div>
       </div>
-      <div id="pause" class="panel centre hide"><h2>PAUSED</h2><button class="go" id="resume">RESUME</button><button class="ghost" id="restart">Restart</button><button class="ghost" id="quit">Quit to menu</button></div>
+      <div id="pause" class="panel centre hide"><h2>PAUSED</h2><button class="go" id="resume">RESUME</button><button class="ghost" id="pause-settings">Settings</button><button class="ghost" id="restart">Restart</button><button class="ghost" id="quit">Quit to menu</button></div>
+      <div id="settings" class="panel centre hide" role="dialog" aria-label="Settings">
+        <h2>SETTINGS</h2>
+        <div class="sec"><div class="lbl">Graphics quality</div>
+          <div class="srow"><div class="seg" id="set-q">${TIERS.map((t) => `<button class="opt" data-q="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div></div>
+          <div class="note" id="set-qnote"></div></div>
+        <div class="sec"><div class="lbl">Sound and effects</div>
+          <div class="srow"><span class="nm">Volume</span><input type="range" id="set-vol" min="0" max="100" step="1" aria-label="Master volume"><span class="val" id="set-volv"></span><button class="opt" id="set-mute" style="padding:5px 10px">Mute</button></div>
+          <div class="srow"><span class="nm" title="Camera shake and edge blur that grow with speed and boost">Speed effects</span><div class="seg"><button class="opt" data-sfx="1">On</button><button class="opt" data-sfx="0">Off</button></div></div></div>
+        <div class="sec"><div class="lbl">Performance</div>
+          <div class="srow"><span class="nm">Automatic</span><div class="seg"><button class="opt" data-auto="1">On</button><button class="opt" data-auto="0">Off</button></div></div>
+          <div class="note" id="set-anote"></div>
+          ${[['spray', 'Spray'], ['waterShadow', 'Water shadow'], ['shadows', 'Boat shadows']].map(([k, n]) => `<div class="srow"><span class="nm">${n}</span><input type="range" data-fx="${k}" min="0" max="100" step="5" aria-label="${n} level"><span class="val" data-fxv="${k}"></span></div>`).join('')}</div>
+        <div class="sec"><div class="lbl">Livery</div>
+          <div class="srow"><span class="nm">Colour</span><div class="sw" id="set-sw">${SWATCHES.map((c, i) => `<button data-sw="${i}" title="${c.name}" aria-label="${c.name}" style="background:#${c.hex.toString(16).padStart(6, '0')}"></button>`).join('')}</div></div>
+          <div class="srow"><span class="nm">Stripe</span><div class="seg" id="set-stripe">${STRIPES.map((n, i) => `<button class="opt" data-stripe="${i}" title="${n}">${i === 0 ? 'None' : i}</button>`).join('')}</div></div>
+          <div class="srow"><span class="nm">Race number</span><button class="step" id="set-nm" aria-label="Number down">&minus;</button><input class="num-in num" id="set-num" type="number" min="0" max="99" step="1" aria-label="Race number"><button class="step" id="set-np" aria-label="Number up">+</button></div></div>
+        <button class="go" id="set-back" style="margin-top:8px;padding:9px">DONE</button>
+      </div>
       <div id="results" class="panel centre hide"><h2 id="rtitle">FINISH</h2><div class="t num" id="rtime"></div><div id="rbest"></div><div class="laps" id="rlaps"></div><button class="go" id="again">RACE AGAIN</button><button class="ghost" id="rquit">Menu</button></div>`;
     document.body.appendChild(root);
     const $ = (id) => root.querySelector('#' + id);
@@ -104,6 +145,87 @@ export class HUD {
     $('rquit').addEventListener('click', () => game.quit());
     this.flashT = 0; this.lastCount = '';
     this.sync();
+    this.initSettings();
+  }
+
+  initSettings() {
+    const root = this.root, game = this.game, S = settings, q = (sel) => root.querySelector(sel);
+    this.setEl = q('#settings');
+    this.setFrom = 'menu';
+    const open = (from) => {
+      this.setFrom = from;
+      this.el[from === 'pause' ? 'pause' : 'menu'].classList.add('hide');
+      this.setEl.classList.remove('hide');
+      this.syncSettings(true);
+      q('#set-back').focus({ preventScroll: true });
+    };
+    q('#settings-btn').addEventListener('click', () => open('menu'));
+    q('#pause-settings').addEventListener('click', () => open('pause'));
+    q('#set-back').addEventListener('click', () => this.closeSettings(true));
+    // Escape closes the panel instead of resuming the race behind it (capture: before Input sees it)
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape' && !this.setEl.classList.contains('hide')) { e.stopImmediatePropagation(); e.preventDefault(); this.closeSettings(true); }
+    }, true);
+    q('#set-q').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (b) { S.update({ quality: b.dataset.q }); this.syncSettings(); } });
+    q('#set-vol').addEventListener('input', (e) => { S.update({ volume: e.target.value / 100 }); this.syncSettings(); });
+    q('#set-mute').addEventListener('click', () => { S.update({ muted: !S.muted }); this.syncSettings(); });
+    for (const b of root.querySelectorAll('[data-sfx]')) b.addEventListener('click', () => { S.update({ speedFx: b.dataset.sfx === '1' }); this.syncSettings(); });
+    for (const b of root.querySelectorAll('[data-auto]')) b.addEventListener('click', () => {
+      const auto = b.dataset.auto === '1';
+      if (auto === S.auto) return;
+      // switching it off keeps the levels the governor had reached as the starting point
+      S.update(auto ? { auto } : { auto, fx: { spray: game.app.fx.spray, waterShadow: game.app.fx.waterShadow, shadows: game.app.fx.shadows } });
+      this.syncSettings(true);
+    });
+    for (const r of root.querySelectorAll('[data-fx]')) r.addEventListener('input', () => { S.update({ fx: { ...S.fx, [r.dataset.fx]: r.value / 100 } }); this.syncSettings(); });
+    q('#set-sw').addEventListener('click', (e) => { const b = e.target.closest('[data-sw]'); if (b) { S.update({ swatch: +b.dataset.sw }); this.syncSettings(); } });
+    q('#set-stripe').addEventListener('click', (e) => { const b = e.target.closest('[data-stripe]'); if (b) { S.update({ stripe: +b.dataset.stripe }); this.syncSettings(); } });
+    const num = q('#set-num');
+    num.addEventListener('input', () => { if (num.value !== '') S.update({ number: num.value }); });
+    num.addEventListener('change', () => this.syncSettings(true));
+    q('#set-nm').addEventListener('click', () => { S.update({ number: (S.number + 99) % 100 }); this.syncSettings(true); });
+    q('#set-np').addEventListener('click', () => { S.update({ number: (S.number + 1) % 100 }); this.syncSettings(true); });
+    this.syncSettings(true);
+  }
+
+  // refresh controls from the settings; all = also the slider positions and the number box
+  syncSettings(all) {
+    const S = settings, q = (sel) => this.root.querySelector(sel), fx = this.game.app.fx;
+    const tier = S.quality || S.active;
+    for (const b of this.root.querySelectorAll('[data-q]')) b.classList.toggle('sel', b.dataset.q === tier);
+    const note = q('#set-qnote'), urlQ = new URLSearchParams(location.search).has('q');
+    note.textContent = '';
+    if (tier !== S.active) {
+      note.append(`${tier[0].toUpperCase() + tier.slice(1)} needs a reload: the sea and cloud buffers are sized when the page starts.`);
+      const b = document.createElement('button');
+      b.textContent = 'Reload now';
+      b.addEventListener('click', () => location.reload());
+      note.append(b);
+      if (urlQ) note.append(' (A ?q= in the address overrides the saved choice.)');
+    } else note.textContent = `Running ${S.active}. A change applies after a reload.`;
+    q('#set-vol').value = Math.round(S.volume * 100);
+    q('#set-volv').textContent = `${Math.round(S.volume * 100)}%`;
+    q('#set-mute').classList.toggle('sel', S.muted);
+    q('#set-mute').textContent = S.muted ? 'Muted' : 'Mute';
+    for (const b of this.root.querySelectorAll('[data-sfx]')) b.classList.toggle('sel', (b.dataset.sfx === '1') === S.speedFx);
+    for (const b of this.root.querySelectorAll('[data-auto]')) b.classList.toggle('sel', (b.dataset.auto === '1') === S.auto);
+    q('#set-anote').textContent = S.auto ? 'Gives up spray, then water shadow, then boat shadows, then resolution, to hold 60 fps.' : 'Fixed levels at full resolution. 0 turns an effect off.';
+    for (const r of this.root.querySelectorAll('[data-fx]')) {
+      const v = S.auto ? fx[r.dataset.fx] : S.fx[r.dataset.fx];
+      r.disabled = S.auto;
+      if (all || !r.matches(':active')) r.value = Math.round(v * 100);
+      this.root.querySelector(`[data-fxv="${r.dataset.fx}"]`).textContent = `${Math.round(v * 100)}%`;
+    }
+    for (const b of this.root.querySelectorAll('[data-sw]')) b.classList.toggle('sel', +b.dataset.sw === S.swatch);
+    for (const b of this.root.querySelectorAll('[data-stripe]')) b.classList.toggle('sel', +b.dataset.stripe === S.stripe);
+    const num = q('#set-num');
+    if (all || document.activeElement !== num) num.value = S.number;
+  }
+
+  closeSettings(restore) {
+    if (this.setEl.classList.contains('hide')) return;
+    this.setEl.classList.add('hide');
+    if (restore) this.el[this.setFrom === 'pause' ? 'pause' : 'menu'].classList.remove('hide');
   }
 
   sync() {
@@ -116,6 +238,7 @@ export class HUD {
 
   show(state) {
     const g = this.game, e = this.el;
+    this.closeSettings(false);
     e.menu.classList.toggle('hide', state !== 'menu');
     e.race.classList.toggle('hide', state === 'menu');
     e.results.classList.toggle('hide', state !== 'finished');
@@ -130,9 +253,9 @@ export class HUD {
     }
   }
 
-  pause(on) { this.el.pause.classList.toggle('hide', !on); }
+  pause(on) { if (!on) this.closeSettings(false); this.el.pause.classList.toggle('hide', !on || !this.setEl.classList.contains('hide')); }
   flash(text) { this.el.big.textContent = text; this.el.big.style.fontSize = '84px'; this.el.big.style.opacity = 1; this.flashT = 1.3; }
-  toggleSound() { const a = this.game.audio; a.muted = !a.muted; a.enable(!a.muted).catch(() => {}); }
+  toggleSound() { const a = this.game.audio; a.muted = !a.muted; a.enable(!a.muted).catch(() => {}); settings.update({ muted: a.muted }); if (this.setEl) this.syncSettings(); }
 
   update(dt) {
     const g = this.game, e = this.el, boat = g.boat;
