@@ -4,3 +4,4 @@ frames/
 *.log
 .DS_Store
 ffmpeg2pass*
+.claude/worktrees/
