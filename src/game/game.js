@@ -10,6 +10,8 @@ import { Boat } from './boat.js';
 import { Input } from './input.js';
 import { COURSES, CONDITIONS, Progress, grid, rollConditions } from './courses.js';
 import { HUD } from './hud.js';
+import { BoatShadow } from './shadow.js';
+import { Lights } from './lights.js';
 import { settings } from './settings.js';
 import { Wake } from './wake.js';
 import { BoatSpray } from './boatspray.js';
@@ -68,6 +70,8 @@ export class Game {
     //   seaOffset(x, z, s)
     // See docs/BRIEF_VISUAL_UPGRADE.md. Register one per line so merges stay trivial.
     this.systems = [];
+    this.systems.push(new BoatShadow(this));
+    this.systems.push(new Lights(this));
     this.systems.push(new Wake(this));
     this.systems.push(new BoatSpray(this));
     this.state = 'menu';        // menu | countdown | racing | finished
