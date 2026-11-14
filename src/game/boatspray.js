@@ -25,7 +25,7 @@ void main() {
   float age = aB.x;
   vec3 pos = aA.xyz;
   // droplets start small and dense, then billow out and thin
-  float size = aA.w * (0.25 + 0.75 * sqrt(age));
+  float size = aA.w * (0.35 + 0.65 * sqrt(age));
   vec3 toCam = uCamPos - pos;
   float dist = length(toCam);
   vec3 vdir = toCam / max(dist, 1e-3);
@@ -34,7 +34,7 @@ void main() {
   vec2 c = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) - 0.5;
   float a = aB.y * 6.2831853;
   vec2 rc = vec2(c.x * cos(a) - c.y * sin(a), c.x * sin(a) + c.y * cos(a));
-  vec3 P = pos + (right * rc.x + up * rc.y) * size * 1.3;
+  vec3 P = pos + (right * rc.x + up * rc.y) * size;
   vUv = c + 0.5;
   vAlpha = aB.w * sin(3.14159 * min(age * 1.0, 1.0)) * (1.0 - 0.4 * age) * smoothstep(0.3, 1.2, dist);
   vDist = dist;
@@ -58,8 +58,10 @@ float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
 void main() {
   vec2 q = vUv * 2.0 - 1.0;
   float r2 = dot(q, q);
-  float n = vn(vUv * 5.0 + vSeed * 91.0) * 0.6 + vn(vUv * 11.0 + vSeed * 37.0) * 0.4;
-  float a = smoothstep(1.0, 0.15, r2) * (0.55 + 0.6 * n) * vAlpha;
+  // Spray is drops and torn sheets, not smoke: each billboard is broken into specks by thresholding
+  // noise, with only a thin mist between them, so a mass of them reads as white water in the air.
+  float n = vn(vUv * 7.0 + vSeed * 91.0) * 0.55 + vn(vUv * 17.0 + vSeed * 37.0) * 0.45;
+  float a = smoothstep(1.0, 0.2, r2) * (0.12 + 1.5 * smoothstep(0.5, 0.72, n)) * vAlpha;
   if (a < 0.002) discard;
   a = min(a, 1.0);
   vec3 dir = normalize(vDir);
@@ -158,10 +160,10 @@ export class BoatSpray {
         const side = rnd() < 0.5 ? -1 : 1;
         const lx = A.bow[0] - 0.4 - rnd() * 3.0, lz = side * (hullHalfWidth(lx, A) * 0.92);
         const [px, py, pz] = at(lx, 0.1, lz);
-        const out = (1.8 + 4.5 * rnd()) * (0.6 + 0.7 * q), up = (2.5 + 5.5 * rnd()) * (0.5 + 0.6 * q);
+        const out = (1.2 + 2.6 * rnd()) * (0.6 + 0.7 * q), up = (1.8 + 3.6 * rnd()) * (0.5 + 0.6 * q);
         pool.spawn(cap, px, py, pz,
           vel[0] * 0.4 + Z[0] * side * out + (rnd() - 0.5), vel[1] * 0.4 + up, vel[2] * 0.4 + Z[2] * side * out + (rnd() - 0.5),
-          0.7 + 0.6 * rnd(), 0.35 + 0.4 * rnd(), 0, 0.22, floor0);
+          0.5 + 0.45 * rnd(), 0.45 + 0.45 * rnd(), 0, 0.55, floor0);
       }
     }
     // rooster tail: the props throw a plume up and aft
@@ -173,10 +175,10 @@ export class BoatSpray {
       for (; pool.carry[1] >= 1; pool.carry[1]--) {
         const pr = props[Math.floor(rnd() * props.length)];
         const [px, py, pz] = at(pr[0] - 0.3, 0.1, pr[2] + (rnd() - 0.5) * 0.3);
-        const up = (6 + 6 * rnd()) * (0.55 + 0.5 * k);
+        const up = (4 + 4.5 * rnd()) * (0.55 + 0.5 * k);
         pool.spawn(cap, px, py, pz,
           vel[0] * 0.3 + (rnd() - 0.5) * 2.2, vel[1] * 0.3 + up, vel[2] * 0.3 + (rnd() - 0.5) * 2.2,
-          1.0 + 0.7 * rnd(), 0.4 + 0.5 * rnd(), 1, 0.28, floor0);
+          0.8 + 0.6 * rnd(), 0.5 + 0.5 * rnd(), 1, 0.6, floor0);
       }
     }
     // landing: a ring of water thrown out from the hull
@@ -190,7 +192,7 @@ export class BoatSpray {
         const out = 2 + 6 * rnd(), up = 3 + 6 * rnd();
         const dx = X[0] * Math.cos(a) * 0.5 + Z[0] * Math.sin(a), dz = X[2] * Math.cos(a) * 0.5 + Z[2] * Math.sin(a);
         pool.spawn(cap, px, py, pz, vel[0] * 0.5 + dx * out, vel[1] * 0.2 + up, vel[2] * 0.5 + dz * out,
-          0.8 + 0.8 * rnd(), 0.4 + 0.6 * rnd(), 2, 0.25, floor0);
+          0.7 + 0.6 * rnd(), 0.5 + 0.6 * rnd(), 2, 0.6, floor0);
       }
     }
     pool.prevAir = pose.airTime;
