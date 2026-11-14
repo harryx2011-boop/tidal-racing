@@ -1,8 +1,8 @@
 // Boat lights: red port, green starboard and white stern navigation lights, and an accent-coloured
-// LED strip round the cockpit. Each is an emissive surface (MAT.LIGHT, lit by the mesh pass) plus a
-// soft additive glow drawn after the particles. They are all but invisible in full sun and take
+// LED strip round the cockpit. The model carries the emissive lenses and strip (MAT.LIGHT, which the
+// mesh pass brightens as it gets dark, see MeshPass.lamp); this adds the soft additive glow round
+// them, drawn after the particles. They are all but invisible in full sun and take
 // over when the light fails: low sun, night, a storm.
-import { Geo, MAT } from './geo.js';
 import { BOAT_ANCHORS } from './models/boat.js';
 import { Program, bindEmpty } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
@@ -59,33 +59,15 @@ export class Lights {
     this.level = 0.1;
     this.prog = null;
     this.mat = new Float32Array(16);
-    this.mesh = this.build().build(this.gl);
     // glow points in boat space: [position, colour]; cockpit ones take the accent colour (null)
     const A = BOAT_ANCHORS;
     const [cx0, cx1, chw] = A.cockpit;
-    this.stripY = A.helm[1] - 0.2;
+    this.stripY = A.helm[1] - 0.12;   // the model's LED strip runs just under the coaming
     this.points = [
       [A.navPort, RED, 0.4], [A.navStbd, GREEN, 0.4], [A.sternLight, WHITE, 0.3],
       [[(cx0 + cx1) / 2, this.stripY, -chw + 0.05], null, 0.6], [[(cx0 + cx1) / 2, this.stripY, chw - 0.05], null, 0.6],
       [[cx0 + 0.35, this.stripY, 0], null, 0.5],
     ];
-  }
-
-  // lamp lenses and the cockpit strip, in boat space
-  build() {
-    const g = new Geo();
-    const A = BOAT_ANCHORS;
-    const lens = (p, col) => {
-      const prof = [];
-      for (let i = 0; i <= 6; i++) { const a = (i / 6) * Math.PI; prof.push([Math.sin(a) * 0.045, p[1] - Math.cos(a) * 0.045]); }
-      g.lathe(prof, col, [MAT.LIGHT, 0, 1], 8, p[0], p[2]);
-    };
-    lens(A.navPort, RED); lens(A.navStbd, GREEN); lens(A.sternLight, WHITE);
-    const [x0, x1, hw] = A.cockpit;
-    const y = A.helm[1] - 0.2;
-    for (const s of [-1, 1]) g.box(x0 + 0.5, x1 - 0.6, y - 0.012, y + 0.012, s * (hw - 0.04) - 0.012, s * (hw - 0.04) + 0.012, [1, 1, 1], [MAT.LIGHT, 1, 1]);
-    g.box(x0 + 0.3 - 0.012, x0 + 0.3 + 0.012, y - 0.012, y + 0.012, -hw + 0.5, hw - 0.5, [1, 1, 1], [MAT.LIGHT, 1, 1]);
-    return g;
   }
 
   // how dark it is: low sun, night, and the gloom under storm cloud and rain
@@ -96,13 +78,6 @@ export class Lights {
     const dark = Math.max(lowSun, storm);
     this.level = 0.1 + 0.9 * dark;
     this.game.meshes.lamp = this.level;
-  }
-
-  draw(scene, meshes) {
-    for (const b of this.game.renderBoats()) {
-      if (b.ghost) continue;
-      meshes.draw(this.mesh, b.pose.matrix(this.mat), { tint: b.livery.color });
-    }
   }
 
   drawTransparent(scene) {

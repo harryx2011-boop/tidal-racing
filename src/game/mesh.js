@@ -86,6 +86,7 @@ uniform float uBoatShadowDepth; // depth units per metre
 uniform sampler2D uAoTex;
 uniform vec4 uAoRect;           // x0, z0, 1/width, 1/depth
 uniform float uAoOn;
+uniform float uGlassMode;       // 0: everything opaque; 1: all but glass; 2: only glass, blended over the rest
 const float M_PI = 3.14159265359;
 vec2 equirectUv(vec3 d) { return vec2(atan(d.z, d.x) / (2.0 * M_PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / M_PI); }
 
@@ -175,7 +176,8 @@ vec3 livery(vec3 base, vec3 accent, float pf) {
   float x = vObj.x, y = vObj.y;
   float sgn = vObj.z < 0.0 ? -1.0 : 1.0;
   float aa = max(pf * 1.2, 0.002);
-  float sheer = 0.72 + 0.38 * pow(clamp((x + 4.2) / 9.0, 0.0, 1.2), 2.0);
+  // the sheer line of the 9 m hull: a slight dip amidships, rising to the bow
+  float sheer = 0.80 - (x < 0.5 ? 0.10 * sin(3.14159 * (x + 4.2) / 4.7) : 0.0) + 0.40 * pow(max(x / 4.8, 0.0), 2.1);
   int style = int(uLivery.y + 0.5);
   vec3 col = accent;
   if (style > 0) {
@@ -183,7 +185,7 @@ vec3 livery(vec3 base, vec3 accent, float pf) {
     float st = 0.0;
     if (style == 1) {
       // a broad band under the sheer
-      st = smoothstep(sheer - 0.24 - aa, sheer - 0.24 + aa, y);
+      st = smoothstep(sheer - 0.17 - aa, sheer - 0.17 + aa, y);
     } else if (style == 2) {
       // a wide and a thin stripe, running parallel to the sheer
       float d = sheer - y;
@@ -192,7 +194,7 @@ vec3 livery(vec3 base, vec3 accent, float pf) {
     } else {
       // a blade that rises from the transom to the bow and narrows as it goes
       float t = smoothstep(-4.2, 4.6, x);
-      float c = mix(0.2, sheer - 0.16, t), hw = mix(0.2, 0.035, t);
+      float c = mix(0.22, sheer - 0.14, t), hw = mix(0.17, 0.03, t);
       st = 1.0 - smoothstep(hw - aa, hw + aa, abs(y - c));
     }
     col = mix(col, accent, st);
@@ -200,8 +202,8 @@ vec3 livery(vec3 base, vec3 accent, float pf) {
   // the race number, reading forward on both sides
   int num = int(uLivery.z + 0.5);
   if (num >= 0) {
-    const float unit = 0.26;   // metres per digit unit: a digit is 0.52 m tall
-    vec2 q = vec2((x - 1.9) * sgn, y - 0.5) / unit;
+    const float unit = 0.19;   // metres per glyph unit: a number is 0.38 m tall
+    vec2 q = vec2((x - 1.5) * sgn, y - (sheer - 0.3)) / unit;
     float s = numberSdf(q, min(num, 99));
     float m = 1.0 - smoothstep(-aa / unit, aa / unit, s);
     // light digits on dark paint, dark digits on light
@@ -232,6 +234,7 @@ void main() {
   if (dot(N, V) < 0.0) { N = -N; On = -On; }
   float pf = length(fwidth(vObj));   // object-space size of a pixel: patterns fade out below it
   int mid = clamp(int(vMat.x + 0.5), 0, 9);
+  if ((uGlassMode > 0.5 && uGlassMode < 1.5 && mid == 4) || (uGlassMode > 1.5 && mid != 4)) discard;
   vec3 sunE = sunIlluminance(), skyE = skyIrradiance();
   vec3 L = uSunDir;
 
@@ -279,7 +282,7 @@ void main() {
     float puff = smoothstep(0.0, 0.07, dd.x) * smoothstep(0.0, 0.07, dd.y);
     float fg = fadeOut(pf, 140.0);
     float grain = vnoise(vObj * 140.0) * fg + 0.5 * (1.0 - fg);
-    albedo *= (0.78 + 0.22 * puff) * (0.94 + 0.12 * grain) * mix(1.0, 0.45, seam);
+    albedo *= (0.84 + 0.16 * puff) * (0.94 + 0.12 * grain) * mix(1.0, 0.7, seam);
     ra = 0.85; sheen = 0.35;
   } else if (mid == 4) {
     // tinted glass: nearly black, a strong clean reflection
@@ -355,11 +358,13 @@ void main() {
   // lamps: a little lit in daylight, much brighter than their surroundings when it is dark
   float lampE = uFloat > 0.5 ? amb * 3.0 + 2e-4 : amb * (0.6 + 12.0 * uLamp * uLamp) + 4e-4 * uLamp * uLamp;
   col += emis * lampE;
+  // glass lets a good part of what is behind it through (a premultiplied blend), more at a steep view
+  float aG = (uGlassMode > 1.5) ? 0.5 + 0.5 * Fa.g : 1.0;
   vec3 aL, aT;
   aerial(-V, dist * 0.001, aL, aT);
-  col = col * aT + aL;
-  col = applyFog(col, -V, dist);
-  oColor = vec4(col, uAlpha);
+  col = col * aT + aL * aG;
+  col = applyFog(col, -V, dist) - applyFog(vec3(0.0), -V, dist) * (1.0 - aG);
+  oColor = vec4(col, aG * uAlpha);
 }`;
 
 // Ambient occlusion for a mesh drawn in its own space: a top-down map of the highest surface above
@@ -438,7 +443,19 @@ export class MeshPass {
     if (useAo) { p.set('uAoTex', mesh.ao); p.set('uAoRect', AO_RECT); }
     if (alpha < 1) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
     gl.bindVertexArray(mesh.vao);
+    // boats: the glass is drawn last, blended, so the cockpit shows through the windscreen
+    const split = ao && !float && alpha >= 1;
+    p.set('uGlassMode', split ? 1 : 0);
     gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
+    if (split) {
+      p.set('uGlassMode', 2);
+      gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+      p.set('uGlassMode', 0);
+    }
     gl.bindVertexArray(null);
     if (alpha < 1) gl.disable(gl.BLEND);
   }
