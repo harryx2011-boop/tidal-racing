@@ -9,7 +9,8 @@ const DITHER = 'background-size: 4em 4em; background-attachment: fixed; image-re
 export const HUD_CSS = `
 #ui { position: fixed; inset: 0; pointer-events: none; user-select: none; line-height: 0; color: ${PAPER}; }
 #ui .hide { display: none !important; }
-#ui button { appearance: none; -webkit-appearance: none; border: 0; margin: 0; padding: 0; background: none; font: inherit; color: inherit; cursor: pointer; pointer-events: auto; box-sizing: border-box; display: block; }
+/* (:where keeps the reset at zero specificity, so the classes below win) */
+:where(#ui) button { appearance: none; -webkit-appearance: none; border: 0; margin: 0; padding: 0; background: none; font: inherit; color: inherit; cursor: pointer; pointer-events: auto; box-sizing: border-box; display: block; }
 #ui button:focus-visible, #ui input:focus-visible { outline: 1em solid ${ACCENT}; outline-offset: 1em; }
 #ui .col { display: flex; flex-direction: column; }
 #ui .wrap { position: absolute; inset: 0; display: grid; place-items: center; }
@@ -37,12 +38,12 @@ export const HUD_CSS = `
 .plate::before { left: calc(100% + 2em); top: 3em; bottom: -5em; width: 4em; }
 .plate::after { top: calc(100% + 2em); left: 3em; right: -2em; height: 4em; }
 .lbl { margin-top: 3em; }
-.btn { background: ${INK}; border: 1em solid ${PAPER}; padding: 3em 4em; display: grid !important; place-items: center; }
+.btn { background: ${INK}; border: 1em solid ${PAPER}; padding: 3em 4em; display: grid; place-items: center; }
 .btn:hover { background-image: var(--dp5); ${DITHER} }
 .btn.sel { background: ${PAPER}; }
 .btn.sel px-t { filter: invert(1); }
 .btn.left { place-items: start; gap: 2em; padding: 4em 5em; }
-.go { background: ${ACCENT}; border: 1em solid ${INK}; outline: 1em solid ${PAPER}; padding: 5em 4em; margin: 2em 1em; display: grid !important; place-items: center; }
+.go { background: ${ACCENT}; border: 1em solid ${INK}; outline: 1em solid ${PAPER}; padding: 5em 4em; margin: 2em 1em; display: grid; place-items: center; }
 .go:hover { background: ${PAPER}; }
 .go:active { background-image: var(--dp8); ${DITHER} }
 .seg { display: flex; gap: 2em; flex: 1; }

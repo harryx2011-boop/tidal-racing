@@ -60,8 +60,9 @@ export function driverGeo() {
   limb(g, [[0.085, 0.8, -0.09], [0.125, 0.8, 0], [0.085, 0.8, 0.09]], [0.045, 0.05, 0.045], VISOR, [MAT.GLASS, 0, 0], 8);
   for (const s of [-1, 1]) {
     // arms: shoulder, elbow, hand on the wheel
-    limb(g, [[-0.04, 0.52, 0.2 * s], [0.14, 0.33, 0.25 * s], [0.4, 0.42, 0.16 * s]], [0.06, 0.05, 0.042], SUIT, cloth);
-    ball(g, [0.44, 0.43, 0.15 * s], 0.05, GLOVE, [MAT.RUBBER, 0, 0]);
+    // (the wheel hub is 0.65 ahead of and 0.31 above the hip; the hands hold its rim)
+    limb(g, [[-0.04, 0.52, 0.2 * s], [0.26, 0.35, 0.25 * s], [0.55, 0.36, 0.17 * s]], [0.06, 0.05, 0.042], SUIT, cloth);
+    ball(g, [0.59, 0.36, 0.16 * s], 0.05, GLOVE, [MAT.RUBBER, 0, 0]);
     // legs: hip, knee, ankle, then the foot
     limb(g, [[0.02, 0.0, 0.1 * s], [0.44, 0.04, 0.12 * s], [0.56, -0.4, 0.12 * s]], [0.085, 0.065, 0.048], SUIT, cloth);
     limb(g, [[0.55, -0.43, 0.12 * s], [0.72, -0.44, 0.12 * s]], [0.05, 0.045], GLOVE, [MAT.RUBBER, 0, 0], 8);

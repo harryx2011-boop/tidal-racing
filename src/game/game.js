@@ -2,7 +2,8 @@
 // it calls update() once the sea has advanced and draw() inside the main pass, after the water.
 import { clamp, smoothstep } from '../math.js';
 import { MeshPass } from './mesh.js';
-import { boatGeo } from './models/boat.js';
+import { boatGeo, BOAT_ANCHORS } from './models/boat.js';
+import { driverGeo } from './models/driver.js';
 import { buoyGeo } from './models/buoy.js';
 import { MultiProbe } from './probe.js';
 import { Boat } from './boat.js';
@@ -17,6 +18,11 @@ const SEA_T0 = 60;             // every race starts at the same sea time: identi
 const GHOST_HZ = 10;
 const GHOST_LIVERY = { color: [0.6, 0.8, 1], stripe: 0, number: 0 };
 const PORT = [0.9, 0.06, 0.04], STBD = [0.05, 0.75, 0.16];
+// move a model matrix's origin to a point given in the model's own space (in place)
+function attach(m, p) {
+  for (let i = 0; i < 3; i++) m[12 + i] += m[i] * p[0] + m[4 + i] * p[1] + m[8 + i] * p[2];
+  return m;
+}
 const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 const store = {
@@ -49,6 +55,7 @@ export class Game {
     this.meshes = new MeshPass(gl);
     this.boatMesh = boatGeo().build(gl);
     this.buoyMesh = buoyGeo().build(gl);
+    this.driverMesh = driverGeo().build(gl);
     this.probe = new MultiProbe(gl);
     this.boat = new Boat();
     this.ghostBoat = new Boat();
@@ -206,7 +213,9 @@ export class Game {
     c.fov = this.fov;
     c.tilt = 0;
     if (this.state !== 'menu' && this.camMode === 'helm') {
-      c.pos = [boat.pos[0] + X[0] * 1.3 + Y[0] * 2.05, boat.pos[1] + X[1] * 1.3 + Y[1] * 2.05, boat.pos[2] + X[2] * 1.3 + Y[2] * 2.05];
+      // the driver's eye, raised a hand so the view clears the top of the windscreen
+      const { Z } = boat.axes(), e = BOAT_ANCHORS.eye, ex = e[0] + 0.1, ey = e[1] + 0.2, ez = e[2];
+      c.pos = [0, 1, 2].map((i) => boat.pos[i] + X[i] * ex + Y[i] * ey + Z[i] * ez);
       c.yaw = boat.yaw; c.pitch = boat.pitch * 0.6 - 0.05; c.roll = -boat.roll * 0.7;
       this.camYaw = boat.yaw; this.camY = boat.pos[1];
     } else {
@@ -274,6 +283,9 @@ export class Game {
     for (const b of this.renderBoats()) {
       if (b.ghost) continue;
       m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery });
+      // the driver sits at the helm; from the helm camera your own driver would be in your face
+      if (b.pose === this.boat && this.camMode === 'helm' && this.state !== 'menu') continue;
+      m.draw(this.driverMesh, attach(mat, BOAT_ANCHORS.helm), { tint: b.livery.color });
     }
     for (const s of this.systems) s.draw?.(scene, m);
     // translucent last
