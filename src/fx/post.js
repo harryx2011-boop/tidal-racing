@@ -120,6 +120,16 @@ uniform float uManualExposure;
 uniform float uFade;
 uniform float uNight;
 uniform vec2 uLook2;   // x: highlight contrast, y: saturation in log space (before the curve)
+#ifdef RADIAL
+uniform float uRadial;  // 0..1: speed (strongest under boost)
+// A non-finite or overflowed tap is treated as in the main sample below.
+vec3 tap(vec2 uv) {
+  vec3 v = texture(uHdr, uv).rgb;
+  if (any(isnan(v))) return vec3(0.0);
+  if (any(isinf(v)) || !(abs(v.x) + abs(v.y) + abs(v.z) < 1e9)) return vec3(60000.0);
+  return v;
+}
+#endif
 
 vec3 agxContrast(vec3 x) {
   vec3 x2 = x * x, x4 = x2 * x2;
@@ -165,6 +175,26 @@ void main() {
   // (an overflowed pixel is a bright one; a NaN pixel is dropped)
   if (any(isnan(hdr))) hdr = vec3(0.0);
   else if (any(isinf(hdr)) || !(abs(hdr.x) + abs(hdr.y) + abs(hdr.z) < 1e9)) hdr = vec3(60000.0);
+#ifdef RADIAL
+  {
+    // Radial blur toward the screen edges: each pixel is averaged along the line to the centre.
+    // The mask is zero inside 45% of the corner distance (the boat sits at the bottom centre), so
+    // the middle of the frame stays sharp. At full strength the smear reaches 11% of the way to
+    // the centre at the corners (5.5% on average along the taps).
+    vec2 d0 = vUv - 0.5;
+    float r = length(d0) * 1.41421;
+    float m = uRadial * smoothstep(0.45, 1.0, r);
+    if (m > 0.002) {
+      vec3 acc = hdr;
+      const int N = 8;
+      for (int i = 1; i <= N; i++) {
+        float k = float(i) / float(N);
+        acc += tap(vUv - d0 * (0.11 * m * k));
+      }
+      hdr = acc / float(N + 1);
+    }
+  }
+#endif
   vec3 bloom = texture(uBloom, vUv).rgb;
   vec3 c = mix(hdr, bloom, uBloomStrength);
   vec4 adapt = texelFetch(uAdapt, ivec2(0), 0);
@@ -197,6 +227,9 @@ export class Post {
     this.pLum = new Program(gl, FULLSCREEN_VS, LUM_FS, { label: 'lum' });
     this.pAdapt = new Program(gl, FULLSCREEN_VS, ADAPT_FS, { label: 'adapt' });
     this.pComp = new Program(gl, FULLSCREEN_VS, COMPOSITE_FS, { label: 'composite' });
+    // the radial-blur variant is a separate program, used only on frames that blur: at strength 0
+    // the plain composite runs and the blur costs nothing (not even a branch)
+    this.pCompRadial = new Program(gl, FULLSCREEN_VS, COMPOSITE_FS, { label: 'composite.radial', defines: { RADIAL: 1 } });
     this.lum = new Texture(gl, { w: 256, h: 256, format: 'rgba16f', mips: true });
     this.lumTarget = new Target(gl, [this.lum]);
     this.adapt = [0, 1].map(() => new Texture(gl, { w: 1, h: 1, format: 'rgba32f', filter: 'nearest' }));
@@ -245,7 +278,9 @@ export class Post {
     }, this.adaptTargets[next]);
     this.adaptCur = next;
 
-    fullscreen(gl, this.pComp, {
+    const radial = opts.radial ?? 0;
+    fullscreen(gl, radial > 0.004 ? this.pCompRadial : this.pComp, {
+      uRadial: radial,
       uHdr: hdr,
       uBloom: this.levels[0].tex,
       uAdapt: this.adapt[this.adaptCur],

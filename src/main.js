@@ -15,17 +15,37 @@ import { Profiler } from './profiler.js';
 import { AudioEngine } from './audio/audio.js';
 import { Game } from './game/game.js';
 import { HUD_CSS } from './game/hud.js';
+import { settings } from './game/settings.js';
+import { Governor, PerfOverlay, PERF_CSS, MAX_RUNG } from './perf.js';
 
 const params = new URLSearchParams(location.search);
 const mixv = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
-// Quality tiers (?q=low|medium|high). medium targets a gaming PC; low keeps integrated GPUs
-// interactive; high is the reference engine's film setting.
+// Quality tiers (?q=low|medium|high, or the saved setting; ?q wins). medium targets a gaming PC;
+// low keeps integrated GPUs interactive; high is the reference engine's film setting.
+//
+// Default tier and start scale for the target (RTX 2070 Super, 1080p, 60 fps = 16.6 ms). Nothing
+// has been measured on that card yet, so this is reasoning, not data:
+//  - medium, not high. The cloud raymarch is the one cost that scales with the pixel count and
+//    the step count: `high` runs it at full resolution (4x the pixels of cloudDiv 2) with 96
+//    steps instead of 80 and 6 light steps, roughly 5x the cloud cost of medium. The 2070 Super
+//    (about 9 TFLOPS, 448 GB/s) has no spare 5x on top of the sea FFT, the boat and the post
+//    chain, so high stays an opt-in for the owner to try. low's 256/128 FFT bands are for
+//    integrated GPUs; this card can afford medium's 512/256.
+//  - MSAA 4 on an rgba16f target at 1080p is about 66 MB of colour: bandwidth-bound but
+//    affordable, and it is the only anti-aliasing there is. It cannot be changed live, so it stays.
+//  - Start scale 1.0: native 1920x1080 on a 1x display. The page is never rendered above 1
+//    pixel per CSS pixel (a 2x display gets 1x), because supersampling is the first thing
+//    to give up and nobody should pay for it unasked. The governor only goes below 1, and
+//    only after the three effect levels (spray, water shadow, boat shadows) are at 0.
+const DEFAULT_TIER = 'medium';
 const QUALITY = {
   low: { cloudDiv: 2, detailFoot: 50, steps: 80, lightSteps: 5, lightDetail: 2, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400, upSteps: 2 },
   medium: { cloudDiv: 2, detailFoot: 50, steps: 80, lightSteps: 5, lightDetail: 2, blend: 0.14, msaa: 4, hdr: 'rgba16f', check: true, fft: [512, 256, 256, 256], angular: 640, upSteps: 2 },
   high: { cloudDiv: 1, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.08, msaa: 4, hdr: 'rgba16f', check: false, fft: [512, 256, 256, 256], angular: 640, upSteps: 4 },
 };
-const Q = QUALITY[params.get('q')] || QUALITY.medium;
+const TIER = settings.tier(params.get('q'), DEFAULT_TIER);
+settings.active = TIER;
+const Q = QUALITY[TIER];
 
 export class App {
   constructor(canvas) {
@@ -64,7 +84,7 @@ export class App {
     // Effect levels 0..1, lowered by the frame-rate governor before resolution is touched.
     this.fx = { spray: 1, shadows: 1, waterShadow: 1 };
     this.time = Number(params.get('t') || 0);
-    this.scale = Number(params.get('scale') || Math.min(window.devicePixelRatio || 1, 1.5));
+    this.scale = Number(params.get('scale') || Math.min(window.devicePixelRatio || 1, 1));
     this.msaa = Number(params.get('msaa') || Q.msaa);
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -316,7 +336,7 @@ export class App {
     // how much of the frame a storm fills (overhead, or a squall line in view)
     const stormView = Math.max(smoothstep(0.7, 0.9, L.clouds) * smoothstep(0.4, 0.8, L.dark), fOn ? smoothstep(15000, 3000, S.frontDist) : 0);
     this.post.run(this.hdr, dt, {
-      time: t, bloom: 0.012 + 0.006 * backlit + 0.01 * (night ? 1 : 0), // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
+      time: t, radial: this.radialForce ?? this.game?.blur ?? 0, bloom: 0.012 + 0.006 * backlit + 0.01 * (night ? 1 : 0), // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
       exposureBias: Number(params.get('ev') || 0) - 0.7 * backlit - 1.0 * L.dark * L.dark * (0.4 + 0.6 * L.rain) + 0.8 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev) + 0.1 * smoothstep(0.8, 0.95, L.clouds) * (1 - smoothstep(0.4, 0.6, L.dark)) * (1 - L.rain),
       skyU, cloudShadow: this.clouds.shadow, incident: 0.65 * (1 - backlit) * (1 - 0.7 * stormView), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : (0.1 * smoothstep(0.25, 0.6, L.clouds) + 0.35 * smoothstep(0.8, 0.95, L.clouds)) * (1 - backlit) * (night ? 0 : 1), night: night ? 1 : 0,
       look: params.has('look') ? params.get('look').split(',').map(Number) : night ? [1.35, 0.4, 1.0, 0.004] : mixv([1.5, 0.4, 1.0, 0.004], [1.6, 0.36, 0.95, 0.03], stormView),
@@ -343,7 +363,9 @@ try {
 const audio = {
   engine: new AudioEngine(),
   ctx: null,
+  muted: settings.muted,
   async enable(on) {
+    if (this.muted) on = false;
     if (on && !this.ctx) {
       this.ctx = new AudioContext({ latencyHint: 'playback' });
       await this.engine.init(this.ctx);
@@ -367,27 +389,63 @@ const audio = {
 };
 
 const style = document.createElement('style');
-style.textContent = HUD_CSS;
+style.textContent = HUD_CSS + PERF_CSS;
 document.head.appendChild(style);
+audio.engine.volume = settings.volume;
 app.game = new Game(app, audio);
+app.game.livery = settings.livery();
 
 let last = performance.now();
-// dynamic resolution: hold 60 fps, sharpen when there is headroom
-let avg = 1 / 60, settle = 0;
-const maxScale = params.has('scale') ? app.scale : Math.min(window.devicePixelRatio || 1, 1.5);
+// Governor: holds 60 fps by giving up spray, water shadow, boat shadows and only then
+// resolution (see perf.js). Off, the manual levels from the settings panel apply.
+const maxScale = app.scale;
+const gov = (app.gov = new Governor({ maxRung: params.has('scale') ? 9 : MAX_RUNG }));
+app.fixedGovernor = params.has('scale');
+const perf = (app.perf = new PerfOverlay(app, gov, settings, { open: params.has('stats') }));
+const applyLevels = () => {
+  const lv = gov.levels();
+  app.fx.spray = lv.spray; app.fx.waterShadow = lv.waterShadow; app.fx.shadows = lv.shadows;
+  const s = maxScale * lv.scale;
+  if (!params.has('scale') && Math.abs(s - app.scale) > 0.005) { app.scale = s; app.resize(); }
+};
+const applyManual = () => {
+  Object.assign(app.fx, settings.fx);
+  if (!params.has('scale') && app.scale !== maxScale) { app.scale = maxScale; app.resize(); }
+};
+if (!settings.auto) applyManual();
+settings.onChange((S, patch) => {
+  if ('volume' in patch) audio.engine.setVolume(S.volume);
+  if ('muted' in patch && audio.muted !== S.muted) { audio.muted = S.muted; audio.enable(!S.muted).catch(() => {}); }
+  if ('swatch' in patch || 'stripe' in patch || 'number' in patch) app.game.livery = S.livery();
+  if ('auto' in patch || 'fx' in patch) {
+    if (S.auto) { if ('auto' in patch) { gov.rung = 0; gov.restart(5); applyLevels(); } }
+    else applyManual();
+  }
+});
+let lastState = app.game.state;
+// one governor step with the real frame time (s); active is false while paused or hidden
+app.govern = (raw, active) => {
+  const st = app.game.state;
+  if (st !== lastState) {
+    // a race starting is a burst of first-use work (new weather, shaders, targets)
+    if (st === 'countdown' || st === 'racing') gov.restart(st === 'countdown' ? 5 : 3);
+    lastState = st;
+  }
+  if (!settings.auto) return;
+  if (gov.tick(raw, { active, gpuMs: perf.open ? perf.gpuTotal() : null })) applyLevels();
+};
 const loop = (now) => {
-  const dt = Math.min((now - last) / 1000, 0.1);
+  const raw = (now - last) / 1000;
+  const dt = Math.min(raw, 0.1);
   last = now;
   requestAnimationFrame(loop);
+  const idle = app.game.paused || document.hidden;
+  app.govern(raw, !idle);
   // paused: the sea, the clock and the race all stand still (the last frame stays on screen)
   if (app.game.paused) { app.game.update(0, null); return; }
   app.frame(Math.max(dt, 1e-3));
   audio.update(app);
-  avg += (dt - avg) * 0.05;
-  if (!params.has('scale') && (settle += dt) > 2.5 && !document.hidden) {
-    const next = avg > 1 / 48 ? Math.max(app.scale * 0.88, 0.5) : avg < 1 / 57 ? Math.min(app.scale * 1.06, maxScale) : app.scale;
-    if (Math.abs(next - app.scale) > 0.02) { app.scale = next; app.resize(); settle = 0; }
-  }
+  if (!document.hidden && raw < 0.5) perf.frame(raw);
 };
 // ?manual: tests drive frames themselves with app.frame(dt)
 if (!params.has('manual')) requestAnimationFrame(loop);

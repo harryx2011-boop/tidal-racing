@@ -9,6 +9,7 @@ import { Boat } from './boat.js';
 import { Input } from './input.js';
 import { COURSES, CONDITIONS, Progress, grid, rollConditions } from './courses.js';
 import { HUD } from './hud.js';
+import { settings } from './settings.js';
 
 const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
@@ -226,6 +227,33 @@ export class Game {
       c.roll = -boat.roll * 0.12;
     }
     c.base = [c.pos[0], c.pos[2]];
+    this.speedEffects(dt, c, boat);
+  }
+
+  // Speed effects (setting "speed effects"): a little camera shake and the radial blur strength
+  // that post.js reads as this.blur. Both are smooth functions of speed, boost and the last
+  // landing; the shake is a sum of incommensurate sines of sea time, so it does not depend on
+  // the frame rate and is not white noise. Amplitudes stay under a quarter of a degree (about 0.2 degrees at full boost).
+  speedEffects(dt, c, boat) {
+    const on = settings.speedFx && this.state !== 'menu';
+    const sp = boat.speed, k = (r) => 1 - Math.exp(-dt * r);
+    this.boostFx = (this.boostFx || 0) + ((boat.boosting ? 1 : 0) - (this.boostFx || 0)) * k(boat.boosting ? 6 : 2.5);
+    // a landing (boat.slam peaks near 0.3) kicks the camera, then it settles over ~0.4 s
+    this.kick = Math.max((this.kick || 0) - dt * 2.5, Math.min(boat.slam / 0.15, 1));
+    const fast = smoothstep(14, 44, sp);
+    const target = on ? Math.min(fast * 0.45 + this.boostFx * 0.55, 1) * (boat.wet > 0.3 ? 1 : 0.6) : 0;
+    this.blur = (this.blur || 0) + (target - (this.blur || 0)) * k(4);
+    if (this.blur < 0.003) this.blur = 0;
+    const amp = on ? fast * 0.35 + this.boostFx * 0.45 : 0;
+    const kick = on ? this.kick : 0;
+    if (amp < 1e-3 && kick < 1e-3) return;
+    const t = this.app.time, n = (f, s) => Math.sin(t * f + s) * 0.6 + Math.sin(t * f * 2.31 + s * 1.7) * 0.4;
+    c.pos[0] += (n(31, 0.3) * 0.012) * amp;
+    c.pos[1] += n(37, 1.9) * 0.035 * amp - kick * 0.07;
+    c.pos[2] += (n(29, 4.1) * 0.012) * amp;
+    c.yaw += n(23, 2.2) * 0.004 * amp;
+    c.pitch += n(27, 5.3) * 0.005 * amp + kick * 0.012;
+    c.roll += n(19, 0.7) * 0.006 * amp;
   }
 
   // inside the main HDR pass, depth test on, after the water
