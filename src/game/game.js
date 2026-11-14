@@ -9,6 +9,8 @@ import { Boat } from './boat.js';
 import { Input } from './input.js';
 import { COURSES, CONDITIONS, Progress, grid, rollConditions } from './courses.js';
 import { HUD } from './hud.js';
+import { BoatShadow } from './shadow.js';
+import { Lights } from './lights.js';
 
 const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
@@ -58,6 +60,8 @@ export class Game {
     //   seaOffset(x, z, s)
     // See docs/BRIEF_VISUAL_UPGRADE.md. Register one per line so merges stay trivial.
     this.systems = [];
+    this.systems.push(new BoatShadow(this));
+    this.systems.push(new Lights(this));
     this.state = 'menu';        // menu | countdown | racing | finished
     this.paused = false;
     this.camMode = 'chase';
