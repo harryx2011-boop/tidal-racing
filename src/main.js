@@ -61,6 +61,8 @@ export class App {
       pitch: Number(params.get('pitch') ?? 1.5) * Math.PI / 180,
       fov: Number(params.get('fov') || 42) * Math.PI / 180,
     };
+    // Effect levels 0..1, lowered by the frame-rate governor before resolution is touched.
+    this.fx = { spray: 1, shadows: 1, waterShadow: 1 };
     this.time = Number(params.get('t') || 0);
     this.scale = Number(params.get('scale') || Math.min(window.devicePixelRatio || 1, 1.5));
     this.msaa = Number(params.get('msaa') || Q.msaa);
@@ -245,6 +247,8 @@ export class App {
     const rrs = mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], 0.8 * smoothstep(5, 24, S.wind)), [0.0013, 0.0024, 0.0025], smoothstep(0.1, 0.8, L.rain));
     this.sky.renderEnv({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1, uEnvRrs: rrs });
 
+    this.game?.prePass({ sunDir: sun, night });
+
     // main HDR pass
     P.section('sky');
     this.ms.bind();
@@ -276,6 +280,7 @@ export class App {
         ? [this.lightning.ground[0], this.lightning.ground[1], this.lightning.ground[2], this.lightning.bolt * 2600 * (this.boltT ?? 1)] : [0, 0, 0, 0],
       uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 10) / 8, 0), 1), uDebug: 0,
     };
+    Object.assign(this.waterUniforms, this.game?.waterUniforms());
     this.water.draw(this.waterUniforms);
     this.game?.draw(this.waterUniforms);
 
@@ -300,6 +305,7 @@ export class App {
       viewport: [this.w, this.h], env: this.sky.env, flash: flashRGB, drift: this.rainDrift,
       disp: ot.disp.slice(0, 3), sizes: ot.sizes,
     });
+    this.game?.drawTransparent(this.waterUniforms);
     gl.disable(gl.DEPTH_TEST);
     this.ms.resolve(this.hdrTarget);
 

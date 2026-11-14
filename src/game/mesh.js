@@ -1,132 +1,14 @@
-// Procedural meshes (boat, buoys) and the lit mesh pass. Everything is generated in code and lit
-// by the same sun, sky, haze and fog as the sea, so objects sit in the scene.
-import { Program, makeMesh } from '../gl.js';
+// The lit mesh pass. Objects are lit by the same sun, sky, haze and fog as the sea, so they sit
+// in the scene. Vertex format and material ids: see geo.js.
+import { Program } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
-
-// Triangle soup builder. Per vertex: position, normal, colour, material (gloss, tint weight, glow).
-export class Geo {
-  constructor() { this.p = []; this.n = []; this.c = []; this.m = []; }
-  tri(a, b, c, na, nb, nc, col, mat) {
-    this.p.push(...a, ...b, ...c);
-    this.n.push(...na, ...nb, ...nc);
-    for (let i = 0; i < 3; i++) { this.c.push(...col); this.m.push(...mat); }
-  }
-  quad(a, b, c, d, col, mat, n) {
-    n = n || norm(cross(sub(b, a), sub(d, a)));
-    this.tri(a, b, c, n, n, n, col, mat);
-    this.tri(a, c, d, n, n, n, col, mat);
-  }
-  // rows x cols grid of points with smooth normals (pts[i][j]); out: a point the surface faces away from
-  grid(pts, col, mat, out) {
-    const R = pts.length, C = pts[0].length;
-    const nrm = pts.map((row, i) => row.map((P, j) => {
-      const du = sub(pts[Math.min(i + 1, R - 1)][j], pts[Math.max(i - 1, 0)][j]);
-      const dv = sub(pts[i][Math.min(j + 1, C - 1)], pts[i][Math.max(j - 1, 0)]);
-      let n = norm(cross(du, dv));
-      if (out && dot(n, sub(P, out(P))) < 0) n = [-n[0], -n[1], -n[2]];
-      return n;
-    }));
-    for (let i = 0; i < R - 1; i++)
-      for (let j = 0; j < C - 1; j++) {
-        this.tri(pts[i][j], pts[i + 1][j], pts[i + 1][j + 1], nrm[i][j], nrm[i + 1][j], nrm[i + 1][j + 1], col, mat);
-        this.tri(pts[i][j], pts[i + 1][j + 1], pts[i][j + 1], nrm[i][j], nrm[i + 1][j + 1], nrm[i][j + 1], col, mat);
-      }
-  }
-  // convex box from 4 bottom and 4 top corners (same winding order)
-  hexa(b, t, col, mat) {
-    const mid = b.concat(t).reduce((s, p) => add(s, p), [0, 0, 0]).map((x) => x / 8);
-    const face = (a, c, d, e) => {
-      let n = norm(cross(sub(c, a), sub(e, a)));
-      if (dot(n, sub(a, mid)) < 0) n = [-n[0], -n[1], -n[2]];
-      this.quad(a, c, d, e, col, mat, n);
-    };
-    face(b[0], b[1], b[2], b[3]); face(t[0], t[1], t[2], t[3]);
-    for (let i = 0; i < 4; i++) face(b[i], b[(i + 1) % 4], t[(i + 1) % 4], t[i]);
-  }
-  box(x0, x1, y0, y1, z0, z1, col, mat) {
-    this.hexa([[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], col, mat);
-  }
-  // surface of revolution about the y axis through (cx, cz): profile [[r, y], ...]
-  lathe(profile, col, mat, segs = 20, cx = 0, cz = 0) {
-    const pts = profile.map(([r, y]) => Array.from({ length: segs + 1 }, (_, k) => {
-      const a = (k / segs) * 2 * Math.PI;
-      return [cx + Math.cos(a) * r, y, cz + Math.sin(a) * r];
-    }));
-    this.grid(pts, col, mat, (P) => [cx, P[1], cz]);
-  }
-  build(gl) {
-    const mesh = makeMesh(gl, [[new Float32Array(this.p), 3], [new Float32Array(this.n), 3], [new Float32Array(this.c), 3], [new Float32Array(this.m), 3]]);
-    mesh.count = this.p.length / 3;
-    return mesh;
-  }
-}
-const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
-
-// A 9 m planing powerboat. Local axes: x forward, y up, z starboard; y = 0 is the design waterline.
-export function boatGeo() {
-  const g = new Geo();
-  const WHITE = [0.82, 0.83, 0.84], DECK = [0.62, 0.58, 0.5], GLASS = [0.02, 0.03, 0.04], BLACK = [0.03, 0.03, 0.035], TRIM = [0.75, 0.76, 0.78];
-  const n = 32;
-  const sec = [];
-  for (let i = 0; i <= n; i++) {
-    const u = i / n, x = -4.2 + 9.0 * u;
-    const tb = Math.max(0, (u - 0.42) / 0.58);
-    const b = 1.3 * Math.pow(Math.max(1 - tb * tb, 0), 0.8) * (0.9 + 0.1 * Math.min(u / 0.25, 1));
-    const sheer = 0.72 + 0.38 * u * u;
-    const tk = Math.max(0, (u - 0.62) / 0.38);
-    const keel = -0.42 + tk * tk * tk * (sheer + 0.4);
-    const chine = keel + (sheer - keel) * 0.36;
-    sec.push({ x, b, sheer, pts: [[-b, sheer], [-b * 0.88, chine], [0, keel], [b * 0.88, chine], [b, sheer]] });
-  }
-  const P = (i, j) => [sec[i].x, sec[i].pts[j][1], sec[i].pts[j][0]];
-  const centre = (p) => [p[0], 0.25, 0];
-  for (let j = 0; j < 4; j++) {
-    const side = j === 0 || j === 3;
-    // hard chines: each longitudinal strake is its own smooth strip
-    g.grid(sec.map((_, i) => [P(i, j), P(i, j + 1)]), WHITE, side ? [0.75, 1, 0] : [0.5, 0, 0], centre);
-  }
-  // deck, slightly inset, and a rub rail
-  g.grid(sec.map((s) => [[s.x, s.sheer, -s.b], [s.x, s.sheer + 0.02, 0], [s.x, s.sheer, s.b]]), DECK, [0.15, 0, 0], (p) => [p[0], -5, 0]);
-  // transom
-  const t = sec[0].pts.map(([z, y]) => [sec[0].x, y, z]);
-  for (let j = 1; j < 4; j++) g.tri(t[0], t[j], t[j + 1], [-1, 0, 0], [-1, 0, 0], [-1, 0, 0], WHITE, [0.5, 1, 0]);
-  // cabin: a raked wedge with dark glass
-  const sh = (x) => 0.72 + 0.38 * Math.pow((x + 4.2) / 9, 2);
-  g.hexa(
-    [[-1.3, sh(-1.3), -0.95], [1.9, sh(1.9), -0.8], [1.9, sh(1.9), 0.8], [-1.3, sh(-1.3), 0.95]],
-    [[-1.0, 1.72, -0.78], [0.7, 1.66, -0.66], [0.7, 1.66, 0.66], [-1.0, 1.72, 0.78]], GLASS, [1, 0, 0]);
-  g.box(-1.15, 0.8, 1.7, 1.76, -0.84, 0.84, WHITE, [0.7, 1, 0]);
-  // engine cowls and a low spoiler
-  for (const z of [-0.5, 0.5]) {
-    g.hexa([[-4.75, 0.05, z - 0.2], [-4.15, 0.05, z - 0.2], [-4.15, 0.05, z + 0.2], [-4.75, 0.05, z + 0.2]],
-      [[-4.7, 1.12, z - 0.17], [-4.2, 1.2, z - 0.17], [-4.2, 1.2, z + 0.17], [-4.7, 1.12, z + 0.17]], BLACK, [0.8, 0, 0]);
-    g.box(-4.6, -4.4, -0.75, 0.05, z - 0.05, z + 0.05, BLACK, [0.3, 0, 0]);
-  }
-  g.box(-3.7, -3.2, 1.25, 1.31, -1.05, 1.05, TRIM, [0.7, 1, 0]);
-  for (const z of [-0.95, 0.95]) g.box(-3.55, -3.35, 0.75, 1.25, z - 0.04, z + 0.04, BLACK, [0.5, 0, 0]);
-  return g;
-}
-
-// A race mark: floating drum, mast and a glowing top mark. Tinted per side (port red, starboard green).
-export function buoyGeo() {
-  const g = new Geo();
-  g.lathe([[0.0, -0.9], [0.95, -0.7], [1.05, 0.0], [0.95, 0.55], [0.35, 0.8], [0.0, 0.8]], [1, 1, 1], [0.45, 1, 0], 18);
-  g.lathe([[0.09, 0.7], [0.07, 7.0]], [0.7, 0.7, 0.7], [0.5, 0, 0], 8);
-  const ball = [];
-  for (let i = 0; i <= 8; i++) { const a = (i / 8) * Math.PI; ball.push([Math.sin(a) * 0.6, 7.3 - Math.cos(a) * 0.6]); }
-  g.lathe(ball, [1, 1, 1], [0.3, 1, 1], 14);
-  return g;
-}
 
 const VS = `
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aN;
 layout(location = 2) in vec3 aCol;
 layout(location = 3) in vec3 aMat;
+layout(location = 4) in vec2 aUV;
 uniform mat4 uModel;
 uniform mat4 uViewProj;
 uniform vec3 uCamPos;
@@ -138,6 +20,9 @@ out vec3 vWorld;
 out vec3 vN;
 out vec3 vCol;
 out vec3 vMat;
+out vec3 vObj;   // model-space position
+out vec3 vObjN;  // model-space normal
+out vec2 vUV;
 vec3 dispAt(vec2 xz) {
   // (waves shorter than ~2 m do not move a 2 m drum)
   vec3 D = textureLod(uDisp[0], xz / uSize[0], max(1.0 - log2(uTexel[0]), 0.0)).xyz;
@@ -163,7 +48,7 @@ void main() {
   }
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
-  vWorld = P; vN = N; vCol = aCol; vMat = aMat;
+  vWorld = P; vN = N; vCol = aCol; vMat = aMat; vObj = aPos; vObjN = aN; vUV = aUV;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
@@ -172,6 +57,9 @@ in vec3 vWorld;
 in vec3 vN;
 in vec3 vCol;
 in vec3 vMat;
+in vec3 vObj;
+in vec3 vObjN;
+in vec2 vUV;
 out vec4 oColor;
 uniform vec3 uCamPos;
 uniform sampler2D uEnv;
@@ -188,7 +76,10 @@ void main() {
   vec3 N = normalize(vN);
   if (dot(N, V) < 0.0) N = -N;
   vec3 albedo = mix(vCol, vCol * uTint, vMat.y);
-  float gloss = vMat.x;
+  // placeholder look per material id: one gloss value each (gelcoat, paint, teak, upholstery,
+  // glass, metal, non-skid, rubber, light, textured)
+  const float GLOSS[10] = float[10](0.6, 0.75, 0.2, 0.1, 1.0, 0.7, 0.15, 0.4, 0.3, 0.1);
+  float gloss = GLOSS[clamp(int(vMat.x + 0.5), 0, 9)];
   vec3 sunE = sunIlluminance(), skyE = skyIrradiance();
   vec2 suv = (vWorld.xz - uShaftRect.xy) * uShaftRect.zw;
   float sunVis = mix(uHazeSun, texture(uShaftShadow, suv).r, smoothstep(0.0, 0.04, min(min(suv.x, suv.y), min(1.0 - suv.x, 1.0 - suv.y))));
@@ -225,7 +116,8 @@ export class MeshPass {
   begin(scene) {
     this.prog.use(scene);
   }
-  draw(mesh, model, { tint = [1, 1, 1], glow = 0, alpha = 1, float = 0 } = {}) {
+  // livery: { color, stripe, number } (boats); texture: base colour for MAT.TEXTURED surfaces
+  draw(mesh, model, { tint = [1, 1, 1], glow = 0, alpha = 1, float = 0, livery = null, texture = null } = {}) {
     const gl = this.gl;
     const p = this.prog;
     p.set('uModel', model); p.set('uTint', tint); p.set('uGlow', glow); p.set('uAlpha', alpha); p.set('uFloat', float);

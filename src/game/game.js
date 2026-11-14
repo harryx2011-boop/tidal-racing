@@ -1,7 +1,9 @@
 // The race: boat, camera, gates, laps, ghost and best times. The engine (App) owns the frame;
 // it calls update() once the sea has advanced and draw() inside the main pass, after the water.
 import { clamp, smoothstep } from '../math.js';
-import { MeshPass, boatGeo, buoyGeo } from './mesh.js';
+import { MeshPass } from './mesh.js';
+import { boatGeo } from './models/boat.js';
+import { buoyGeo } from './models/buoy.js';
 import { MultiProbe } from './probe.js';
 import { Boat } from './boat.js';
 import { Input } from './input.js';
@@ -12,6 +14,7 @@ const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
 const SEA_T0 = 60;             // every race starts at the same sea time: identical waves, fair ghosts
 const GHOST_HZ = 10;
+const GHOST_LIVERY = { color: [0.6, 0.8, 1], stripe: 0, number: 0 };
 const PORT = [0.9, 0.06, 0.04], STBD = [0.05, 0.75, 0.16];
 const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
 
@@ -49,7 +52,12 @@ export class Game {
     this.boat = new Boat();
     this.ghostBoat = new Boat();
     this.input = new Input();
-    this.color = [0.95, 0.42, 0.05];
+    this.livery = { color: [0.95, 0.42, 0.05], stripe: 0, number: 7 };
+    // Visual systems (wake, shadows, lights, ...). Each may implement any of:
+    //   update(dt, ot)  prePass(light)  waterUniforms()  draw(scene, meshes)  drawTransparent(scene)
+    //   seaOffset(x, z, s)
+    // See docs/BRIEF_VISUAL_UPGRADE.md. Register one per line so merges stay trivial.
+    this.systems = [];
     this.state = 'menu';        // menu | countdown | racing | finished
     this.paused = false;
     this.camMode = 'chase';
@@ -60,6 +68,8 @@ export class Game {
     this.sea = (i, x, z) => {
       const r = this.probe.result[i], s = this.sample;
       s.h = this.probe.heightAt(i, x, z); s.sx = r.sx; s.sz = r.sz;
+      // systems may add to the sea the hull feels (boat wakes): seaOffset(x, z, s) adds to s.h, s.sx, s.sz
+      for (const sy of this.systems) sy.seaOffset?.(x, z, s);
       return s;
     };
     this.setCourse(COURSES[0]);
@@ -141,6 +151,7 @@ export class Game {
       while (this.acc >= STEP) { boat.step(STEP, inp, this.sea, drive); this.acc -= STEP; }
       if (drive) this.track(p0, dt);
     }
+    for (const s of this.systems) s.update?.(dt, ot);
     this.camera(dt, res[4]);
     this.hud.update(dt);
   }
@@ -232,7 +243,27 @@ export class Game {
         m.draw(this.buoyMesh, mat, { tint, glow, float: 1 });
       }
     });
-    m.draw(this.boatMesh, this.boat.matrix(mat), { tint: this.color });
-    if (this.ghostAt(this.raceTime)) m.draw(this.boatMesh, this.ghostBoat.matrix(mat), { tint: [0.6, 0.8, 1], alpha: 0.4 });
+    for (const b of this.renderBoats()) {
+      if (b.ghost) continue;
+      m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery });
+    }
+    for (const s of this.systems) s.draw?.(scene, m);
+    // translucent last
+    for (const b of this.renderBoats()) if (b.ghost) m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery, alpha: 0.4 });
   }
+
+  // Every boat to draw this frame: { pose (a Boat: pos, yaw, pitch, roll, vel, axes(), matrix()), livery, ghost }.
+  // Systems loop over this instead of reaching for game.boat, so rivals appear everywhere at once.
+  renderBoats() {
+    const list = [{ pose: this.boat, livery: this.livery, ghost: false }];
+    if (this.ghostAt(this.raceTime)) list.push({ pose: this.ghostBoat, livery: GHOST_LIVERY, ghost: true });
+    return list;
+  }
+
+  // before the main pass (shadow maps and the like). light: { sunDir, night }
+  prePass(light) { for (const s of this.systems) s.prePass?.(light); }
+  // extra uniforms for the sea surface shader
+  waterUniforms() { const u = {}; for (const s of this.systems) Object.assign(u, s.waterUniforms?.()); return u; }
+  // inside the main pass after rain and spray: blended particles and glows
+  drawTransparent(scene) { for (const s of this.systems) s.drawTransparent?.(scene); }
 }

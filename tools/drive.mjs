@@ -17,7 +17,7 @@ const page = await browser.newPage({ viewport: { width: +W, height: +H }, device
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') process.stderr.write('[' + m.type() + '] ' + m.text().slice(0, 2500) + '\n'); });
 page.on('pageerror', (e) => process.stderr.write('[pageerror] ' + e.message.slice(0, 3000) + '\n'));
 try {
-  await page.goto('http://localhost:5173/?manual&preserve&' + query, { waitUntil: 'load' });
+  await page.goto('http://localhost:' + (process.env.PORT || 5173) + '/?manual&preserve&' + query, { waitUntil: 'load' });
   await page.waitForFunction('window.app && window.app.game', null, { timeout: 60000 });
   const r = await page.evaluate(`(async () => { const t0 = performance.now(); const out = await (${script}); return { out, ms: Math.round(performance.now() - t0) }; })()`);
   process.stderr.write('eval: ' + JSON.stringify(r) + '\n');
