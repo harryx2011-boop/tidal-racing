@@ -5,8 +5,83 @@ import { Program, makeMesh } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { FOAM_GLSL } from './foam.js';
 import { RAIN_SURFACE_GLSL } from '../fx/ripples.js';
+import { WAKE_GLSL } from '../game/wake.js';
 
-const VS = `
+// Boats on the sea, per pixel, in each boat's own frame: the hull hides the sea (the open cockpit
+// never shows water), a thin foam line where the hull meets it, bow wash thrown out along the hull
+// sides, the boat's shadow (an ellipsoid projected along the sun), the shade under the hull and the
+// underwater light behind the transom. Only pixels within reach of a boat pay for it.
+const BOATS_GLSL = `
+uniform int uBoatN;
+uniform vec4 uBoatPos[4];   // xyz: position
+uniform vec4 uBoatX[4];     // body axes in world space
+uniform vec4 uBoatY[4];
+uniform vec4 uBoatZ[4];
+uniform vec4 uBoatCol[4];   // rgb: accent colour, a: speed / 36
+uniform vec4 uBoatFx[4];    // x: in the water (0..1), y: throttle, z: boosting
+uniform vec4 uHull;         // transom x, bow x, half beam, gunwale height
+uniform vec4 uCockpit;      // x0, x1, half width
+uniform vec3 uProps[3];     // propellers (boat space)
+uniform float uWaterShadow;
+uniform float uGlow;        // radiance of the underwater lights (scene units)
+float hullHalf(float x) {
+  float u = (x - uHull.x) / (uHull.y - uHull.x);
+  if (u <= 0.0 || u >= 1.0) return 0.0;
+  float tb = max(0.0, (u - 0.42) / 0.58);
+  return uHull.z * pow(max(1.0 - tb * tb, 0.0), 0.8) * (0.9 + 0.1 * min(u / 0.25, 1.0));
+}
+struct BoatFx { float hide; float act; float shadow; float ao; vec3 glow; };
+BoatFx boatFx(vec3 P, vec3 L) {
+  BoatFx r;
+  r.hide = 0.0; r.act = 0.0; r.shadow = 0.0; r.ao = 0.0; r.glow = vec3(0.0);
+  float reach = 9.0 + min(2.4 * length(L.xz) / max(L.y, 0.05), 40.0);
+  for (int b = 0; b < 4; b++) {
+    if (b >= uBoatN) break;
+    vec3 rel = P - uBoatPos[b].xyz;
+    if (dot(rel.xz, rel.xz) > reach * reach) continue;
+    vec3 X = uBoatX[b].xyz, Y = uBoatY[b].xyz, Z = uBoatZ[b].xyz;
+    vec3 l = vec3(dot(rel, X), dot(rel, Y), dot(rel, Z));
+    float spd = uBoatCol[b].a, gate = uBoatFx[b].x;
+    // metres inside the waterline outline (the chine sits at about 0.9 of the deck beam)
+    float din = min(hullHalf(l.x) * 0.9 - abs(l.z), l.x - uHull.x);
+    float low = smoothstep(-1.0, -0.6, l.y) * (1.0 - smoothstep(0.5, 1.0, l.y));
+    bool cock = l.x > uCockpit.x && l.x < uCockpit.y && abs(l.z) < uCockpit.z;
+    if ((din > 0.0 || cock) && l.y > -0.9 && l.y < uHull.w) r.hide = 1.0;
+    float out_ = max(-din, 0.0);
+    // the outline matters only alongside the hull, not ahead of the stem or behind the transom
+    float xm = smoothstep(uHull.x - 0.3, uHull.x + 0.3, l.x) * (1.0 - smoothstep(uHull.y + 0.2, uHull.y + 0.8, l.x));
+    // foam line at the hull
+    float line = smoothstep(-0.04, 0.03, -din) * (1.0 - smoothstep(0.05, 0.32, out_));
+    r.act += line * xm * gate * low * (0.45 + 0.5 * min(spd, 1.0)) * 1.5;
+    // bow wash: the water thrown aside by the stem spreads out along the hull as it runs aft
+    float fx = uHull.y - l.x;
+    float off = 0.15 + 0.2 * fx, wid = 0.3 + 0.12 * fx;
+    float band = exp(-pow((out_ - off) / wid, 2.0));
+    float along = smoothstep(-0.6, 0.8, fx) * (1.0 - smoothstep(3.5, 7.5, fx));
+    r.act += band * along * spd * spd * gate * low * 1.8;
+    // shade under and beside the hull (skylight is blocked)
+    r.ao = max(r.ao, 0.55 * (1.0 - smoothstep(0.0, 1.6, out_)) * low * xm);
+    // shadow: how far the ray to the sun misses the ellipsoid, soft by the sun's size and a little more
+    if (uWaterShadow > 0.0 && L.y > 0.02) {
+      vec3 Lh = vec3(dot(L, X), dot(L, Y), dot(L, Z));
+      vec3 rr = vec3(0.5 * (uHull.y - uHull.x), 0.95, uHull.z * 1.05);
+      vec3 o = (l - vec3(0.5 * (uHull.x + uHull.y), 0.45, 0.0)) / rr, d = Lh / rr;
+      float tca = max(-dot(o, d) / dot(d, d), 0.0);
+      float miss = length(o + d * tca);
+      float pen = 0.22 + 0.025 * tca;
+      r.shadow = max(r.shadow, (1.0 - smoothstep(1.0 - pen, 1.0 + pen, miss)) * 0.92 * uWaterShadow);
+    }
+    // underwater lights behind the transom, in the boat's accent colour
+    for (int p = 0; p < 3; p++) {
+      vec3 q = (l - (uProps[p] + vec3(-0.9, 0.0, 0.0))) / vec3(1.9, 1.0, 0.9);
+      r.glow += uBoatCol[b].rgb * exp(-0.5 * dot(q, q));
+    }
+  }
+  return r;
+}
+`;
+
+const VS = WAKE_GLSL + `
 layout(location = 0) in vec2 aPolar; // radius (m), angle (rad)
 uniform mat4 uViewProj;
 uniform vec3 uCamPos;
@@ -18,6 +93,8 @@ uniform float uDispScale;
 out vec3 vWorld;
 out vec2 vXZ;
 out float vDisp;
+out vec4 vWk;      // boat wakes: fresh froth, residual foam, bubble plume
+out vec2 vWkS;     // boat wakes: slope
 void main() {
   float r = aPolar.x;
   vec2 xz = uCamPos.xz + vec2(cos(aPolar.y), sin(aPolar.y)) * r;
@@ -31,6 +108,15 @@ void main() {
   D *= uDispScale;
   // fade displacement where the mesh is extremely coarse (far field)
   vec3 P = vec3(xz.x + D.x, D.y, xz.y + D.z);
+  // boat wakes lift the sea (the same field the physics feels, see src/game/wake.js)
+  vWk = vec4(0.0); vWkS = vec2(0.0);
+  if (uWkN > 0) {
+    vec3 hg, fo;
+    wakeField(P.xz, spacing, hg, fo);
+    P.y += hg.x;
+    vWk = vec4(fo, 0.0);
+    vWkS = hg.yz;
+  }
   // earth curvature
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
@@ -40,7 +126,9 @@ void main() {
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
-const FS = SKY_LOOKUP_GLSL + FOAM_GLSL + RAIN_SURFACE_GLSL + `
+const FS = SKY_LOOKUP_GLSL + FOAM_GLSL + RAIN_SURFACE_GLSL + BOATS_GLSL + `
+in vec4 vWk;
+in vec2 vWkS;
 in vec3 vWorld;
 in vec2 vXZ;
 in float vDisp;
@@ -191,7 +279,7 @@ void main() {
 
   // rain ripples: normal perturbation near the camera, extra roughness further away
   vec3 rr = rainRipples(vXZ, uTime, uRain, dist, sqrt(footA));
-  s += rr.xy;
+  s += rr.xy + vWkS;
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
   float unres = uUnresolved * 0.5 * sm * sm * (1.0 - 0.4 * uRain);
   vec2 sigmaSq = var + vec2(unres);
@@ -219,6 +307,11 @@ void main() {
   // sun visibility through clouds
   vec2 suv = (P.xz - uShaftRect.xy) * uShaftRect.zw;
   float sunVis = mix(uHazeSun, texture(uShaftShadow, suv).r, smoothstep(0.0, 0.04, min(min(suv.x, suv.y), min(1.0 - suv.x, 1.0 - suv.y))));
+
+  // boats: hull, shadow, shade, underwater light
+  BoatFx bfx = boatFx(P, L);
+  sunVis *= 1.0 - bfx.shadow;
+  uSkyE *= 1.0 - bfx.ao;
 
   // reflection of the sky / clouds, blurred by the unresolved roughness
   vec3 R = reflect(-V, N);
@@ -321,13 +414,13 @@ void main() {
   vec3 sss = uSSS * (1.0 - F) * H * back * 3.0 * uSunE * sunVis;
 
   // submerged bubbles backscatter strongly: the water around and beneath whitecaps turns pale aquamarine
-  float pl = (1.0 - exp(-plume * uFoamAmount * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
+  float pl = (1.0 - exp(-(plume * uFoamAmount + vWk.z) * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
   body += (1.0 - F) * pl * vec3(0.035, 0.062, 0.053) * Ed / M_PI;
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
   col += (1.0 - F) * uRain * 0.008 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
 
   // foam
-  vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uFoamLace * uFoamAmount, activeRaw * uFoamAmount, dist);
+  vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount + vWk.y, uFoamLace * uFoamAmount, activeRaw * uFoamAmount + vWk.x + bfx.act, dist);
   float foam = fc.x;
   if (uDebug == 1) { oColor = vec4(foam, foamRaw, foamCovA, 1.0); return; }
   if (foam > 0.0) {
@@ -345,6 +438,9 @@ void main() {
     col = col * (1.0 - foam * mix(0.55, 1.0, thick)) + foam * foamCol;
   }
 
+  // underwater lights shine up through the water (and tint the wash)
+  col += bfx.glow * uGlow * (1.0 - F) * (1.0 - 0.6 * foam);
+
   // lightning reflection (broad, from cloud base)
   col += F * uFlash * 0.08;
 
@@ -357,6 +453,8 @@ void main() {
   col = withShafts(col, uCamPos, -V, dist);
   // rain / mist fog
   col = applyFog(col, -V, dist);
+  // the sea inside a hull is not there (decided last: the derivatives above need every pixel)
+  if (bfx.hide > 0.5) discard;
   oColor = vec4(col, 1.0);
 }`;
 
