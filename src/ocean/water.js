@@ -24,7 +24,7 @@ uniform float uWl[12];      // half-width of the hull at the waterline, at 12 st
 uniform float uWlEnd;       // where the waterline ends forward (the stem has risen clear of the water)
 uniform vec3 uProps[3];     // propellers (boat space)
 uniform float uWaterShadow;
-uniform float uGlow;        // radiance of the underwater lights (scene units)
+uniform float uGlow;        // underwater lights: radiance as a multiple of a white card in the same light
 float hullHalf(float x) {
   float u = (x - uHull.x) / (uHull.y - uHull.x);
   if (u <= 0.0 || u >= 1.0) return 0.0;
@@ -88,8 +88,9 @@ BoatFx boatFx(vec3 P, vec3 L) {
     }
     // underwater lights behind the transom, in the boat's accent colour
     for (int p = 0; p < 3; p++) {
-      vec3 q = (l - (uProps[p] + vec3(-0.9, 0.0, 0.0))) / vec3(1.9, 1.0, 0.9);
-      r.glow += uBoatCol[b].rgb * exp(-0.5 * dot(q, q));
+      vec3 q = (l - (uProps[p] + vec3(-0.7, 0.0, 0.0))) / vec3(1.4, 1.0, 0.7);
+      // (the tail is cut off: under a dark sky the exposure would lift it into a disc metres wide)
+      r.glow += uBoatCol[b].rgb * max(exp(-0.5 * dot(q, q)) - 0.03, 0.0);
     }
   }
   return r;
@@ -454,7 +455,9 @@ void main() {
   }
 
   // underwater lights shine up through the water (and tint the wash)
-  col += bfx.glow * uGlow * (1.0 - F) * (1.0 - 0.6 * foam);
+  // The lamps are set against the daylight, not in absolute units: a fixed radiance would vanish at
+  // noon and flood the frame under storm cloud, where the exposure is ten times longer.
+  col += bfx.glow * uGlow * (dot(Ed, vec3(0.2126, 0.7152, 0.0722)) / M_PI) * (1.0 - F) * (1.0 - 0.6 * foam);
 
   // lightning reflection (broad, from cloud base)
   col += F * uFlash * 0.08;

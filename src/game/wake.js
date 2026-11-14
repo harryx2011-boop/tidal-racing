@@ -54,7 +54,8 @@ export function hullHalfWidth(x, A = BOAT_ANCHORS) {
 }
 
 // Radiance of the underwater lights in scene units: faint against a sunlit sea, plain at dusk.
-const GLOW = 0.005;
+// underwater lights against a white card in the same light: faint in sun, clear in the gloom
+const GLOW_DAY = 0.25, GLOW_DARK = 2.0;
 
 // ---- GLSL: the wake field (vertex shader). Declares its own uniforms. ----
 export const WAKE_GLSL = `
@@ -287,7 +288,7 @@ export class Wake {
       uWl: WL.half, uWlEnd: WL.end,
       uProps: pr.flat(),
       uWaterShadow: clamp(fx.waterShadow ?? 1, 0, 1),
-      uGlow: GLOW,
+      uGlow: GLOW_DAY + (GLOW_DARK - GLOW_DAY) * Math.min(Math.max(((this.game.meshes.lamp ?? 0.1) - 0.1) / 0.9, 0), 1),
     };
   }
 }
