@@ -327,7 +327,10 @@ export function surf(g, fn, us, vs, col, m, o) {
     if (o && o.uv) { o.uv(i, j, _uv); u = _uv[0]; v = _uv[1]; }
     const q = (i * C + j) * 3;
     fn(u, v, _p0); SP[q] = _p0[0]; SP[q + 1] = _p0[1]; SP[q + 2] = _p0[2];
-    fn(u + e, v, _p0); fn(u - e, v, _p1); fn(u, v + e, _p2); fn(u, v - e, _p3);
+    // (o.lim = [u0, u1, v0, v1]: the function is not sampled outside its range; at an edge the difference is one-sided)
+    const L = o && o.lim;
+    if (L) { fn(Math.min(u + e, L[1]), v, _p0); fn(Math.max(u - e, L[0]), v, _p1); fn(u, Math.min(v + e, L[3]), _p2); fn(u, Math.max(v - e, L[2]), _p3); }
+    else { fn(u + e, v, _p0); fn(u - e, v, _p1); fn(u, v + e, _p2); fn(u, v - e, _p3); }
     const ux = _p0[0] - _p1[0], uy = _p0[1] - _p1[1], uz = _p0[2] - _p1[2], vx = _p2[0] - _p3[0], vy = _p2[1] - _p3[1], vz = _p2[2] - _p3[2];
     let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     const l = Math.hypot(nx, ny, nz);
@@ -474,7 +477,8 @@ export function stain(seed, { weedTop = 0.3, tide = 0.38, wet = 0, salt = 0.22, 
     const nz = fb(x * 5 + seed, y * 8, z * 5);
     const wl = y + (nz - 0.5) * 0.24;
     if (wet > 0) { const w = smooth(wet, wet * 0.35, wl) * 0.45; C[i] *= 1 - w; C[i + 1] *= 1 - w; C[i + 2] *= 1 - w * 0.9; }
-    const weed = smooth(weedTop, 0.0, wl);
+    // (a top at or below the waterline: weed only under it)
+    const weed = weedTop > 0.03 ? smooth(weedTop, 0.0, wl) : smooth(weedTop + 0.015, weedTop - 0.03, wl);
     if (weed > 0) { const lush = smooth(0.52, 0.7, vn(x * 11 + seed, y * 6, z * 11)); mixIn(C, i, lerp(0.035, 0.11, lush), lerp(0.05, 0.115, lush), lerp(0.022, 0.04, lush), weed * 0.93); }
     const barn = smooth(0.74, 0.8, vn(x * 38, y * 38 + seed, z * 38)) * smooth(0.5, 0.0, Math.abs(wl - 0.12));
     if (barn > 0) mixIn(C, i, 0.46, 0.43, 0.36, barn * 0.8);
@@ -524,7 +528,7 @@ const STROKES = {};
 for (const k in GLYPH) STROKES[k] = GLYPH[k].split('|').map((s) => s.split(' ').map((q) => q.split(',').map(Number)));
 // str drawn from `at` (bottom-left) along the unit vector `right`, `up` the letters' up; h: letter height; the
 // bars sit `off` proud of the surface along n = right x up. Returns the width used.
-export function text(g, str, at, right, up, h, col, m, { off = 0.012, weight = 0.14, gap = 0.3, centre = false } = {}) {
+export function text(g, str, at, right, up, h, col, m, { off = 0.012, weight = 0.17, gap = 0.3, centre = false } = {}) {
   const u = h / 6, w = weight * h, adv = (4 + gap * 4) * u;
   const n = [right[1] * up[2] - right[2] * up[1], right[2] * up[0] - right[0] * up[2], right[0] * up[1] - right[1] * up[0]];
   const width = str.length * adv - gap * 4 * u;
@@ -542,6 +546,22 @@ export function text(g, str, at, right, up, h, col, m, { off = 0.012, weight = 0
     x0 += adv;
   }
   return width;
+}
+
+// whether the point (x, y), measured from the bottom-left of `str` set h tall, falls on a stroke: lettering painted
+// into the colours of a fine mesh, for where nothing may be laid over a surface
+export function inkAt(str, h, x, y, weight = 0.17, gap = 0.3) {
+  const u = h / 6, adv = (4 + gap * 4) * u, k = Math.floor(x / adv);
+  if (k < 0 || k >= str.length || y < -weight * h || y > h * (1 + weight)) return false;
+  const S = STROKES[str[k]];
+  if (!S) return false;
+  const px = (x - k * adv) / u, py = y / u, w = (weight * 6) / 2;
+  for (const st of S) for (let j = 0; j < st.length - 1; j++) {
+    const ax = st[j][0], ay = st[j][1], bx = st[j + 1][0], by = st[j + 1][1], dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+    const t = clamp(((px - ax) * dx + (py - ay) * dy) / l2, 0, 1), ex = px - ax - dx * t, ey = py - ay - dy * t;
+    if (ex * ex + ey * ey < w * w) return true;
+  }
+  return false;
 }
 
 // ---- fittings ----------------------------------------------------------------------------
