@@ -882,7 +882,7 @@ function container(detail) {
   return g;
 }
 // an enclosed lifeboat, 8 m, bow toward +x
-function lifeboat(g, p, yaw, pitch, lod) {
+export function lifeboat(g, p, yaw, pitch, lod) {
   const s0 = mark(g), o = [0.7, 0.2, 0.03];
   lathe(g, [[0.0, -4.0], [0.9, -3.6], [1.45, -2.2], [1.5, 0], [1.4, 2.2], [0.8, 3.6], [0, 4.0]], o, GEL, { segs: lod ? 6 : 12, axis: 'x', ell: 1.0 });
   if (lod < 2) { blob(g, [0.6, 1.2, 0], 2.2, 0.75, 1.15, o, GEL, { n: lod ? 3 : 5, segs: lod ? 6 : 10, p: 3 }); box(g, [2.3, 1.45, 0], 0.5, 0.25, 0.7, [0.02, 0.03, 0.04], GLS); }

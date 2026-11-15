@@ -125,12 +125,27 @@ function tri3(g, a, b, c, m) {
   U[j] = dv; U[j + 1] = SU[a / 3]; U[j + 2] = dv; U[j + 3] = SU[b / 3]; U[j + 4] = dv; U[j + 5] = SU[c / 3];
   g.nv += 3;
 }
-// R rows of C nodes
+// as tri3, but the normals lean toward the triangle's own by `f`: facets, for rock and anything hewn
+function tri3f(g, a, b, c, m, f) {
+  const n0 = g.nv;
+  tri3(g, a, b, c, m);
+  if (g.nv === n0) return;
+  const P = g.P, N = g.N, i = n0 * 3;
+  const ux = P[i + 3] - P[i], uy = P[i + 4] - P[i + 1], uz = P[i + 5] - P[i + 2], vx = P[i + 6] - P[i], vy = P[i + 7] - P[i + 1], vz = P[i + 8] - P[i + 2];
+  let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+  const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+  if (nx * N[i] + ny * N[i + 1] + nz * N[i + 2] < 0) { nx = -nx; ny = -ny; nz = -nz; }
+  for (let k = i; k < i + 9; k += 3) { const x = N[k] + (nx - N[k]) * f, y = N[k + 1] + (ny - N[k + 1]) * f, z = N[k + 2] + (nz - N[k + 2]) * f, ll = Math.hypot(x, y, z) || 1; N[k] = x / ll; N[k + 1] = y / ll; N[k + 2] = z / ll; }
+}
+// R rows of C nodes (o.flat: how far the shading is faceted, 0..1)
 function emit(g, R, C, m, o) {
   dress(R * C, o);
+  const f = (o && o.flat) || 0;
   for (let i = 0; i < R - 1; i++) for (let j = 0; j < C - 1; j++) {
     const a = (i * C + j) * 3, b = a + C * 3;
-    tri3(g, a, b, b + 3, m); tri3(g, a, b + 3, a + 3, m);
+    // (the diagonal alternates, so facets do not all lean one way)
+    if (f) { if ((i + j) & 1) { tri3f(g, a, b, b + 3, m, f); tri3f(g, a, b + 3, a + 3, m, f); } else { tri3f(g, a, b, a + 3, m, f); tri3f(g, b, b + 3, a + 3, m, f); } }
+    else { tri3(g, a, b, b + 3, m); tri3(g, a, b + 3, a + 3, m); }
   }
 }
 // node 0 is the centre, 1..n the rim (closed)
@@ -471,8 +486,9 @@ export const mottle = (seed, amt = 0.1, f = 1) => (P, N, C, i) => { const k = 1 
 // Weed, barnacles, the tide line and salt, for anything that stands or floats in the sea; y is the
 // height above the still waterline. wet: how far the darkened, always-wet band reaches up.
 export function stain(seed, { weedTop = 0.3, tide = 0.38, wet = 0, salt = 0.22, y0 = 0 } = {}) {
-  return (P, N, C, i) => {
-    const x = P[i], y = P[i + 1] - y0, z = P[i + 2];
+  // (at: the same for a point given apart from the colour it stains, for geometry kept relative to a moving origin)
+  const at = (x, yy, z, C, i) => {
+    const y = yy - y0;
     if (y > Math.max(tide, weedTop, wet) + 1.6) return;
     const nz = fb(x * 5 + seed, y * 8, z * 5);
     const wl = y + (nz - 0.5) * 0.24;
@@ -487,6 +503,9 @@ export function stain(seed, { weedTop = 0.3, tide = 0.38, wet = 0, salt = 0.22, 
     const l = lumOf(C, i) * 0.9;
     mixIn(C, i, l + 0.12, l + 0.11, l + 0.1, smooth(1.4, 0.4, y) * salt * (1 - weed));
   };
+  const fn = (P, N, C, i) => at(P[i], P[i + 1], P[i + 2], C, i);
+  fn.at = at;
+  return fn;
 }
 // rust: patches where noise is high, and streaks running down from y = top (when given)
 export function rust(seed, { amt = 0.6, f = 6, lo = 0.6, hi = 0.84, top = null, len = 1.2 } = {}) {
