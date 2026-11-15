@@ -26,6 +26,66 @@ Read this first. It records what was decided, what exists, and what to build nex
 | Controls | Keyboard and gamepad (built). |
 | Pace | The owner wants usage kept light. Build one milestone, verify, stop. |
 
+## Detail upgrade: where it stands (read this first)
+
+The owner looked at stills and said "Everything needs more detail". Decisions (do not re-ask): all four
+areas (land and coast; vessels, structures and people; sea and shore; sky and clouds); courses brought
+close to the coast; **Fable builders for fidelity, each looped against an independent judge, up to three
+rounds; Sonnet 5.5 builders for game code, optimisation, bug fixes and testing.** The brief for all of it
+is `docs/BRIEF_DETAIL.md` (rubric, budgets, the judge loop, the O-to-P `features` contract). It stopped
+because the Fable limit was reached (it resets at 06:00 UTC) and the owner asked to stop and save usage.
+
+**Merged and pushed to `claude/gracious-curie-8x4a1z` (HEAD `10de871` plus this handoff):**
+- Stream O, courses close to the coast: all three courses pass piers, quays, moorings, boulder fields,
+  stacks, cliffs and the breakwater head at 20 to 40 m; per-course `features` in `models/coast.js`
+  (with `mooringSpots`, `rockSpots`, `featureColliders`) and colliders in `collide.js`;
+  `tools/check-land.mjs` reports close passes and `tools/check-collide.mjs` drives a boat into every
+  solid (both end "all clear"); best-time key is now `tidal.best3.`. The container ship was routed through
+  hills on every course; it now steams in open water (`buildLayout`). Autopilot laps: no hits.
+
+**Unmerged work, saved in `handoff/builders.bundle` (the container is ephemeral and the branches were
+never pushed). Restore with:**
+```bash
+git fetch handoff/builders.bundle 'refs/heads/*:refs/heads/*'
+```
+Each merges cleanly into the dev branch on its own (checked with `git merge-tree`); Q and P together
+were not tested together (P was started from Q round 1 and Q has since done round 2). Squash-merge, fix,
+verify with a headless render, commit, push. Delete `handoff/` once the branches are restored and merged.
+
+| Branch | Stream | State |
+| --- | --- | --- |
+| `build/Q-objects` | Q, fidelity: vessels, structures, marks, people (`models/kit.js` is its building kit) | Round 1 judged **FAIL**; round 2 committed (`c9270e6`) but **never judged or reviewed**. |
+| `build/S-sky` | S, fidelity: sky and clouds (`src/sky/clouds.js`, `sky.js`, a little in `main.js`) | Builder was stopped mid-work; last commit is an unreviewed WIP commit. **Never judged.** Its stills are in the old scratchpad only, so re-render. |
+| `build/P-land` | P, fidelity: land and coast (terrain shading, `coastal.js`, trees, rocks, harbours, piers, moorings, buildings) | Builder stopped by the limit; 4 commits, the last a WIP commit. **Never judged or reviewed.** Needs one registration line in `game.js`. |
+
+Not started: **R** (Fable, sea and shore: near-boat wave detail, breaking surf, foam, far wake, foam rings
+round the new rocks and piles; `water.js`, `wake.js`, `boatspray.js`; `land.js` `fixedFor()` only reads
+scenery colliders, so piers, stacks and boulders get no foam ring yet: a one-line hook with
+`featureColliders`) and **U** (Sonnet: optimisation, bug fixes, tests; see the untried candidates below).
+
+**Judge round 1 on Q: the five worst defects (round 2 claims to address these; verify, do not trust)**
+1. People at 4 to 5 m are mannequins: tube limbs, mitten hands, no face features, one all-yellow figure,
+   no shadows. 2. The safety RIB hovers above a calm sea, outboard leg in the air; other hulls ride high;
+   no wet line or foam at hulls. 3. Storm: the tower banner becomes a white slab, round discs for lit
+   windows and lamps, glows oversized by day. 4. Thin wires (shrouds, stays, guy wires, truss lacing)
+   render as dotted lines. 5. Flat, bare surfaces (cruiser cabin, committee wheelhouse, course-side
+   breakwater crown wall) and no cast shadows on close assets. Also the lighthouse stands at y = 0 on
+   ground 6 to 9.6 m high, so its rock and base are buried (seat it on `heightAt`).
+
+**To finish the upgrade, in this order (keep usage light; run one render at a time):**
+1. Restore the branches. Run fresh Fable judges on Q round 2 and S (the rubric is in `BRIEF_DETAIL.md`:
+   1280x720, `q=medium&scale=1`, scores 1 to 10, pass is all 7 or more, at most three rounds in total).
+2. Review and merge Q, S, P (judge P and send its verdict back through the same loop), re-run
+   `check-land.mjs` and `check-collide.mjs`, render combined views at 1280x720 medium on all three courses,
+   commit, push.
+3. Launch R (Fable) and U (Sonnet) from `BRIEF_DETAIL.md`; judge R; merge.
+4. Optimise from a **real measurement**: the owner has not yet run the game on the RTX 2070 Super. Ask
+   for the F3 readout (frame time, meshes versus sea, per-system draws and triangles) before spending
+   effort. The detail added here (about 600 containers on the ship, 300 armour stones per breakwater chunk,
+   trees, buildings) is large and its cost on a real GPU is unknown.
+5. Update this file, `README.md`, and send the owner 1280x720 medium stills (the earlier ones were
+   800x450 low, which is part of why the world looked plain).
+
 ## What exists
 
 Milestones 1 and 2 (solo time trial), the visual upgrade in `docs/BRIEF_VISUAL_UPGRADE.md` and
@@ -124,11 +184,11 @@ Facts worth knowing:
   Untried candidates: one instanced draw for the lamp glows (scenery and marks draw one quad
   each), one draw per level of detail for the terrain chunks (60 to 150 draws a frame), a
   smaller vertex format, and rebuilding the reflection environment every other frame.
-- Best times and ghosts from before the land was added are ignored (the key is `tidal.best2.`).
+- Best times and ghosts from before the courses moved close to the coast are ignored (the key is `tidal.best3.`).
 - Land: no trees (scrub is shading only); terrain shadows do not fall on the sea; the shore foam
-  line is only as sharp as the sea mesh far from the camera; land is 100 m or more from every
-  racing line, so the coast is scenery more than an obstacle. Motion shimmer on terrain is
-  unchecked (stills only).
+  line is only as sharp as the sea mesh far from the camera. The racing lines now pass the coast at
+  20 to 40 m (see the detail upgrade above); piers, moorings and boulders are solid but undrawn on
+  main until `build/P-land` is merged. Motion shimmer on terrain is unchecked (stills only).
 - Scenery: breakwater armour stones are plain blocks; people are blocky; the lighthouse beam is
   short, faint and off in storms because side-on it read as a pale band along the far shore.
 - Wildlife: in the chase view birds are specks unless a flock is close; the flock scatter, landing
