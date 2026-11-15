@@ -46,7 +46,7 @@ export function revolve(g, prof, col, mat, segs = 24, { flip = false } = {}) {
   g.mesh(pts, nrm, col, mat);
 }
 
-export const rod = (g, a, b, r, col, mat, segs = 5) => g.tube([a, b], r, col, mat, { segs });
+export const rod = (g, a, b, r, col, mat, segs = 5) => krod(g, a, b, r, col, mat, segs);
 
 // a quad with its texture coordinates (corners bottom-left, bottom-right, top-right, top-left;
 // v = 0 is the top row of the image)
@@ -252,11 +252,11 @@ export function towerGeo(side, lod = 0) {
     const BN = [[[0.03, 0.08, 0.3], [0.8, 0.8, 0.76], 'TIDAL RACING'], [[0.7, 0.25, 0.02], [0.05, 0.05, 0.06], 'OPEN WATER']];
     [1, -1].forEach((sx, bi) => {
       const [bg, ink, word] = BN[(bi + (port ? 0 : 1)) % 2], ya = y0 + 3.6, yb = yT - 0.5, P = (y, z) => [sx * (hw(y) + 0.09), y, z * hw(y) * 0.92];
-      kquad(g, P(ya + 0.5, -1), P(ya + 0.5, 1), P(yb - 0.5, 1), P(yb - 0.5, -1), bg, CLOTH);
-      kquad(g, P(ya, -1), P(ya, 1), P(ya + 0.5, 1), P(ya + 0.5, -1), ink, CLOTH); kquad(g, P(yb - 0.5, -1), P(yb - 0.5, 1), P(yb, 1), P(yb, -1), ink, CLOTH);
+      kquad(g, P(ya + 0.5, -1), P(ya + 0.5, 1), P(yb - 0.5, 1), P(yb - 0.5, -1), bg, RUB);
+      kquad(g, P(ya, -1), P(ya, 1), P(ya + 0.5, 1), P(ya + 0.5, -1), ink, RUB); kquad(g, P(yb - 0.5, -1), P(yb - 0.5, 1), P(yb, 1), P(yb, -1), ink, RUB);
       if (near) {
         const mid = (ya + yb) / 2, sl = (hw(yb) - hw(ya)) / (yb - ya);
-        text(g, word, [sx * (hw(mid) + 0.1), mid, sx * 0.19], [sx * sl, 1, 0], [0, 0, sx], 0.38, ink, CLOTH, { off: 0.006, weight: 0.2, centre: true });
+        text(g, word, [sx * (hw(mid) + 0.1), mid, sx * 0.19], [sx * sl, 1, 0], [0, 0, sx], 0.38, ink, RUB, { off: 0.006, weight: 0.2, centre: true });
         for (const y of [ya, (ya + yb) / 2, yb]) for (const z of [-1, 1]) krod(g, P(y, z), [sx * hw(y), y, z * hw(y)], 0.008, [0.1, 0.1, 0.1], RUB, 3);
       }
     });
@@ -452,7 +452,7 @@ export function pylonGeo(side, lod = 0) {
   if (near) {
     // welded seams up the column between the number panels, webbing handles, a valve
     for (let k = 0; k < 4; k++) { const a = (k + 0.5) * (Math.PI / 2); ktube(g, prof.filter((q, i) => i % 3 === 0 && q[1] <= top).map(([r, y]) => [Math.cos(a) * (r + 0.004), y, Math.sin(a) * (r + 0.004)]), 0.016, [0.3, 0.3, 0.3], RUB, { segs: 3 }); }
-    for (const cn of [2, 4]) for (let k = 0; k < 4; k++) { const a = (k + 0.5) * (Math.PI / 2) + 0.35, y = y0 + cell * (cn + 0.5), r = surfR(y), P = (dy2, o) => [Math.cos(a) * (r + o), y + dy2, Math.sin(a) * (r + o)]; ktube(g, [P(-0.16, 0.005), P(-0.09, 0.07), P(0.09, 0.07), P(0.16, 0.005)], 0.014, [0.04, 0.04, 0.045], CLOTH, { segs: 4 }); for (const d of [-0.18, 0.18]) box(g, P(d, 0.008), 0.012, 0.05, 0.05, [0.04, 0.04, 0.045], RUB, { yaw: a }); }
+    for (const cn of [2, 4]) for (let k = 0; k < 4; k++) { const a = (k + 0.5) * (Math.PI / 2) + 0.35, y = y0 + cell * (cn + 0.5), r = surfR(y), P = (dy2, o) => [Math.cos(a) * (r + o), y + dy2, Math.sin(a) * (r + o)]; ktube(g, [P(-0.16, 0.005), P(-0.09, 0.07), P(0.09, 0.07), P(0.16, 0.005)], 0.014, [0.04, 0.04, 0.045], RUB, { segs: 4 }); for (const d of [-0.18, 0.18]) box(g, P(d, 0.008), 0.012, 0.05, 0.05, [0.04, 0.04, 0.045], RUB, { yaw: a }); }
     lathe(g, [[0.035, 0], [0.035, 0.03], [0.02, 0.04], [0, 0.04]], [0.05, 0.05, 0.05], RUB, { segs: 8, axis: 'x', at: [surfR(y0 + cell * 0.5) - 0.005, y0 + cell * 0.5, 0.3] });
     // the makers' name round a white cell
     const word = 'TIDAL RACING', yw = y0 + cell * 3.38, rw = surfR(yw + 0.12) + 0.01;
@@ -460,7 +460,7 @@ export function pylonGeo(side, lod = 0) {
   }
   if (!far) {
     // tie-downs from patches half way up to the ballast ring, which is weighted with water bags and moored
-    for (let k = 0; k < 4; k++) { const a = k * (Math.PI / 2) + 0.78, yh = y0 + cell * 3, r = surfR(yh - 0.02); krod(g, [Math.cos(a) * r, yh, Math.sin(a) * r], [Math.cos(a) * 2.28, 0.42, Math.sin(a) * 2.28], near ? 0.012 : 0.03, [0.6, 0.55, 0.42], CLOTH, 3); if (near) { box(g, [Math.cos(a) * (r + 0.01), yh, Math.sin(a) * (r + 0.01)], 0.012, 0.09, 0.09, [0.04, 0.04, 0.045], RUB, { yaw: a }); hoop(g, [Math.cos(a) * 2.28, 0.44, Math.sin(a) * 2.28], [-Math.sin(a), 0, Math.cos(a)], 0.05, 0.012, [0.5, 0.52, 0.55], MET, 8, 3); } }
+    for (let k = 0; k < 4; k++) { const a = k * (Math.PI / 2) + 0.78, yh = y0 + cell * 3, r = surfR(yh - 0.02); krod(g, [Math.cos(a) * r, yh, Math.sin(a) * r], [Math.cos(a) * 2.28, 0.42, Math.sin(a) * 2.28], near ? 0.012 : 0.03, [0.6, 0.55, 0.42], RUB, 3); if (near) { box(g, [Math.cos(a) * (r + 0.01), yh, Math.sin(a) * (r + 0.01)], 0.012, 0.09, 0.09, [0.04, 0.04, 0.045], RUB, { yaw: a }); hoop(g, [Math.cos(a) * 2.28, 0.44, Math.sin(a) * 2.28], [-Math.sin(a), 0, Math.cos(a)], 0.05, 0.012, [0.5, 0.52, 0.55], MET, 8, 3); } }
     const nb = near ? 10 : 6;
     for (let k = 0; k < nb; k++) { const a = (k / nb) * TAU; blob(g, [Math.cos(a) * 2.2, -0.12, Math.sin(a) * 2.2], 0.5, 0.3, 0.5, [0.05, 0.05, 0.055], RUB, { n: near ? 4 : 2, segs: near ? 8 : 5 }); }
     if (near) { chain(g, [2.3, 0.2, 0.4], [3.0, -0.3, 0.9], [0.22, 0.2, 0.18], MET, { link: 0.12, r: 0.015 }); krod(g, [3.0, -0.3, 0.9], [4.5, -3, 2], 0.025, [0.1, 0.1, 0.1], RUB, 3); }

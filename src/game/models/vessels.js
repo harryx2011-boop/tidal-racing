@@ -1,4 +1,4 @@
-import { Geo, rng, TAU, lerp, clamp, smooth, scl, mixc, vn, fb, mat, DV, GEL, RUB, MET, GLS, NSK, TEAK, LIT, CLOTH, TEX, tube, rod, lathe, box, slab, quad, fan, loft, surf, sheet, blob, lin, mark, paint, detail, xf, frame, stamp, text, mixIn, mottle, stain, rust, faded, both, inkAt, railing, ladder, chain, hoop, lifering, cleat, bollard, fender, coil } from './kit.js';
+import { Geo, rng, TAU, lerp, clamp, smooth, scl, mixc, vn, fb, mat, DV, GEL, RUB, MET, GLS, NSK, TEAK, LIT, CLOTH, TEX, tube, rod, lathe, box, slab, quad, fan, loft, surf, sheet, blob, limb, lin, mark, paint, detail, xf, frame, stamp, text, mixIn, mottle, stain, rust, faded, both, inkAt, railing, ladder, chain, hoop, lifering, cleat, bollard, fender, coil } from './kit.js';
 import { MAT } from '../geo.js';
 
 // Vessels at anchor and under way: a committee boat, a sailing yacht with her sails furled, a cabin
@@ -121,15 +121,16 @@ function cabin(g, st, col, m, { nc = 3, caps = [true, true], paint: pf } = {}) {
   };
 }
 // A window: glass over the polygon `pts` (already on the surface, a little proud of it) and, near, a frame round it.
-function pane(g, pts, lod, frameCol = [0.72, 0.74, 0.76], fm = MET, glass = GLASS) {
-  fan(g, pts, glass, GLS);
-  if (!lod) tube(g, pts, 0.012, frameCol, fm, { segs: 3, closed: true });
+// lit: someone is in: the pane glows warm (a lit rectangle; scenery.js draws no halo for windows)
+function pane(g, pts, lod, frameCol = [0.72, 0.74, 0.76], fm = MET, glass = GLASS, lit = false) {
+  fan(g, pts, lit ? [0.11, 0.075, 0.03] : glass, lit ? LIT : GLS);
+  if (!lod) tube(g, pts, 0.02, frameCol, fm, { segs: 4, closed: true });
 }
 // a window on the side of a house between x0..x1 and y0..y1, corners cut; rake leans the ends (a raked windscreen line)
-function sideWindow(g, C, x0, x1, y0, y1, sg, lod, { rake = 0, cut = 0.06, frame: fc, fm, off = 0.012 } = {}) {
+function sideWindow(g, C, x0, x1, y0, y1, sg, lod, { rake = 0, cut = 0.06, frame: fc, fm, off = 0.012, lit = false } = {}) {
   const P = (x, y) => C.side(x + rake * (y - y0), y, sg, lod ? 0.09 : off);
   const pts = lod ? [P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)] : [P(x0 + cut, y0), P(x1 - cut, y0), P(x1, y0 + cut), P(x1, y1 - cut), P(x1 - cut, y1), P(x0 + cut, y1), P(x0, y1 - cut), P(x0, y0 + cut)];
-  pane(g, pts, lod, fc, fm);
+  pane(g, pts, lod, fc, fm, GLASS, lit);
 }
 
 // ---- common gear ---------------------------------------------------------------------------
@@ -192,8 +193,24 @@ function outboard(g, p, s = 1, col = [0.08, 0.08, 0.09]) {
   xf(g, s0, frame(p, Math.PI, 0, 0, s));
 }
 
-// weathering shared by the hulls: tone, the wet band and weed at the waterline, salt above it
-const hullPaint = (seed, wet = 0.14) => both(mottle(seed, 0.05, 0.9), stain(seed, { weedTop: 0.06, tide: 0.1, wet, salt: 0.12 }));
+// How far each vessel is set down into the sea from her model's y = 0 (scenery.js lowers the model by it), so that
+// she floats to her painted waterline with her antifouling under water and her outboard's leg immersed.
+export const SINK = { yacht: 0.09, cruiser: 0.11, rib: 0.24, committee: 0.15 };
+// weathering shared by the hulls: tone, a dark wet band above the floating waterline (y0), weed at it, salt above
+const hullPaint = (seed, wet = 0.2, y0 = 0) => both(mottle(seed, 0.05, 0.9), stain(seed, { weedTop: 0.05, tide: 0.09, wet: wet + 0.06, salt: 0.12, y0 }));
+// the line of scum and foam where the sea meets the hull: a pale bead round her at the floating waterline
+function waterline(g, H, T, y, lod) {
+  const q = [0, 0, 0];
+  for (const sg of [-1, 1]) tube(g, T.map((t) => {
+    for (const fn of H.parts) {
+      fn(t, 1, sg, q); if (q[1] < y) continue;
+      let a = 0, b = 1;
+      for (let k = 0; k < 18; k++) { const m = (a + b) / 2; fn(t, m, sg, q); if (q[1] < y) a = m; else b = m; }
+      fn(t, (a + b) / 2, sg, q); break;
+    }
+    return [q[0], y, q[2] + sg * 0.012];
+  }), lod ? 0.035 : 0.024, [0.56, 0.6, 0.58], RUB, { segs: 3 });
+}
 
 // Who is aboard, in the vessel's own frame: x, z, and y where their feet rest (a seated figure's hips are half a
 // metre above that); yaw 0 faces the bow, pi/2 starboard. h, 0..1, differs from boat to boat: some are left
@@ -243,12 +260,13 @@ export function yachtGeo(lod = 0, seed = 1) {
   const white = [0.8, 0.79, 0.74], teakC = [0.42, 0.3, 0.17], deckC = V.teak ? teakC : [0.66, 0.66, 0.62], DM = V.teak ? TEAK : NSK;
   const S = { L: 10.6, B: 3.4, draft: 0.62, free: 0.95, rise: 0.42, sternLift: 0.06, bow: 2.3, bowK: 0.62, keelBow: 0.9, pMid: 2.6, pBow: 1.35, rake: 0.05, sternW: 0.8, tumble: 0.03 };
   const H = hullShape(S), fn = H.parts[0];
-  const T = stations(far ? 6 : lod ? 10 : 26), hp = far ? null : hullPaint(seed);
+  const T = stations(far ? 6 : lod ? 10 : 26), hp = far ? null : hullPaint(seed, 0.16, SINK.yacht);
   const sy = (t) => H.ys(t);
   hullBands(g, fn, T, far
     ? [{ y0: -9, y1: 0.08, col: V.anti, rows: 1 }, { y0: 0.08, y1: (t) => sy(t) - 0.18, col: V.hull, rows: 2 }, { y0: (t) => sy(t) - 0.18, y1: 9, col: V.stripe, rows: 1 }]
     : [{ y0: -9, y1: 0.03, col: V.anti, rows: lod ? 2 : 3 }, { y0: 0.03, y1: 0.11, col: V.boot, rows: 1 }, { y0: 0.11, y1: (t) => sy(t) - 0.2, col: V.hull, rows: lod ? 2 : 4 },
       { y0: (t) => sy(t) - 0.2, y1: (t) => sy(t) - 0.15, col: V.stripe, rows: 1 }, { y0: (t) => sy(t) - 0.15, y1: 9, col: V.hull, rows: 1 }], hp);
+  if (!far) waterline(g, H, T, SINK.yacht + 0.015, lod);
   const dy = H.deckY, hw = H.hw;
   const MY = 1.66, top = YACHT.mast, MX = 1.0;
   // ---- deck: one sheet forward; aft of the bridge deck it parts round the cockpit well ----
@@ -279,7 +297,7 @@ export function yachtGeo(lod = 0, seed = 1) {
   const CS = [{ x: -2.45, y0: 0.85, y1: 1.6, w: 1.16, wt: 0.98, r: 0.13 }, { x: -1.2, y0: 0.85, y1: 1.67, w: 1.22, wt: 1.0, r: 0.14 }, { x: 1.0, y0: 0.9, y1: 1.66, w: 1.16, wt: 0.94, r: 0.14 }, { x: 2.15, y0: 1.0, y1: 1.5, w: 0.92, wt: 0.7, r: 0.12 }, { x: 2.8, y0: 1.08, y1: 1.2, w: 0.6, wt: 0.45, r: 0.05 }];
   const C = cabin(g, CS, white, GEL, { nc: far ? 1 : 3, caps: [true, false] });
   if (!far) {
-    for (const s of [-1, 1]) { sideWindow(g, C, -2.0, -0.95, 1.15, 1.42, s, lod, { cut: 0.07, fm: MET }); sideWindow(g, C, -0.7, 0.45, 1.16, 1.42, s, lod, { cut: 0.07 }); sideWindow(g, C, 1.2, 1.85, 1.2, 1.38, s, lod, { cut: 0.05 }); }
+    for (const s of [-1, 1]) { sideWindow(g, C, -2.0, -0.95, 1.15, 1.42, s, lod, { cut: 0.07, fm: MET, lit: s > 0 }); sideWindow(g, C, -0.7, 0.45, 1.16, 1.42, s, lod, { cut: 0.07 }); sideWindow(g, C, 1.2, 1.85, 1.2, 1.38, s, lod, { cut: 0.05 }); }
     // companionway: washboards under a sliding hatch on its garage
     box(g, [-2.47, 1.2, 0], 0.012, 0.32, 0.3, scl(teakC, 0.85), TEAK);
     box(g, [-2.05, C.top(-2.05) + 0.035, 0], 0.42, 0.03, 0.36, [0.76, 0.76, 0.72], GEL);
@@ -487,12 +505,13 @@ export function cruiserGeo(lod = 0, seed = 1) {
   const near = lod === 0, far = lod === 2;
   const white = [0.78, 0.78, 0.75], teakC = [0.42, 0.3, 0.17];
   const S = { L: 11.8, B: 3.9, draft: 0.8, free: 1.22, rise: 0.6, sternLift: 0.08, bow: 2.7, bowK: 0.6, keelBow: 0.9, rake: 0.07, chine: { y0: 0.1, rise: 0.8, pow: 2.3, w0: 0.94, w1: 0.45 } };
-  const H = hullShape(S), T = stations(far ? 6 : lod ? 10 : 24), hp = far ? null : hullPaint(seed + 10);
+  const H = hullShape(S), T = stations(far ? 6 : lod ? 10 : 24), hp = far ? null : hullPaint(seed + 10, 0.18, SINK.cruiser);
   const sy = (t) => H.ys(t), dy = H.deckY, hw = H.hw;
   hullBands(g, H.parts[0], T, [{ y0: -9, y1: 0.02, col: V.anti, rows: 2 }, { y0: 0.02, y1: 0.1, col: V.hull[0] > 0.4 ? V.accent : [0.75, 0.75, 0.72], rows: 1 }, { y0: 0.1, y1: 9, col: V.hull, rows: 1 }], hp);
   hullBands(g, H.parts[1], T, far
     ? [{ y0: -9, y1: (t) => sy(t) - 0.42, col: V.hull, rows: 1 }, { y0: (t) => sy(t) - 0.42, y1: (t) => sy(t) - 0.26, col: V.accent, rows: 1 }, { y0: (t) => sy(t) - 0.26, y1: 9, col: V.hull, rows: 1 }]
     : [{ y0: -9, y1: (t) => sy(t) - 0.42, col: V.hull, rows: lod ? 2 : 4 }, { y0: (t) => sy(t) - 0.42, y1: (t) => sy(t) - 0.26, col: V.accent, rows: 1 }, { y0: (t) => sy(t) - 0.26, y1: 9, col: V.hull, rows: 1 }], hp);
+  if (!far) waterline(g, H, T, SINK.cruiser + 0.015, lod);
   // ---- decks: the foredeck and side decks at the sheer, a cockpit let down aft, a swim platform ----
   const XC = -3.2, tC = H.tOf(XC), CF = 0.78;
   deck(g, H, lin(tC, 0.997, far ? 4 : lod ? 6 : 12), -1, 1, white, NSK, { nq: far ? 2 : 4 });
@@ -507,10 +526,10 @@ export function cruiserGeo(lod = 0, seed = 1) {
     quad(g, [xa, CF, -cw(xa)], [xa, CF, 0.55], [xa, dy(xa), 0.55], [xa, dy(xa), -cw(xa)], white, GEL);
     tube(g, [[xa + 0.02, dy(xa) + 0.02, -cw(xa)], [xa + 0.02, dy(xa) + 0.02, 0.55]], 0.05, white, GEL, { segs: lod ? 4 : 6, caps: true });
     quad(g, [xa, CF, 1.25], [xa, CF, cw(xa)], [xa, dy(xa), cw(xa)], [xa, dy(xa), 1.25], white, GEL);
-    // swim platform on brackets, a folded ladder, a rail each side
-    box(g, [-6.2, 0.36, 0], 0.32, 0.03, 1.55, teakC, TEAK);
+    // swim platform moulded onto the transom, teak laid on it; rounded quarters; a folded ladder, a rail each side
+    box(g, [-6.2, 0.25, 0], 0.33, 0.13, 1.6, V.hull, GEL); box(g, [-6.2, 0.39, 0], 0.3, 0.012, 1.52, teakC, TEAK);
+    for (const s of [-1, 1]) rod(g, [xa - 0.02, 0.12, s * (cw(xa) + 0.02)], [xa - 0.02, dy(xa) + 0.02, s * (cw(xa) + 0.04)], 0.07, V.hull, GEL, lod ? 4 : 8);
     if (near) {
-      for (const z of [-1.1, 0, 1.1]) quad(g, [-5.9, 0.33, z], [-6.45, 0.33, z], [-5.9, 0.05, z], [-5.9, 0.33, z], [0.7, 0.7, 0.7], MET);
       ladder(g, [-6.5, 0.4, -0.9], [-6.2, 0.95, -0.9], [0, 0, 1], STEEL, MET, { w: 0.32, r: 0.012, step: 0.22, segs: 3 });
       for (const s of [-1, 1]) tube(g, [[-5.95, 0.4, s * 1.45], [-5.98, 0.95, s * 1.45], [-6.4, 0.95, s * 1.45], [-6.45, 0.4, s * 1.45]], 0.016, STEEL, MET, { segs: 4 });
       // a bench across the transom with cushions, a table leg, a life ring on the side
@@ -525,27 +544,37 @@ export function cruiserGeo(lod = 0, seed = 1) {
     // spray rails along the chine, a rubbing band along the sheer
     for (const s of [-1, 1]) tube(g, lin(0, 0.96, lod ? 8 : 16).map((t) => { const q = [0, 0, 0]; H.parts[0](t, 1, s, q); return [q[0], q[1], q[2] + s * 0.015]; }), 0.03, V.hull, GEL, { segs: 4 });
     sheerBar(g, H, 0, 0.995, lod ? 10 : 20, 0.035, [0.05, 0.05, 0.055], RUB, { up: -0.05, out: 0.01, segs: lod ? 4 : 6 });
-  } else box(g, [-6.2, 0.36, 0], 0.32, 0.03, 1.55, teakC, TEAK);
+  } else box(g, [-6.2, 0.27, 0], 0.33, 0.13, 1.6, V.hull, GEL);
   // ---- saloon, windscreen and trunk cabin ----
   const ST = [{ x: XC, y0: 1.1, y1: 3.1, w: 1.62, wt: 1.5, r: 0.12 }, { x: 0.9, y0: 1.1, y1: 3.1, w: 1.6, wt: 1.45, r: 0.12 }, { x: 2.3, y0: 1.1, y1: 2.02, w: 1.36, wt: 1.2, r: 0.1 }, { x: 2.45, y0: 1.1, y1: 1.96, w: 1.3, wt: 1.1, r: 0.14 }, { x: 4.2, y0: 1.1, y1: 1.74, w: 0.76, wt: 0.6, r: 0.1 }, { x: 4.75, y0: 1.1, y1: 1.62, w: 0.4, wt: 0.3, r: 0.05 }];
   let C;
   if (far) { cabinFar(g, ST, 2.0, 2.78, white); C = cabin(new Geo(64), ST, white, GEL, { nc: 1 }); } else C = cabin(g, ST, white, GEL, { nc: 3 });
   if (!far) {
     for (const s of [-1, 1]) {
-      sideWindow(g, C, -2.95, -1.75, 2.02, 2.76, s, lod, { cut: 0.1, frame: DARK, fm: RUB });
-      sideWindow(g, C, -1.6, -0.4, 2.02, 2.76, s, lod, { cut: 0.1, frame: DARK, fm: RUB });
-      sideWindow(g, C, -0.25, 0.75, 2.02, 2.76, s, lod, { cut: 0.1, frame: DARK, fm: RUB, rake: -0.35 });
+      const WF = { cut: 0.1, frame: [0.84, 0.84, 0.81], fm: GEL };
+      sideWindow(g, C, -2.95, -1.75, 2.02, 2.76, s, lod, { ...WF, lit: s > 0 });
+      sideWindow(g, C, -1.6, -0.4, 2.02, 2.76, s, lod, WF);
+      sideWindow(g, C, -0.25, 0.75, 2.02, 2.76, s, lod, { ...WF, rake: -0.35 });
+      if (near) {
+        // what breaks up the house side: a moulded line, an eyebrow over the windows, louvred vents low aft, a boarding gate's stanchion
+        tube(g, lin(XC + 0.1, 0.8, 4).map((x) => C.side(x, 1.82, s, 0.012)), 0.02, V.accent, GEL, { segs: 4 });
+        tube(g, lin(XC + 0.05, 0.85, 4).map((x) => C.side(x, 2.86, s, 0.03)), 0.03, [0.84, 0.84, 0.81], GEL, { segs: 5 });
+        for (let k = 0; k < 4; k++) box(g, C.side(-2.5, 1.5 + k * 0.06, s, 0.012), 0.2, 0.018, 0.012, [0.25, 0.25, 0.26], RUB);
+        for (let k = 0; k < 4; k++) box(g, C.side(-0.9, 1.5 + k * 0.06, s, 0.012), 0.2, 0.018, 0.012, [0.25, 0.25, 0.26], RUB);
+      }
       if (near) for (const x of [2.9, 3.6]) sideWindow(g, C, x, x + 0.45, 1.52, 1.66, s, 0, { cut: 0.04 });
     }
     // the aft bulkhead: a sliding glass door and a window
     const xb = XC - (lod ? 0.09 : 0.014);
-    pane(g, [[xb, CF + 0.08, 0.1], [xb, CF + 0.08, 0.95], [xb, 2.85, 0.95], [xb, 2.85, 0.1]], lod, DARK, RUB);
-    pane(g, [[xb, 2.0, -1.25], [xb, 2.0, -0.1], [xb, 2.8, -0.1], [xb, 2.8, -1.2]], lod, DARK, RUB);
+    // a door with a glazed upper half, its frame, handle and sill; a window beside it
+    pane(g, [[xb, 1.85, 0.2], [xb, 1.85, 0.85], [xb, 2.78, 0.85], [xb, 2.78, 0.2]], lod, [0.84, 0.84, 0.81], GEL);
+    if (near) { tube(g, [[xb, CF + 0.06, 0.1], [xb, 2.88, 0.1], [xb, 2.88, 0.95], [xb, CF + 0.06, 0.95]], 0.022, [0.6, 0.6, 0.58], GEL, { segs: 4, closed: true }); rod(g, [xb - 0.04, 1.6, 0.2], [xb - 0.04, 1.78, 0.2], 0.014, STEEL, MET, 4); box(g, [XC - 0.06, CF + 0.03, 0.52], 0.06, 0.03, 0.45, [0.6, 0.6, 0.62], MET); }
+    pane(g, [[xb, 2.0, -1.25], [xb, 2.0, -0.1], [xb, 2.8, -0.1], [xb, 2.8, -1.2]], lod, [0.84, 0.84, 0.81], GEL);
     // windscreen: three raked panes between mullions, wipers
     const ws = (x, z) => [x, lerp(3.1, 2.02, (x - 0.9) / 1.4) + 0.045 * (1 - (z / 1.3) * (z / 1.3)) + (lod ? 0.1 : 0.02), z];
     for (const [z0, z1] of [[-1.16, -0.44], [-0.38, 0.38], [0.44, 1.16]]) {
       const k = (z) => 1 - 0.1 * Math.abs(z);
-      pane(g, [ws(1.02, z0 * 1.12), ws(1.02, z1 * 1.12), ws(2.2, z1 * k(z1)), ws(2.2, z0 * k(z0))], lod, DARK, RUB);
+      pane(g, [ws(1.02, z0 * 1.12), ws(1.02, z1 * 1.12), ws(2.2, z1 * k(z1)), ws(2.2, z0 * k(z0))], lod, [0.84, 0.84, 0.81], GEL);
       if (near) { const zc = (z0 + z1) / 2; tube(g, [ws(2.22, zc), ws(1.7, zc + 0.25)].map((q) => [q[0], q[1] + 0.02, q[2]]), 0.006, DARK, RUB, { segs: 3 }); }
     }
   }
@@ -643,13 +672,15 @@ function bigOutboard(g, p, lod, col) {
   const s0 = mark(g), leg = [0.55, 0.57, 0.6];
   blob(g, [-0.3, 0.72, 0], 0.4, 0.27, 0.2, col, GEL, { n: lod ? 3 : 6, segs: lod ? 6 : 12, p: 2.8 });
   box(g, [-0.24, 0.3, 0], 0.14, 0.2, 0.11, leg, GEL);
-  box(g, [-0.3, -0.15, 0], 0.09, 0.3, 0.06, leg, GEL);
+  // the leg: a streamlined strut down to the plate, then the gearcase
+  limb(g, [[-0.28, 0.14, 0], [-0.3, -0.46, 0]], [0.12, 0.1], [0.045, 0.036], leg, GEL, { hint: [1, 0, 0], segs: lod ? 6 : 10, per: 1, caps: [false, false] });
   if (lod < 2) {
     box(g, [-0.3, 0.5, 0], 0.36, 0.035, 0.17, [0.8, 0.8, 0.78], GEL);                          // the band under the cowl
     box(g, [-0.36, -0.42, 0], 0.2, 0.012, 0.1, leg, GEL);                                      // anti-ventilation plate
-    lathe(g, [[0.0, -0.3], [0.05, -0.22], [0.075, -0.05], [0.07, 0.12], [0.0, 0.22]], leg, GEL, { segs: 8, axis: 'x', at: [-0.3, -0.62, 0] });
+    lathe(g, [[0.0, -0.34], [0.05, -0.26], [0.085, -0.08], [0.085, 0.1], [0.05, 0.22], [0.0, 0.28]], leg, GEL, { segs: 10, axis: 'x', at: [-0.3, -0.62, 0] });
+    limb(g, [[-0.3, -0.42, 0], [-0.3, -0.58, 0]], [0.1, 0.09], [0.03, 0.04], leg, GEL, { hint: [1, 0, 0], segs: 8, per: 1, caps: [false, false] });
     fan(g, [[-0.25, -0.68, 0], [-0.5, -0.68, 0], [-0.42, -0.9, 0]], leg, GEL);                // skeg
-    for (let k = 0; k < 3; k++) { const a = (k / 3) * TAU; fan(g, [[-0.58, -0.62, 0], [-0.6, -0.62 + Math.cos(a) * 0.17, Math.sin(a) * 0.17], [-0.52, -0.62 + Math.cos(a + 0.9) * 0.15, Math.sin(a + 0.9) * 0.15]], [0.15, 0.15, 0.16], MET); }
+    for (let k = 0; k < 3; k++) { const a = (k / 3) * TAU; fan(g, [[-0.62, -0.62, 0], [-0.66, -0.62 + Math.cos(a) * 0.2, Math.sin(a) * 0.2], [-0.56, -0.62 + Math.cos(a + 1.0) * 0.19, Math.sin(a + 1.0) * 0.19], [-0.6, -0.62 + Math.cos(a + 0.5) * 0.08, Math.sin(a + 0.5) * 0.08]], [0.5, 0.5, 0.48], MET); }
     box(g, [-0.02, 0.36, 0], 0.07, 0.17, 0.2, [0.3, 0.3, 0.32], MET);                         // clamp bracket
     if (!lod) { rod(g, [0.0, 0.5, 0.1], [0.5, 0.42, 0.25], 0.012, DARK, RUB, 4); text(g, 'TIDE 90', [-0.52, 0.66, 0.205], [1, 0, 0], [0, 1, 0], 0.07, col[0] > 0.4 ? [0.05, 0.05, 0.06] : [0.75, 0.75, 0.72], RUB, { off: 0.004 }); }
   }
@@ -659,10 +690,11 @@ export function ribGeo(lod = 0, seed = 1) {
   const g = new Geo(lod ? 2048 : 32768), lamps = [], V = RIBS[(((seed - 1) % 3) + 3) % 3];
   const near = lod === 0, far = lod === 2, floor = [0.5, 0.51, 0.5];
   const S = { L: 6.3, B: 1.86, draft: 0.4, free: 0.52, rise: 0.3, bow: 2.3, bowK: 0.62, keelBow: 0.75, rake: 0.05, chine: { y0: 0.02, rise: 0.45, pow: 2.4, w0: 0.96, w1: 0.4 } };
-  const H = hullShape(S), T = stations(far ? 5 : lod ? 8 : 16), hp = far ? null : hullPaint(seed + 20, 0.1);
+  const H = hullShape(S), T = stations(far ? 5 : lod ? 8 : 16), hp = far ? null : hullPaint(seed + 20, 0.12, SINK.rib);
   hullBands(g, H.parts[0], T, [{ y0: -9, y1: 0.03, col: [0.1, 0.1, 0.12], rows: 1 }, { y0: 0.03, y1: 9, col: V.grp, rows: 1 }], hp);
   hullBands(g, H.parts[1], T, [{ y0: -9, y1: 9, col: V.grp, rows: far ? 1 : 2 }], hp);
   deck(g, H, lin(0, 0.93, far ? 3 : 6), -1, 1, floor, NSK, { camber: 0.01, nq: 2, inset: 0.92, drop: 0.08 });
+  if (!far) waterline(g, H, T, SINK.rib + 0.015, lod);
   // the collar: one tube from the starboard quarter round the bow to the port quarter, cone ends aft
   const half = [[-3.62, 0.9, 0.05, 0.6], [-3.25, 0.9, 0.24, 0.6], [-2.9, 0.9, 0.275, 0.6], [-1.5, 0.93, 0.28, 0.61], [0.2, 0.92, 0.28, 0.63], [1.5, 0.82, 0.275, 0.68], [2.4, 0.58, 0.265, 0.75], [2.95, 0.3, 0.255, 0.82]];
   const path = [...half.map(([x, z, r, y]) => [x, y, z, r]), [3.12, 0.86, 0, 0.25], ...half.slice().reverse().map(([x, z, r, y]) => [x, y, -z, r])];
@@ -756,7 +788,7 @@ function hexaBox(g, [x0, x1], y, [wb, wt], h, col) {
 export const COMMITTEE = { length: 13.4, radius: 10, sign: [3.3, 0.71] };
 // a signal flag hoisted on a halyard, its hoist at p, streaming aft (the boat lies head to wind)
 function hoisted(g, p, w, h, fnCol, lod) {
-  const nu = lod ? 2 : 5, nv = lod ? 1 : 3;
+  const nu = lod === 2 ? 2 : lod ? 6 : 14, nv = lod === 2 ? 1 : lod ? 4 : 10;
   surf(g, (u, v, out) => { out[0] = p[0] - u * w * 0.92; out[1] = p[1] - v * h - 0.12 * u * u * w; out[2] = p[2] + 0.06 * w * Math.sin(u * 5.5 + v) * u; }, lin(0, 1, nu), lin(0, 1, nv), [1, 1, 1], CLOTH, { paint: (P, N, C, i) => { const u = clamp((p[0] - P[i]) / (w * 0.92), 0, 0.999), v = clamp((p[1] - P[i + 1] - 0.12 * u * u * w) / h, 0, 0.999), c = fnCol(u, v); C[i] = c[0]; C[i + 1] = c[1]; C[i + 2] = c[2]; } });
 }
 const FW = [0.72, 0.72, 0.7], FB = [0.04, 0.07, 0.4], FR = [0.6, 0.04, 0.03], FY = [0.65, 0.52, 0.04], FK = [0.03, 0.03, 0.035], FO = [0.7, 0.22, 0.02];
@@ -778,10 +810,11 @@ export function committeeGeo(lod = 0, seed = 1) {
   const S = { L: 13.4, B: 4.3, draft: 0.95, free: 1.4, rise: 0.75, sternLift: 0.12, bow: 3.0, bowK: 0.55, keelBow: 0.85, pMid: 2.2, pBow: 1.5, rake: 0.035, sternW: 0.88 };
   const H = hullShape(S), fn = H.parts[0], T = stations(far ? 6 : lod ? 10 : 24);
   const sy = (t) => H.ys(t), dy = H.deckY, hw = H.hw;
-  const hp = far ? null : both(hullPaint(seed + 30, 0.18), rust(seed, { amt: 0.45, f: 2.2, lo: 0.66, hi: 0.86 }));
+  const hp = far ? null : both(hullPaint(seed + 30, 0.2, SINK.committee), rust(seed, { amt: 0.45, f: 2.2, lo: 0.66, hi: 0.86 }));
   hullBands(g, fn, T, far
     ? [{ y0: -9, y1: 0.1, col: anti, rows: 1 }, { y0: 0.1, y1: (t) => sy(t) - 0.4, col: navy, rows: 2 }, { y0: (t) => sy(t) - 0.4, y1: 9, col: orange, rows: 1 }]
     : [{ y0: -9, y1: 0.03, col: anti, rows: lod ? 2 : 3 }, { y0: 0.03, y1: 0.14, col: white, rows: 1 }, { y0: 0.14, y1: (t) => sy(t) - 0.42, col: navy, rows: lod ? 2 : 4 }, { y0: (t) => sy(t) - 0.42, y1: (t) => sy(t) - 0.2, col: orange, rows: 1 }, { y0: (t) => sy(t) - 0.2, y1: 9, col: navy, rows: 1 }], hp);
+  if (!far) waterline(g, H, T, SINK.committee + 0.015, lod);
   deck(g, H, lin(0, 0.997, far ? 5 : lod ? 8 : 16), -1, 1, deckC, NSK, { nq: far ? 2 : 4 });
   // bulwarks: plating carried up above the deck, a capping rail, freeing ports with their rust
   const BW = 0.36;
@@ -802,11 +835,20 @@ export function committeeGeo(lod = 0, seed = 1) {
   // ---- wheelhouse with a roof deck ----
   const ST = [{ x: -1.2, y0: 1.3, y1: 3.72, w: 1.62, wt: 1.56, r: 0.08, crown: 0.03 }, { x: 2.2, y0: 1.3, y1: 3.72, w: 1.62, wt: 1.56, r: 0.08, crown: 0.03 }, { x: 3.1, y0: 1.3, y1: 3.72, w: 1.38, wt: 1.34, r: 0.08, crown: 0.03 }, { x: 3.6, y0: 1.3, y1: 3.72, w: 1.15, wt: 1.12, r: 0.08, crown: 0.03 }];
   let C;
-  if (far) { cabinFar(g, ST, 2.55, 3.35, white); C = cabin(new Geo(64), ST, white, GEL, { nc: 1 }); } else C = cabin(g, ST, white, GEL, { nc: 2 });
+  if (far) { cabinFar(g, ST, 2.55, 3.35, white); C = cabin(new Geo(64), ST, white, GEL, { nc: 1 }); } else C = cabin(g, ST, white, PLATE, { nc: 2, paint: near ? rust(seed + 2, { amt: 0.3, f: 1.3, lo: 0.7, hi: 0.9, top: 2.52, len: 0.8 }) : undefined });
   slab(g, -1.35, 3.72, 3.72, 3.84, -1.75, 1.75, [0.5, 0.52, 0.5], NSK);
   if (!far) {
     for (const s of [-1, 1]) {
-      for (const [x0, x1] of [[-0.8, 0.05], [0.22, 1.07], [1.24, 2.09]]) sideWindow(g, C, x0, x1, 2.55, 3.35, s, lod, { cut: 0.06, frame: [0.2, 0.2, 0.2], fm: RUB });
+      for (const [x0, x1] of [[-0.3, 0.45], [0.62, 1.37], [1.54, 2.09]]) sideWindow(g, C, x0, x1, 2.55, 3.35, s, lod, { cut: 0.07, frame: [0.8, 0.8, 0.77], fm: GEL, lit: x0 > 0.5 && x0 < 1 });
+      // the wheelhouse door, aft on each side: a steel door in a coaming with a round port, dogs and a handle, a step under it
+      if (near) {
+        const D = (x, y, o = 0.03) => C.side(x, y, s, o);
+        tube(g, [D(-1.05, 1.62), D(-1.05, 3.4), D(-0.45, 3.4), D(-0.45, 1.62)], 0.03, [0.62, 0.62, 0.6], GEL, { segs: 4, closed: true });
+        hoop(g, D(-0.75, 2.9, 0.035), [0, 0, s], 0.14, 0.022, [0.55, 0.45, 0.2], MET, 12, 4); lathe(g, [[0.0, 0], [0.13, 0]], GLASS, GLS, { segs: 12, axis: 'x', at: D(-0.75, 2.9, 0.03) });
+        fan(g, Array.from({ length: 10 }, (_, k) => { const a = (k / 10) * TAU, p = D(-0.75, 2.9, 0.032); return [p[0] + Math.cos(a) * 0.13, p[1] + Math.sin(a) * 0.13, p[2]]; }), GLASS, GLS);
+        rod(g, D(-0.55, 2.35, 0.07), D(-0.55, 2.55, 0.07), 0.014, STEEL, MET, 4); for (const y of [1.9, 3.15]) box(g, D(-1.0, y, 0.04), 0.05, 0.02, 0.02, [0.3, 0.3, 0.3], RUB);
+        box(g, D(-0.75, 1.52, 0.12), 0.34, 0.02, 0.12, [0.3, 0.32, 0.3], NSK);
+      }
       // a grab rail under the windows, a vent, an extinguisher in its red box, the name board's lamp
       if (near) {
         tube(g, lin(-1.0, 2.1, 4).map((x) => C.side(x, 2.42, s, 0.06)), 0.016, STEEL, MET, { segs: 4 }); for (const x of [-1.0, 0.55, 2.1]) rod(g, C.side(x, 2.42, s, 0.0), C.side(x, 2.42, s, 0.06), 0.012, STEEL, MET, 3);
@@ -821,7 +863,7 @@ export function committeeGeo(lod = 0, seed = 1) {
       if (near) box(g, [0.45, y0 + h / 2, zb - s * 0.012], w + 0.03, h / 2 + 0.03, 0.008, [0.08, 0.09, 0.1], RUB);
     }
     // forward windows: three panes with a centre one that opens, wipers; a visor over them
-    for (const [z0, z1] of [[-1.0, -0.4], [-0.33, 0.33], [0.4, 1.0]]) { const xf0 = lod ? 3.7 : 3.614; pane(g, [[xf0, 2.55, z0], [xf0, 2.55, z1], [xf0, 3.38, z1], [xf0, 3.38, z0]], lod, [0.2, 0.2, 0.2], RUB); if (near) rod(g, [3.63, 3.36, (z0 + z1) / 2], [3.63, 2.75, (z0 + z1) / 2 + 0.2], 0.006, DARK, RUB, 3); }
+    for (const [z0, z1] of [[-1.0, -0.4], [-0.33, 0.33], [0.4, 1.0]]) { const xf0 = lod ? 3.7 : 3.614; pane(g, [[xf0, 2.55, z0], [xf0, 2.55, z1], [xf0, 3.38, z1], [xf0, 3.38, z0]], lod, [0.8, 0.8, 0.77], GEL); if (near) rod(g, [3.63, 3.36, (z0 + z1) / 2], [3.63, 2.75, (z0 + z1) / 2 + 0.2], 0.006, DARK, RUB, 3); }
     slab(g, 3.6, 3.95, 3.5, 3.54, -1.2, 1.2, white, GEL);
     // after bulkhead: a door and a window, the ladder to the roof
     { const xa = lod ? -1.3 : -1.214; pane(g, [[xa, 2.5, -1.15], [xa, 2.5, -0.3], [xa, 3.3, -0.3], [xa, 3.3, -1.15]], lod, [0.2, 0.2, 0.2], RUB); }
@@ -1054,7 +1096,20 @@ export function cargoGeo(seed = 1, lod = 0) {
   // ---- funnel: the company's colours, a black top, uptakes ----
   {
     const fx = -89.5, fy = deckY + (far ? 0 : 0), fh = far ? 31 : 30.5, funnelC = [0.04, 0.13, 0.36];
-    if (!far) slab(g, -94, AX0, deckY, deckY + 12.5, -11, 11, houseC, GRAINM);
+    if (!far) slab(g, -94, AX0, deckY, deckY + 12.5, -11, 11, houseC, PLATE);
+    if (near) {
+      // the engine casing's sides: louvred intakes, watertight doors, ports, a ladder, ventilators and a rail on its top
+      for (const s of [-1, 1]) {
+        for (const x of [-92, -88.5]) { for (let k = 0; k < 6; k++) slab(g, x, x + 2.6, deckY + 6.2 + k * 0.42, deckY + 6.42 + k * 0.42, s * 11 - 0.16, s * 11 + 0.16, [0.2, 0.21, 0.22], RUB); slab(g, x - 0.1, x + 2.7, deckY + 6.0, deckY + 8.9, s * 11 - 0.1, s * 11 + 0.1, [0.5, 0.5, 0.48], RUB); }
+        for (const x of [-91, -84.5]) { slab(g, x, x + 0.9, deckY + 0.3, deckY + 2.3, s * 11 - 0.14, s * 11 + 0.14, [0.55, 0.56, 0.55], RUB); slab(g, x + 0.3, x + 0.6, deckY + 1.5, deckY + 1.8, s * 11 - 0.17, s * 11 + 0.17, GLASS, GLS); }
+        for (let k = 0; k < 5; k++) slab(g, -93 + k * 2.2, -92.5 + k * 2.2, deckY + 3.6, deckY + 4.1, s * 11 - 0.13, s * 11 + 0.13, GLASS, GLS);
+        ladder(g, [-86.5, deckY, s * 11.25], [-86.5, deckY + 12.6, s * 11.25], [1, 0, 0], [0.5, 0.5, 0.48], RUB, { w: 0.55, r: 0.04, step: 0.4, segs: 3 });
+        for (const x of [-92.5, -84]) { tube(g, [[x, deckY + 12.5, s * 7], [x, deckY + 14.2, s * 7], [x + 0.5, deckY + 15, s * 7], [x + 1.3, deckY + 15.1, s * 7]], [0.5, 0.5, 0.6, 0.8], houseC, GEL, { segs: 8 }); }
+      }
+      railing(g, [[-94, deckY + 12.5, -11], [AX0, deckY + 12.5, -11]], [0.75, 0.75, 0.72], MET, { h: 1.1, every: 2.4, r: 0.03, segs: 3 });
+      railing(g, [[-94, deckY + 12.5, 11], [AX0, deckY + 12.5, 11]], [0.75, 0.75, 0.72], MET, { h: 1.1, every: 2.4, r: 0.03, segs: 3 });
+      railing(g, [[-94, deckY + 12.5, -11], [-94, deckY + 12.5, 11]], [0.75, 0.75, 0.72], MET, { h: 1.1, every: 2.4, r: 0.03, segs: 3 });
+    }
     const bands = [[0, 0.62, funnelC], [0.62, 0.74, [0.78, 0.78, 0.75]], [0.74, 0.84, funnelC], [0.84, 1, [0.02, 0.02, 0.022]]];
     const y0f = far ? deckY : deckY + 12.5, hh = far ? fh : fh - 12.5;
     for (const [a, b, c] of bands) lathe(g, [[3.4, y0f + hh * a], [3.3 - 0.25 * b, y0f + hh * b]], c, far ? RUB : GRAINM, { segs: far ? 6 : lod ? 10 : 20, at: [fx, 0, 0], ell: 1.7 });

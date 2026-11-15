@@ -18,6 +18,7 @@ uniform mat4 uViewProj;
 uniform vec3 uCamPos;
 uniform float uFloat;        // 1: ride the waves at the model origin (buoys); 2: a span between two anchors; 0: the model matrix is the pose
 uniform float uSpan;         // float mode 2: the span's length along the model's x axis
+uniform float uPxSize;      // the width of a pixel at unit distance (world units per unit of depth)
 uniform float uFoot;         // float mode 1: the length (m) the slope is taken over, so a long hull pitches to the swell and not to every chop; 0 means a small float
 uniform sampler2D uDisp[3];
 uniform float uSize[4];
@@ -74,6 +75,9 @@ void main() {
     P = vec3(a.x, uModel[3].y, a.y) + D + l.x * X + l.y * up + l.z * Z;
     N = N.x * X + N.y * up + N.z * Z;
   }
+  // Wires, stays and thin rails (uv.x < 0: minus their radius; their normals are radial) never narrow below about a
+  // pixel: a line thinner than that breaks into dots under multisampling instead of fading.
+  if (aUV.x < 0.0) { float hw = 0.55 * (uViewProj * vec4(P, 1.0)).w * uPxSize; if (hw > -aUV.x) P += normalize(N) * (hw + aUV.x); }
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
   vWorld = P; vN = N; vCol = aCol; vMat = aMat; vObj = aPos; vObjN = aN; vUV = aUV;
@@ -540,6 +544,9 @@ export class MeshPass {
   begin(scene) {
     this.scene = scene;
     this.prog.use(scene);
+    // a pixel's width per unit of depth, from the projection's vertical scale and the viewport
+    const vp = scene && scene.uViewProj;
+    if (vp) this.prog.set('uPxSize', 2 / (Math.hypot(vp[1], vp[5], vp[9]) * this.gl.getParameter(this.gl.VIEWPORT)[3]));
   }
   bakeAo(mesh) {
     const gl = this.gl;

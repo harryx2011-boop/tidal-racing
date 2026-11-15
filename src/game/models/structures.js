@@ -296,6 +296,32 @@ export function cells(x, z, cs, out) {
   out[0] = f1; out[1] = id;
   return out;
 }
+// The shadows of what stands on a walkway (lamp standards, bollards, life-ring posts, pots): a dark quad from each
+// foot along the sun's direction, kept on the deck. casters: { p, h, w, a, n, lo, hi } with a the offset across (negative
+// toward the sea), n the unit vector to the sea; the system builds this once for the race's sun and draws it half clear.
+export function shadowQuads(casters, sun) {
+  const g = new Geo(256), sl = Math.hypot(sun[0], sun[2]) || 1e-6, dx = -sun[0] / sl, dz = -sun[2] / sl, cot = sl / Math.max(sun[1], 0.12), ink = [0.004, 0.005, 0.007];
+  for (const c of casters) {
+    let len = Math.min(c.h * cot, 7);
+    const across = dx * c.n[0] + dz * c.n[1];
+    if (across > 1e-3) len = Math.min(len, (c.a - c.lo) / across); else if (across < -1e-3) len = Math.min(len, (c.hi - c.a) / -across);
+    if (len < 0.1) continue;
+    const px = (-dz * c.w) / 2, pz = (dx * c.w) / 2, y = c.p[1] + 0.012;
+    quad(g, [c.p[0] - px, y, c.p[2] - pz], [c.p[0] + px, y, c.p[2] + pz], [c.p[0] + px + dx * len, y, c.p[2] + pz + dz * len], [c.p[0] - px + dx * len, y, c.p[2] - pz + dz * len], ink, RUB);
+  }
+  return g;
+}
+// a lobster pot: a slatted base, three hoops, netting over them, a rope becket
+function creel(g, at, yaw, hue) {
+  const s0 = mark(g);
+  box(g, [0, 0.025, 0], 0.33, 0.025, 0.23, [0.16, 0.11, 0.06], RUB);
+  lathe(g, [[0.215, -0.31], [0.215, 0.31]], [0.035, 0.07, 0.085], RUB, { segs: 7, axis: 'x', arc: [-Math.PI / 2, Math.PI / 2], at: [0, 0.05, 0] });
+  for (const x of [-0.31, 0.31]) fan(g, Array.from({ length: 8 }, (_, k) => { const a = -Math.PI / 2 + (k / 7) * Math.PI; return [x, 0.05 + Math.cos(a) * 0.215, Math.sin(a) * 0.215]; }), [0.03, 0.06, 0.075], RUB);
+  for (const x of [-0.31, 0, 0.31]) tube(g, Array.from({ length: 8 }, (_, k) => { const a = -Math.PI / 2 + (k / 7) * Math.PI; return [x, 0.05 + Math.cos(a) * 0.222, Math.sin(a) * 0.222]; }), 0.012, hue, RUB, { segs: 4 });
+  hoop(g, [0.315, 0.14, 0], [1, 0, 0], 0.07, 0.01, [0.5, 0.45, 0.3], RUB, 8, 3);
+  tube(g, [[-0.2, 0.27, 0], [0, 0.33, 0.03], [0.2, 0.27, 0]], 0.009, [0.5, 0.45, 0.3], RUB, { segs: 3 });
+  xf(g, s0, frame(at, yaw));
+}
 let STONES = null;
 // the sea's bands on rock armour by height: wet and dark, weed below, a pale belt of shell at the top of the
 // tide. One noise sample a corner: a breakwater has a quarter of a million of them.
@@ -338,14 +364,14 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
     // ---- the core: the mound's own surface, dark, a little under the armour ----
     {
       const prof = far ? MOUND : MOUND.filter((q) => q[1] > -3.2 || true), drop = far ? 0 : 0.55;
-      sheet(g, ss.length, prof.length, (i, j, out) => { const q = Q(ss[i], prof[j][0], prof[j][1] - (prof[j][0] < -3.3 || prof[j][0] > 2.9 ? drop : 0)); out[0] = q[0]; out[1] = q[1]; out[2] = q[2]; }, far ? [0.12, 0.118, 0.11] : [0.035, 0.035, 0.035], far ? RUB : GRAIN, { paint: far ? (P, N, C, i) => { const k = 0.6 + 0.8 * vn((P[i] + ox) * 0.4, P[i + 1], (P[i + 2] + oz) * 0.4); C[i] *= k; C[i + 1] *= k; C[i + 2] *= k; st.at(P[i] + ox, P[i + 1], P[i + 2] + oz, C, i); } : undefined });
+      sheet(g, ss.length, prof.length, (i, j, out) => { const q = Q(ss[i], prof[j][0], prof[j][1] - (prof[j][0] < -3.3 || prof[j][0] > 2.9 ? drop : 0)); out[0] = q[0]; out[1] = q[1]; out[2] = q[2]; }, far ? [0.1, 0.097, 0.09] : [0.07, 0.068, 0.062], far ? RUB : GRAIN, { paint: far ? (P, N, C, i) => { const k = 0.6 + 0.8 * vn((P[i] + ox) * 0.4, P[i + 1], (P[i + 2] + oz) * 0.4); C[i] *= k; C[i + 1] *= k; C[i + 2] *= k; st.at(P[i] + ox, P[i + 1], P[i + 2] + oz, C, i); } : undefined });
     }
     // ---- armour ----
-    if (!far) {
-      const SP = near ? 1.85 : 3.0, protos = STONES[near ? 0 : 1], g0 = mark(g);
+    {
+      const SP = near ? 1.85 : far ? 4.6 : 3.0, protos = STONES[near ? 0 : 1], g0 = mark(g);
       // courses up each slope: [offset, height] with the stone size for that course
       const course = (a0, a1, size) => { const n = Math.max(1, Math.round(Math.abs(a1 - a0) / (size * 0.78))); return Array.from({ length: n }, (_, k) => [lerp(a0, a1, (k + 0.5) / n), size]); };
-      const lanes = [...course(-13.6, -3.9, near ? 2.3 : 3.2), ...course(3.9, 10.6, near ? 1.8 : 2.8)];
+      const lanes = [...course(-13.6, -3.9, near ? 2.3 : far ? 4.4 : 3.2), ...course(3.9, 10.6, near ? 1.8 : far ? 4.0 : 2.8), ...(far ? [] : [[3.2, near ? 1.25 : 1.6]])];
       const i0 = Math.ceil(s0 / SP - 0.5), i1 = Math.ceil(s1 / SP - 0.5);
       for (let i = i0; i < i1; i++) lanes.forEach(([a, size], li) => {
         const h1 = hash1(i * 31 + li, seed), h2 = hash1(i, li * 17 + seed + 5), h3 = hash1(i * 7 + 3, li + seed * 3);
@@ -358,8 +384,8 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
       if (isHead) {
         // the round head: rings of stone about the end
         const e = rowAt(total), c = [e.x - ox, e.z - oz];
-        for (let ring = 0; ring < (near ? 7 : 4); ring++) {
-          const rr = BREAKWATER.headR - 7.6 + ring * (near ? 1.75 : 3), size = near ? 2.2 : 3.2, n = Math.round((TAU * rr) / (size * 0.85)), y = lerp(3.5, -1.8, ring / (near ? 6 : 3));
+        for (let ring = 0; ring < (near ? 7 : far ? 3 : 4); ring++) {
+          const rr = BREAKWATER.headR - 7.6 + ring * (near ? 1.75 : far ? 4.2 : 3), size = near ? 2.2 : far ? 4.4 : 3.2, n = Math.round((TAU * rr) / (size * 0.85)), y = lerp(3.5, -1.8, ring / (near ? 6 : far ? 2 : 3));
           for (let k = 0; k < n; k++) { const h1 = hash1(k * 13 + ring, seed + 9), h2 = hash1(k, ring * 7 + seed), a = ((k + 0.5 * (ring & 1)) / n) * TAU, sc = size * (0.8 + 0.5 * h2), v = 0.085 + 0.1 * h2 * h2 + 0.03 * h1; stamp(g, protos[(k + ring) % protos.length], frame([c[0] + Math.cos(a) * rr, y - 0.5 + sc * 0.3, c[1] + Math.sin(a) * rr], h1 * TAU, (h2 - 0.5) * 0.8, (h1 - 0.5) * 0.8, sc), [v * (1.0 + 0.12 * h1), v, v * (0.96 - 0.1 * h2)], [1.25, 0.72, 1.0], 1 + Math.floor(h1 * 251)); }
         }
       }
@@ -387,7 +413,14 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
         a = b;
       }
     }
+    if (!far) for (let s = Math.ceil(s0 / 7) * 7; s < s1; s += 7) {
+      const tn = rowAt(s), yaw = Math.atan2(tn.tz, tn.tx);
+      box(g, Q(s, -3.5, 4.2), 0.32, 0.95, 0.2, scl(concrete, 0.92), CONC_FLAT, { yaw });
+      box(g, Q(s, -2.22, 4.5), 0.3, 0.76, 0.09, scl(concrete, 0.95), CONC_FLAT, { yaw });
+      if (near) for (const [ds, a, y] of [[3.5, -3.34, 4.05], [3.5, -2.17, 4.05]]) { box(g, Q(s + ds, a, y), 0.07, 0.05, 0.04, [0.02, 0.02, 0.02], RUB, { yaw }); const p = Q(s + ds, a + (a < -3 ? -0.06 : 0.035), y - 0.05), q = Q(s + ds, a + (a < -3 ? 0.04 : 0.035), y - 0.75), t = [tn.tx * 0.06, tn.tz * 0.06]; quad(g, [p[0] - t[0], p[1], p[2] - t[1]], [p[0] + t[0], p[1], p[2] + t[1]], [q[0] + t[0] * 0.4, q[1], q[2] + t[1] * 0.4], [q[0] - t[0] * 0.4, q[1], q[2] - t[1] * 0.4], [0.1, 0.09, 0.06], RUB); }
+    }
     // ---- fittings along the walkway ----
+    const casters = [], cast = (s, a, y, h, w) => { const p = rowAt(Math.min(s, total)); casters.push({ p: Q(s, a, y), h, w, a, n: nSea(p), lo: -2.15, hi: 2.4 }); };
     if (!far) {
       const g0 = mark(g), railA = 2.62;
       // a rail on the harbour edge, on the kerb
@@ -396,9 +429,10 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
       for (let s = Math.ceil(s0 / 14) * 14; s < s1; s += 14) {
         const k = Math.round(s / 14);
         // bollards on the sea wall's foot; a lamp standard every other one, its light the next unit over
-        if (near) bollard(g, Q(s + 1.5, -1.75, 3.76), 1.3, [0.06, 0.06, 0.065]);
+        if (near) { bollard(g, Q(s + 1.5, -1.75, 3.76), 1.3, [0.06, 0.06, 0.065]); cast(s + 1.5, -1.75, 3.76, 0.58, 0.36); }
         if (k % 2 === 0) {
           const b = Q(s, 2.2, 3.74), t = Q(s, 2.2, 8.6), arm = Q(s, 1.0, 9.0), lp = Q(s, 0.7, 8.92);
+          cast(s, 2.2, 3.73, 4.9, 0.16);
           tube(g, [b, t, arm], near ? [0.09, 0.06, 0.045] : [0.12, 0.09, 0.07], [0.28, 0.33, 0.3], RUB, { segs: near ? 6 : 4 });
           box(g, lp, 0.3, 0.07, 0.14, [0.2, 0.2, 0.21], RUB, { yaw: Math.atan2(o.tz, o.tx) + Math.PI / 2 });
           box(g, [lp[0], lp[1] - 0.075, lp[2]], 0.24, 0.012, 0.1, [0.9, 0.85, 0.7], LIT, { yaw: Math.atan2(o.tz, o.tx) + Math.PI / 2 });
@@ -407,6 +441,7 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
         } else if (near) {
           // a life ring in its red housing on a post, a warning plate; iron rungs up the back of the wall
           const p = Q(s, 2.25, 3.74), yawN = Math.atan2(-nSea(rowAt(s))[1], -nSea(rowAt(s))[0]);
+          cast(s, 2.25, 3.73, 1.95, 0.6);
           rod(g, p, [p[0], p[1] + 1.5, p[2]], 0.04, [0.5, 0.06, 0.04], RUB, 5);
           box(g, [p[0], p[1] + 1.55, p[2]], 0.08, 0.42, 0.42, [0.5, 0.06, 0.04], RUB, { yaw: yawN });
           const n = nSea(rowAt(s)); lifering(g, [p[0] + n[0] * 0.1, p[1] + 1.55, p[2] + n[1] * 0.1], [n[0], 0, n[1]], 0.3);
@@ -419,11 +454,13 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
         const Rn = rng(seed * 131 + k0 * 17 + 3);
         for (let c = 0; c < 2; c++) {
           const s = s0 + 6 + Rn() * (len - 12), a = -1.2 + Rn() * 1.0, tn = rowAt(s), yaw = Math.atan2(tn.tz, tn.tx);
-          if (Rn() < 0.75) for (let p = 0; p < 4; p++) { const q = Q(s + (p % 2) * 0.75, a, 3.78 + 0.22 + Math.floor(p / 2) * 0.42), s9 = mark(g); for (const x of [-0.3, 0, 0.3]) hoop(g, [x, 0, 0], [1, 0, 0], 0.21, 0.014, [0.05, 0.06, 0.07], RUB, 8, 3); for (let r = 0; r < 6; r++) { const an = (r / 6) * TAU; rod(g, [-0.3, Math.cos(an) * 0.21, Math.sin(an) * 0.21], [0.3, Math.cos(an) * 0.21, Math.sin(an) * 0.21], 0.008, [0.1, 0.25, 0.3], RUB, 3); } xf(g, s9, frame(q, yaw + (Rn() - 0.5) * 0.3)); }
+          if (Rn() < 0.75) { for (let p = 0; p < 5; p++) creel(g, Q(s + (p % 3) * 0.72 - (p > 2 ? -0.36 : 0), a, 3.755 + (p > 2 ? 0.27 : 0)), yaw + (Rn() - 0.5) * 0.25, [[0.6, 0.25, 0.03], [0.05, 0.2, 0.5], [0.5, 0.45, 0.1]][p % 3]); cast(s + 0.7, a, 3.755, 0.5, 2.0); }
           const q2 = Q(s + 2.2, a + 0.3, 3.78);
           for (let p = 0; p < 3; p++) box(g, [q2[0] + (p === 2 ? 0.1 : p * 0.72 * tn.tx), q2[1] + 0.13 + (p === 2 ? 0.27 : 0), q2[2] + (p === 2 ? 0.1 : p * 0.72 * tn.tz)], 0.33, 0.13, 0.22, [[0.05, 0.16, 0.42], [0.62, 0.2, 0.03], [0.4, 0.4, 0.38]][p], RUB, { yaw: yaw + Rn() * 0.4 });
-          coil(g, Q(s - 1.6, a, 3.79), 0.38, [0.3, 0.42, 0.5], 4);
-          blob(g, Q(s - 3.2, a - 0.3, 3.9), 0.7, 0.22, 0.5, [0.06, 0.2, 0.2], CLOTH, { n: 3, segs: 8 });
+          coil(g, Q(s + 4.3, a, 3.765), 0.38, [0.3, 0.42, 0.5], 4);
+          // a heap of net: dark folds, a scatter of small floats and a lead line
+          for (let k = 0; k < 4; k++) blob(g, Q(s - 3.2 + (k % 2) * 0.55, a - 0.3 + (k > 1 ? 0.4 : 0), 3.8 + 0.05 * (k % 3)), 0.5 + 0.15 * Rn(), 0.13 + 0.07 * Rn(), 0.42 + 0.1 * Rn(), [0.025 + 0.02 * Rn(), 0.05 + 0.02 * Rn(), 0.045], GRAIN, { n: 4, segs: 9, paint: mottle(k + 3, 0.35, 9) });
+          for (let k = 0; k < 7; k++) blob(g, Q(s - 3.4 + Rn() * 1.2, a - 0.5 + Rn() * 0.8, 3.93 + 0.03 * Rn()), 0.05, 0.035, 0.05, k % 3 ? [0.6, 0.25, 0.03] : [0.7, 0.7, 0.66], RUB, { n: 3, segs: 6 });
         }
         { const s = s0 + len * 0.5, q = Q(s, -1.85, 3.76), tn = rowAt(s), yaw = Math.atan2(tn.tz, tn.tx); box(g, [q[0], q[1] + 0.45, q[2]], 0.9, 0.03, 0.2, [0.3, 0.2, 0.1], RUB, { yaw }); box(g, [q[0], q[1] + 0.22, q[2]], 0.75, 0.22, 0.05, [0.3, 0.3, 0.3], RUB, { yaw }); }
       }
@@ -459,7 +496,7 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
       lamps.push(lamp([c[0], ty + 7.0, c[2]], [1, 0.1, 0.06], 'flash', { period: 5, on: 0.9 }));
     }
     const mid = rowAt((s0 + s1) / 2);
-    chunks.push({ g, lamps, x: ox, z: oz, cx: mid.x, cz: mid.z, r: len / 2 + 20 });
+    chunks.push({ g, lamps, casters, x: ox, z: oz, cx: mid.x, cz: mid.z, r: len / 2 + 20 });
   }
   return chunks;
 }
@@ -478,7 +515,7 @@ const BEACON_STYLES = {
 export function beaconGeo(style = 'port', lod = 0, seed = 1) {
   const S = BEACON_STYLES[style] || BEACON_STYLES.port, g = new Geo(lod ? 2048 : 16384), lamps = [];
   const near = lod === 0, far = lod === 2;
-  const pile = [0.2, 0.17, 0.14], galv = [0.42, 0.44, 0.46], rnd = rng(seed), a0 = rnd() * TAU;
+  const pile = [0.075, 0.075, 0.08], galv = [0.42, 0.44, 0.46], rnd = rng(seed), a0 = rnd() * TAU;
   const PY = 6.0;
   const pa = (k) => a0 + (k / 3) * TAU, pr = (y) => lerp(2.2, 1.0, (y + 4) / 10.2);
   const s0 = mark(g);
@@ -495,7 +532,11 @@ export function beaconGeo(style = 'port', lod = 0, seed = 1) {
     if (near) { rod(g, polar(pr(3.7), a, 3.7), polar(pr(5.6), b, 5.6), 0.05, pile, RUB, 4); box(g, polar(pr(-0.6) - 0.34, a, -0.6), 0.06, 0.35, 0.1, [0.5, 0.5, 0.48], RUB, { yaw: a }); }
   }
   // the sea's work on the steel: weed and shell to the top of the tide, rust above it, a bleached band where spray dries
-  paint(g, s0, both(rust(seed, { amt: 0.75, f: 2.6, lo: 0.42, hi: 0.75 }), stain(seed, { weedTop: 0.9, tide: 1.2, wet: 1.9, salt: 0.3 })));
+  paint(g, s0, both(rust(seed, { amt: 0.55, f: 2.2, lo: 0.58, hi: 0.8 }), (P, N, C, i) => {
+    // weed to the top of the tide, a pale belt of barnacle above it, bleached where the spray dries
+    const y = P[i + 1] + 0.3 * (vn(P[i] * 2.5 + seed, P[i + 1] * 1.5, P[i + 2] * 2.5) - 0.5);
+    if (y < 1.25) mixIn(C, i, 0.03, 0.055, 0.025, 0.92); else if (y < 2.0) mixIn(C, i, 0.42, 0.4, 0.33, 0.8 * smooth(2.0, 1.7, y)); else if (y < 3.4) mixIn(C, i, 0.2, 0.2, 0.19, 0.35 * smooth(3.4, 2.2, y));
+  }));
   if (near) {
     // boat ladder up one pile through a hoop cage, a timber fender on chains, a tide board
     const la = pa(0) + 0.0, lo = polar(pr(-1) + 0.42, la, -1.2), hi = polar(pr(PY) + 0.5, la, PY + 1.15), side = [-Math.sin(la), 0, Math.cos(la)];
@@ -552,7 +593,7 @@ export function beaconGeo(style = 'port', lod = 0, seed = 1) {
   else if (S.mark === 'cone') lathe(g, [[0.0, 11.7], [0.56, 11.7], [0.56, 11.7], [0.0, 12.9]], S.body, tm, { segs: ts });
   else if (S.mark === 'cones') for (const y of [11.65, 12.3]) lathe(g, [[0.0, y], [0.42, y], [0.42, y], [0.0, y + 0.62]], black, tm, { segs: ts });
   else for (const y of [11.95, 12.6]) blob(g, [0, y, 0], 0.3, 0.3, 0.3, black, tm, { n: far ? 2 : 5, segs: ts });
-  if (!far) paint(g, g1, both(faded(seed + 6, 0.35), guano(seed, 0.7, 5, 0.78)));
+  if (!far) paint(g, g1, both(faded(seed + 6, 0.1), guano(seed, 0.7, 5, 0.78)));
   return { g, lamps };
 }
 

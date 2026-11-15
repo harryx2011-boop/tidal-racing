@@ -109,7 +109,10 @@ export function buoyGeo(side = 'port', { seed = 1, lod = 0 } = {}) {
   if (near) {
     for (let y = y0 + 0.35; y < yT - 0.2; y += 0.3) { const c = corner(y, 2); rod(g, c, [c[0] - 0.2, y, c[2] - 0.2 * 0], 0.011, steel, MET, 3); }
     const bz = -inw * 0.82;
-    box(g, [0.25, y0 + 0.24, bz], 0.3, 0.22, 0.2, [0.42, 0.44, 0.42], GEL); box(g, [0.25, y0 + 0.475, bz], 0.33, 0.015, 0.23, [0.36, 0.38, 0.36], GEL);
+    // (a steel cabinet: lid with an overhang, louvres, hinges, a hasp and a hazard label)
+    box(g, [0.25, y0 + 0.22, bz], 0.27, 0.2, 0.18, [0.13, 0.17, 0.15], GEL); box(g, [0.25, y0 + 0.435, bz], 0.3, 0.018, 0.21, [0.1, 0.13, 0.12], GEL);
+    for (let k = 0; k < 4; k++) box(g, [0.25, y0 + 0.12 + k * 0.05, bz + inw * 0.183], 0.16, 0.012, 0.006, [0.03, 0.03, 0.035], RUB);
+    box(g, [0.38, y0 + 0.34, bz + inw * 0.184], 0.07, 0.05, 0.004, [0.62, 0.5, 0.05], RUB); for (const x of [0.02, 0.48]) box(g, [x, y0 + 0.41, bz - inw * 0.185], 0.03, 0.02, 0.01, [0.5, 0.52, 0.55], MET);
     box(g, [0.25, y0 + 0.3, bz - inw * -0.205], 0.05, 0.035, 0.008, [0.55, 0.45, 0.1], MET);
     tube(g, [[0.5, y0 + 0.35, bz], [0.52, y0 + 0.5, bz + inw * 0.3], corner(y0 + 0.6, 3), corner(yT - 0.3, 3)].map((p) => [p[0] + 0.03, p[1], p[2]]), 0.014, dark, RUB, { segs: 4 });
   }

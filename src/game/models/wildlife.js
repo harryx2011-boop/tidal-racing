@@ -1,6 +1,6 @@
 import { Geo as SoupGeo, MAT, norm, cross, sub } from '../geo.js';
 import { recolour, mixc } from './marks.js';
-import { Geo, rng, TAU, lerp, clamp, smooth, scl, vn, fb, hash1, RUB, GEL, GLS, TEAK, CLOTH, SKIN, GRAIN, tube, rod, lathe, box, quad, fan, loft, surf, sheet, blob, limb, lin, mark, paint, xf, frame, text, mixIn, faded, stain, both } from './kit.js';
+import { Geo, rng, TAU, lerp, clamp, smooth, scl, vn, fb, hash1, RUB, GEL, GLS, MET, TEAK, CLOTH, SKIN, GRAIN, tube, rod, lathe, box, quad, fan, loft, surf, sheet, blob, limb, hoop, lin, mark, paint, xf, frame, text, mixIn, faded, stain, both } from './kit.js';
 
 // Wildlife and small detail, as plain data and meshes. Nothing here touches GL except through
 // Geo.build, so the builders run (and are counted) in node. Colours are linear albedo.
@@ -138,28 +138,33 @@ export function kelpGeo(seed = 1) {
 // a drifting log, 3.5 m, half awash: furrowed bark, a pale snapped end and a sawn one, stubs of branches, weed below
 export function logGeo(seed = 1) {
   const g = new Geo(1024), R = rng(seed * 313 + 7);
-  const L = 1.75, bark = [0.085, 0.07, 0.055], wood = [0.34, 0.28, 0.19];
+  const L = 1.75, bark = [0.05, 0.038, 0.027], wood = [0.3, 0.24, 0.15];
   const bend = (R() - 0.5) * 0.16, taper = 0.75 + 0.2 * R(), r0 = 0.19 + 0.04 * R();
-  const NX = 15, NS = 12;
-  const rad = (u, a) => r0 * lerp(1, taper, u) * (1 + 0.1 * Math.sin(a * 5 + seed + u * 3) * vn(u * 6 + seed, a * 2, 1) + 0.07 * (vn(u * 9 + seed, Math.cos(a) * 2, Math.sin(a) * 2) - 0.5) + 0.12 * Math.exp(-Math.pow((u - 0.35) / 0.06, 2)) * (0.5 + 0.5 * Math.cos(a - 1)));
-  const at = (i, j, out) => { const u = i / NX, a = (j / NS) * TAU, r = rad(u, a); out[0] = -L + u * 2 * L; out[1] = -0.05 + bend * Math.sin(u * Math.PI) + Math.sin(a) * r; out[2] = Math.cos(a) * r; };
+  const NX = 18, NS = 20;
+  const rad = (u, a) => r0 * lerp(1, taper, u) * (1 + 0.13 * Math.sin(a * 7 + seed + Math.sin(u * 9) * 0.8) * (0.4 + vn(u * 5, a, seed)) + 0.14 * Math.sin(a * 3 + seed + u * 3) * vn(u * 6 + seed, a * 2, 1) + 0.22 * Math.exp(-Math.pow((u - 0.72) / 0.05, 2)) * (0.5 + 0.5 * Math.cos(a - 2.4)) + 0.07 * (vn(u * 9 + seed, Math.cos(a) * 2, Math.sin(a) * 2) - 0.5) + 0.12 * Math.exp(-Math.pow((u - 0.35) / 0.06, 2)) * (0.5 + 0.5 * Math.cos(a - 1)));
+  const at = (i, j, out) => { const u = i / NX, a = (j / NS) * TAU, r = rad(u, a); out[0] = -L + u * 2 * L; out[1] = -0.1 + bend * Math.sin(u * Math.PI) + Math.sin(a) * r; out[2] = Math.cos(a) * r; };
   sheet(g, NX + 1, NS + 1, at, bark, GRAIN, { wrap: true, paint: (P, N, C, i) => {
     // furrows along the grain, lighter where the bark has gone, weed and a wet band below the waterline
-    const k = 0.7 + 0.6 * vn(P[i] * 3 + seed, P[i + 1] * 30, P[i + 2] * 30), bare = smooth(0.62, 0.72, fb(P[i] * 1.3 + seed, P[i + 1] * 4, P[i + 2] * 4));
+    const a = Math.atan2(P[i + 1] + 0.1, P[i + 2]), k = (0.55 + 0.9 * vn(P[i] * 2.2 + seed, a * 3.4, 1.7)) * (0.5 + 0.9 * Math.pow(0.5 + 0.5 * Math.sin(a * 7 + seed + Math.sin((P[i] + 1.75) * 2.6) * 0.8), 2)), bare = smooth(0.7, 0.78, fb(P[i] * 1.1 + seed, P[i + 1] * 3, P[i + 2] * 3));
     C[i] *= k; C[i + 1] *= k; C[i + 2] *= k;
-    mixIn(C, i, 0.3, 0.26, 0.19, bare * 0.8);
-    mixIn(C, i, 0.03, 0.045, 0.02, smooth(-0.02, -0.16, P[i + 1]) * 0.85);
+    mixIn(C, i, 0.2, 0.165, 0.11, bare * 0.8);
+    // wet and dark where it lies in the sea, weed under that
+    const w = smooth(0.1, 0.0, P[i + 1]); C[i] *= 1 - 0.6 * w; C[i + 1] *= 1 - 0.58 * w; C[i + 2] *= 1 - 0.55 * w;
+    mixIn(C, i, 0.03, 0.045, 0.02, smooth(-0.06, -0.2, P[i + 1]) * 0.85);
   } });
   // ends: one sawn flat with rings, one snapped into splinters
   const ring = (u) => Array.from({ length: NS }, (_, j) => { const o = [0, 0, 0]; at(u * NX, j, o); return o; });
   const e0 = ring(0), e1 = ring(1);
-  fan(g, e0, wood, GRAIN, { paint: (P, N, C, i) => { const d = Math.hypot(P[i + 1] + 0.05, P[i + 2]); const k = 0.75 + 0.25 * Math.cos(d * 160); C[i] *= k; C[i + 1] *= k; C[i + 2] *= k; } });
+  fan(g, e0, wood, GRAIN, { paint: (P, N, C, i) => { const d = Math.hypot(P[i + 1] + 0.1, P[i + 2]); const k = 0.75 + 0.25 * Math.cos(d * 160); C[i] *= k; C[i + 1] *= k; C[i + 2] *= k; } });
   const c1 = e1.reduce((q, v) => [q[0] + v[0] / NS, q[1] + v[1] / NS, q[2] + v[2] / NS], [0, 0, 0]);
   for (let j = 0; j < NS; j++) { const a = e1[j], b = e1[(j + 1) % NS], tip = [c1[0] + 0.1 + 0.25 * R(), lerp(c1[1], (a[1] + b[1]) / 2, 0.5), lerp(c1[2], (a[2] + b[2]) / 2, 0.5)]; fan(g, [a, b, tip], scl(wood, 0.7 + 0.5 * R()), GRAIN); fan(g, [a, tip, c1], scl(wood, 0.5), GRAIN); }
+  // a snapped limb lying along the trunk, then branch stubs
+  tube(g, [[0.15, -0.02, 0.1], [0.7, 0.06, 0.32], [1.25, 0.02, 0.62], [1.5, 0.08, 0.86]], [0.13, 0.1, 0.085, 0.07], scl(bark, 1.15), GRAIN, { segs: 8, caps: true, paint: (P, N, C, i) => { const k = 0.6 + 0.8 * vn(P[i] * 3, P[i + 1] * 25, P[i + 2] * 25 + seed); C[i] *= k; C[i + 1] *= k; C[i + 2] *= k; if (P[i] > 1.47) { C[i] = wood[0]; C[i + 1] = wood[1]; C[i + 2] = wood[2]; } } });
   // branch stubs
   for (let i = 0; i < 3; i++) {
-    const x = -1.2 + R() * 2.2, a = 0.5 + R() * 2.2, len = 0.18 + 0.4 * R(), c = Math.cos(a), sn = Math.sin(a), rr = 0.035 + 0.025 * R();
-    tube(g, [[x, -0.05 + sn * 0.12, c * 0.12], [x + 0.04, -0.05 + sn * (0.2 + len * 0.5), c * (0.2 + len * 0.5)], [x + 0.1, -0.05 + sn * (0.2 + len), c * (0.2 + len) + 0.03]], [rr * 1.3, rr, rr * 0.7], bark, GRAIN, { segs: 6, caps: true });
+    const x = -1.2 + R() * 2.2, a = 0.5 + R() * 2.2, len = 0.12 + 0.5 * R() * R(), c = Math.cos(a), sn = Math.sin(a), rr = 0.03 + 0.03 * R();
+    tube(g, [[x, -0.1 + sn * 0.12, c * 0.12], [x + 0.04, -0.1 + sn * (0.2 + len * 0.5), c * (0.2 + len * 0.5)], [x + 0.1 + 0.2 * (R() - 0.5), -0.1 + sn * (0.2 + len), c * (0.2 + len) + 0.05]], [rr * 2.3, rr * 1.2, rr * 0.8], scl(bark, 1.3), GRAIN, { segs: 6, caps: true });
+    fan(g, Array.from({ length: 6 }, (_, k) => { const t = (k / 6) * TAU; return [x + 0.1 + Math.cos(t) * rr * 0.5, -0.1 + sn * (0.2 + len) + 0.004, c * (0.2 + len) + 0.05 + Math.sin(t) * rr * 0.5]; }), wood, GRAIN);
   }
   return g;
 }
@@ -214,13 +219,16 @@ export function potFloatGeo(seed = 1) {
   } else {
     for (const [y, r] of [[-0.02, 0.15], [0.2, 0.13]]) blob(g, [0, y, 0], r, r * 0.8, r, y > 0 ? f : col, RUB, { n: 5, segs: 10 });
   }
-  paint(g, s0, both(faded(seed + 2, 0.4), stain(seed, { weedTop: 0.02, tide: 0.05 })));
-  // cane, lashing, pennant, counterweight
+  // a black band and the owner's mark round it, a rope becket on top; lightly faded, weed and scum at the waterline
+  lathe(g, seed & 1 ? [[0.192, 0.11], [0.196, 0.14], [0.176, 0.17]] : [[0.151, -0.05], [0.154, -0.02], [0.151, 0.01]], [0.03, 0.03, 0.035], RUB, { segs: 12 });
+  hoop(g, [0, seed & 1 ? 0.33 : 0.32, 0.03], [1, 0, 0], 0.04, 0.008, [0.5, 0.45, 0.3], RUB, 8, 3);
+  paint(g, s0, both(faded(seed + 2, 0.12), stain(seed, { weedTop: 0.04, tide: 0.07, wet: 0.1 })));
+  // cane, lashing, flag, counterweight
   tube(g, [[0, -0.75, 0], [0, 0.3, 0], [0.01, 1.0, 0], [0.03, 1.62, 0]], [0.012, 0.012, 0.01, 0.007], [0.42, 0.34, 0.18], RUB, { segs: 5 });
   for (const y of [0.3, 0.34]) lathe(g, [[0.016, y], [0.02, y + 0.012], [0.016, y + 0.024]], [0.05, 0.05, 0.05], RUB, { segs: 6 });
   lathe(g, [[0.0, -0.9], [0.045, -0.88], [0.045, -0.74], [0.0, -0.72]], [0.2, 0.2, 0.2], RUB, { segs: 6 });
-  const fl = (u, v, out) => { out[0] = 0.03 + u * 0.4; out[1] = 1.6 - v * 0.24 * (1 - 0.75 * u) - 0.06 * u * u; out[2] = 0.03 * Math.sin(u * 5 + seed); };
-  surf(g, fl, lin(0, 1, 5), lin(0, 1, 2), f, CLOTH);
+  const fl = (u, v, out) => { out[0] = 0.02 + u * 0.36; out[1] = 1.6 - v * 0.26 - 0.07 * u * u; out[2] = 0.035 * Math.sin(u * 6 + seed + v) * u; };
+  surf(g, fl, lin(0, 1, 6), lin(0, 1, 4), f, CLOTH, { paint: (P, N, C, i) => { if (P[i + 1] + 0.07 * Math.pow((P[i] - 0.02) / 0.36, 2) < 1.47) { C[i] = 0.05; C[i + 1] = 0.05; C[i + 2] = 0.06; } } });
   // pick-up line on the surface and its float
   tube(g, [[0.16, -0.02, 0.02], [0.5, -0.04, 0.1], [0.95, -0.03, 0.02], [1.35, -0.02, 0.09]], 0.008, [0.5, 0.42, 0.2], CLOTH, { segs: 3 });
   blob(g, [1.42, 0.0, 0.1], 0.075, 0.06, 0.075, cols[(seed + 1) % cols.length], RUB, { n: 4, segs: 8 });
@@ -235,7 +243,7 @@ export const PALETTES = [
   { top: [0.02, 0.04, 0.12], legs: [0.28, 0.22, 0.12], hat: [0.5, 0.04, 0.03], kit: 'jacket', head: 'cap', shoe: [0.3, 0.2, 0.1] },       // navy and khaki
   { top: [0.62, 0.62, 0.6], legs: [0.04, 0.05, 0.1], hat: [0.04, 0.05, 0.1], kit: 'tee', head: 'hair', shorts: true, shoe: [0.6, 0.58, 0.5] },   // white polo, navy shorts
   { top: [0.5, 0.04, 0.03], legs: [0.04, 0.04, 0.045], hat: [0.62, 0.62, 0.6], kit: 'vest', head: 'cap', shoe: [0.05, 0.05, 0.06] },      // red buoyancy aid
-  { top: [0.62, 0.48, 0.03], legs: [0.62, 0.48, 0.03], hat: [0.62, 0.48, 0.03], kit: 'oilskin', head: 'hood', boots: [0.55, 0.42, 0.03] }, // yellow oilskins
+  { top: [0.6, 0.45, 0.03], legs: [0.05, 0.07, 0.13], hat: [0.05, 0.07, 0.13], kit: 'oilskin', head: 'beanie', boots: [0.03, 0.04, 0.07] },   // a yellow oilskin over navy salopettes, sea boots
   { top: [0.07, 0.2, 0.3], legs: [0.07, 0.07, 0.08], hat: [0.07, 0.07, 0.08], kit: 'jacket', head: 'beanie', shoe: [0.05, 0.05, 0.06] },   // blue jacket
   { top: [0.25, 0.42, 0.55], legs: [0.5, 0.42, 0.28], hat: [0.6, 0.5, 0.3], kit: 'tee', head: 'sunhat', shorts: true, shoe: [0.35, 0.22, 0.12] },  // summer: shirt, shorts, straw hat
   { top: [0.08, 0.17, 0.09], legs: [0.16, 0.16, 0.17], hat: [0.3, 0.3, 0.32], kit: 'fleece', head: 'long', shoe: [0.4, 0.38, 0.34] },      // green fleece
@@ -269,7 +277,10 @@ function person(g, o, idx, fno, lod, part) {
   const pel = [pose === 'lean' ? -0.1 : 0, sit ? 0.5 : 0.93, 0], td = [Math.sin(la), Math.cos(la), 0];
   const along = (d, x = 0) => [pel[0] + td[0] * d + td[1] * x, pel[1] + td[1] * d - td[0] * x, 0];
   const shc = along(0.5), nk = along(0.565), hc = [nk[0] + Math.sin(la * 0.35) * 0.14 + 0.012, nk[1] + 0.135, 0];
-  const top = Pl.top, legsC = Pl.legs, shoe = Pl.boots || Pl.shoe || [0.05, 0.05, 0.06];
+  const top = Pl.top, legsC = Pl.legs, lumc = (c) => c[0] * 0.3 + c[1] * 0.6 + c[2] * 0.1;
+  // (footwear never the colour of the trousers)
+  let shoe = Pl.boots || Pl.shoe || [0.05, 0.05, 0.06];
+  if (!Pl.boots && Math.abs(lumc(shoe) - lumc(Pl.shorts ? sk : legsC)) < 0.07) shoe = lumc(legsC) > 0.2 ? [0.06, 0.04, 0.03] : hs > 0.5 ? [0.5, 0.48, 0.42] : [0.26, 0.16, 0.08];
   const under = scl(top, 0.55);
   const sleeves = kit === 'tee' || (kit === 'vest' && Pl.shorts) ? sk : kit === 'vest' ? under : top;
   const far = lod === 2;
@@ -291,12 +302,14 @@ function person(g, o, idx, fno, lod, part) {
       const calf = mid(0.4); calf[0] -= 0.012;
       if (Pl.shorts) limb(g, [knee, calf, ank], [0.056, 0.054, 0.038], [0.058, 0.06, 0.04], sk, SKIN, { segs: S, per, cr, caps: [lod === 0, false] });
       else limb(g, [knee, calf, ank], [0.064, 0.058, 0.05], [0.066, 0.062, 0.052], legsC, CLOTH, { segs: S, per, cr, caps: [lod === 0, false] });
+      if (lod === 0 && !Pl.shorts) { const ax = [ank[0] - knee[0], ank[1] - knee[1], ank[2] - knee[2]], al = Math.hypot(ax[0], ax[1], ax[2]); ax[0] /= al; ax[1] /= al; ax[2] /= al; for (const f of [0.04, 0.1]) hoop(g, mid(f), ax, 0.066 - f * 0.05, 0.005, scl(legsC, 0.6), CLOTH, 8, 3); if (!Pl.boots) hoop(g, mid(0.93), ax, 0.054, 0.008, scl(legsC, 0.8), CLOTH, 8, 3); }
       // sea boots come up the calf; shoes stop at the ankle
       const ct = Math.cos(toe), st = Math.sin(toe), F = (x, y, z) => [ank[0] + x * ct - z * st, y, ank[2] + x * st + z * ct];
       if (Pl.boots && lod === 0) limb(g, [mid(0.45), ank], [0.066, 0.06], [0.068, 0.062], shoe, RUB, { segs: S, per: 1, caps: [false, false] });
       if (lod === 0) {
         limb(g, [F(-0.07, 0.05, 0), F(0.03, 0.055, 0), F(0.17, 0.034, 0)], [0.04, 0.047, 0.038], [0.045, 0.05, 0.026], shoe, RUB, { hint: [-st, 0, ct], segs: 6, per: 1, cr });
-        box(g, F(0.045, 0.006, 0), 0.118, 0.006, 0.04, [0.1, 0.1, 0.1], RUB, { yaw: toe });
+        box(g, F(0.045, 0.007, 0), 0.12, 0.007, 0.042, lumc(shoe) < 0.15 ? [0.42, 0.4, 0.36] : [0.06, 0.06, 0.06], RUB, { yaw: toe });
+        if (!Pl.boots) for (const x of [0.06, 0.09]) box(g, F(x, 0.086 - (x - 0.06) * 0.4, 0), 0.006, 0.004, 0.022, lumc(shoe) < 0.15 ? [0.5, 0.5, 0.46] : [0.08, 0.08, 0.08], RUB, { yaw: toe });
       } else box(g, F(0.05, 0.035, 0), 0.12, 0.035, 0.045, shoe, RUB, { yaw: toe });
     }
     // ---- torso ----
@@ -329,6 +342,17 @@ function person(g, o, idx, fno, lod, part) {
         if (kit === 'fleece' || kit === 'jacket') for (const j of [2, 14]) tube(g, [0.08, 0.15].map((d) => ringAt(d, 0.005, 16)[j]), 0.005, scl(top, 0.5), CLOTH, { segs: 3 });
       }
       if (lod === 0) {
+        const fr = (d, j, grow = 0.006) => ringAt(d, grow, 16)[j];
+        if (kit === 'tee') { tube(g, ringAt(0.0, 0.003), 0.012, [0.07, 0.05, 0.035], CLOTH, { segs: 3, closed: true }); const b = ringAt(0.0, 0.012, 4)[0]; box(g, b, 0.005, 0.016, 0.02, [0.6, 0.55, 0.3], MET); for (const j of [1, 15]) tube(g, [0.3, 0.42].map((d) => fr(d, j, 0.003)), 0.004, scl(top, 0.75), CLOTH, { segs: 3 }); }
+        if (kit === 'jacket' || kit === 'fleece' || kit === 'oilskin' || kit === 'hivis') {
+          for (const j of [2, 14]) { const a = fr(0.13, j), b = fr(0.13, j + (j < 8 ? -1 : 1)); quad(g, [a[0] + 0.004, a[1] + 0.03, a[2]], [b[0] + 0.006, b[1] + 0.03, b[2]], [b[0] + 0.008, b[1] - 0.012, b[2]], [a[0] + 0.006, a[1] - 0.012, a[2]], scl(top, 0.72), CLOTH); }
+          const c = fr(0.38, 15, 0.008); box(g, c, 0.004, 0.022, 0.03, kit === 'oilskin' ? [0.7, 0.7, 0.66] : scl(top, 1.5), CLOTH);
+        }
+        if (kit === 'oilskin') {
+          for (const d of [0.22, 0.27]) loft(g, [ringAt(d, 0.004), ringAt(d + 0.028, 0.004)], [0.66, 0.66, 0.62], CLOTH);
+          tube(g, [0.0, 0.15, 0.3, 0.42, 0.52].map((d) => ringAt(d, 0.008, 4)[0]), 0.012, [0.04, 0.04, 0.045], CLOTH, { segs: 4 });
+          blob(g, [nk[0] - 0.075, nk[1] - 0.005, 0], 0.05, 0.05, 0.1, scl(top, 0.9), CLOTH, { n: 3, segs: 8 });
+        }
         const col2 = kit === 'tee' ? scl(top, 0.85) : kit === 'vest' ? (o.lj || Pl.lj || top) : scl(top, 0.8);
         tube(g, Array.from({ length: 8 }, (_, k) => { const a = (k / 8) * TAU; return [nk[0] - 0.005 + 0.062 * Math.cos(a), nk[1] - 0.012 + 0.018 * Math.cos(a - 2.6), 0.07 * Math.sin(a)]; }), kit === 'tee' ? 0.012 : 0.02, col2, CLOTH, { segs: 4, closed: true });
       }
@@ -345,9 +369,10 @@ function person(g, o, idx, fno, lod, part) {
       if (lod === 0) {
         blob(g, [hc[0] + 0.045, hc[1] - 0.065, 0], 0.05, 0.05, 0.058, sk, SKIN, { n: 3, segs: 8 });      // jaw and chin
         blob(g, [hc[0] + 0.094, hc[1] - 0.015, 0], 0.02, 0.028, 0.017, scl(sk, 0.95), SKIN, { n: 3, segs: 5 });   // nose
-        for (const sd of [-1, 1]) { blob(g, [hc[0] - 0.005, hc[1] - 0.005, sd * 0.078], 0.018, 0.03, 0.01, scl(sk, 0.9), SKIN, { n: 2, segs: 5 }); box(g, [hc[0] + 0.078, hc[1] + 0.02, sd * 0.034], 0.004, 0.006, 0.014, scl(hair, 0.8), RUB); }
+        for (const sd of [-1, 1]) { blob(g, [hc[0] - 0.005, hc[1] - 0.005, sd * 0.078], 0.018, 0.03, 0.01, scl(sk, 0.9), SKIN, { n: 2, segs: 5 }); box(g, [hc[0] + 0.08, hc[1] + 0.03, sd * 0.034], 0.004, 0.005, 0.015, scl(hair, 0.8), RUB); blob(g, [hc[0] + 0.082, hc[1] + 0.012, sd * 0.033], 0.008, 0.007, 0.013, [0.6, 0.6, 0.57], RUB, { n: 2, segs: 5 }); box(g, [hc[0] + 0.0895, hc[1] + 0.012, sd * 0.033], 0.002, 0.005, 0.005, [0.03, 0.025, 0.02], RUB); }
+        box(g, [hc[0] + 0.09, hc[1] - 0.052, 0], 0.003, 0.004, 0.02, scl(sk, 0.45), RUB); box(g, [hc[0] + 0.088, hc[1] - 0.046, 0], 0.003, 0.003, 0.014, scl(sk, 0.7), RUB);
         if (h2 > 0.7 && head !== 'hood' && head !== 'long') blob(g, [hc[0] + 0.05, hc[1] - 0.075, 0], 0.052, 0.05, 0.06, scl(hair, 1.1), CLOTH, { n: 4, segs: 8 });   // a beard
-        if (hs > 0.55 && pose !== 'binoculars') { for (const sd of [-1, 1]) box(g, [hc[0] + 0.088, hc[1] + 0.018, sd * 0.034], 0.004, 0.017, 0.028, [0.01, 0.01, 0.012], GLS); box(g, [hc[0] + 0.09, hc[1] + 0.024, 0], 0.003, 0.004, 0.012, [0.01, 0.01, 0.012], RUB); }   // sunglasses
+        if (hs > 0.8 && pose !== 'binoculars') { for (const sd of [-1, 1]) box(g, [hc[0] + 0.088, hc[1] + 0.018, sd * 0.034], 0.004, 0.017, 0.028, [0.01, 0.01, 0.012], GLS); box(g, [hc[0] + 0.09, hc[1] + 0.024, 0], 0.003, 0.004, 0.012, [0.01, 0.01, 0.012], RUB); }   // sunglasses
       }
       if (head !== 'bald') { const gr = head === 'hood' ? 0.016 : 0; blob(g, [hc[0] - 0.012, hc[1] + 0.016, 0], 0.098 + gr, 0.112 + gr, 0.084 + gr, head === 'hood' ? top : hair, CLOTH, head === 'hood' ? ho : hd); }
       if (head === 'long') blob(g, [hc[0] - 0.06, hc[1] - 0.1, 0], 0.05, 0.13, 0.082, hair, CLOTH, hd);
@@ -363,7 +388,8 @@ function person(g, o, idx, fno, lod, part) {
         if (lod === 0) lathe(g, [[0.101, 0.02], [0.101, 0.045]], scl(top, 0.6), CLOTH, { segs: hsg, at });
       }
       // the head turned on the neck
-      if (o.look) { const c = Math.cos(o.look), sn = Math.sin(o.look); xf(g, s1, frame([nk[0] - c * nk[0], 0, -sn * nk[0]], o.look)); }
+      const look = o.look ?? (pose === 'stand' || pose === 'hips' || pose === 'sit' || pose === 'mug' ? (h2 - 0.5) * 1.1 : 0);
+      if (look) { const c = Math.cos(look), sn = Math.sin(look); xf(g, s1, frame([nk[0] - c * nk[0], 0, -sn * nk[0]], look)); }
     }
   }
   // ---- arms ----
@@ -385,19 +411,21 @@ function person(g, o, idx, fno, lod, part) {
     else if (pose === 'point' && main) { d1 = [0.2, -0.06, sd * 0.07]; d2 = [0.26, 0.03, sd * 0.02]; }
     else if (pose === 'clipboard') { d1 = main ? [0.09, -0.25, sd * 0.04] : [0.12, -0.2, sd * 0.03]; d2 = main ? [0.2, 0.03, -sd * 0.12] : [0.18, 0.02, -sd * 0.16]; prop = main ? 'clipboard' : null; }
     else if (pose === 'mug' && main) { d1 = [0.1, -0.24, sd * 0.03]; d2 = [0.17, 0.12, -sd * 0.05]; prop = 'mug'; }
-    else { d1 = [0.015, -0.28, sd * (0.05 + 0.03 * build)]; d2 = [0.06 + 0.04 * hs, -0.245, -sd * 0.02]; }
+    else { d1 = [-0.025 + (main ? 0.02 : 0), -0.285, sd * (0.012 + 0.022 * build)]; d2 = [0.1 + 0.05 * hs + (main ? 0.03 : 0), -0.23, -sd * 0.035]; }
     const el = v3(sh, d1), wr = v3(el, d2);
     const dl = Math.hypot(d2[0], d2[1], d2[2]), dir = [d2[0] / dl, d2[1] / dl, d2[2] / dl], reach = (k) => [wr[0] + dir[0] * k, wr[1] + dir[1] * k, wr[2] + dir[2] * k], hand = reach(0.07);
     const tee = sleeves === sk;
     if (far) { rod(g, sh, el, 0.05, top, CLOTH, 3); rod(g, el, hand, 0.04, sleeves, tee ? SKIN : CLOTH, 3); continue; }
-    if (lod === 0) blob(g, [sh[0], sh[1] + 0.005, sh[2] - sd * 0.012], 0.064, 0.064, 0.06, kit === 'vest' ? under : top, CLOTH, { n: 4, segs: 8 });
+    if (lod === 0) blob(g, [sh[0], sh[1] - 0.004, sh[2] - sd * 0.024], 0.056, 0.054, 0.05, kit === 'vest' ? under : top, CLOTH, { n: 4, segs: 8 });
     limb(g, [sh, el], [0.054 * wide, 0.044], [0.056 * wide, 0.045], tee ? sk : sleeves, tee ? SKIN : CLOTH, { segs: S, per, cr, caps: [lod > 0, true] });
     if (tee && lod === 0) limb(g, [sh, [lerp(sh[0], el[0], 0.55), lerp(sh[1], el[1], 0.55), lerp(sh[2], el[2], 0.55)]], [0.06 * wide, 0.056], [0.062 * wide, 0.058], top, CLOTH, { segs: S, per: 1, caps: [false, false] });
-    limb(g, [el, wr], [0.043, 0.031], [0.044, 0.03], sleeves, tee ? SKIN : CLOTH, { segs: S, per, cr, caps: [true, false] });
+    limb(g, [el, [lerp(el[0], wr[0], 0.4), lerp(el[1], wr[1], 0.4), lerp(el[2], wr[2], 0.4)], wr], [0.042, 0.043, 0.03], [0.043, 0.042, 0.029], sleeves, tee ? SKIN : CLOTH, { segs: S, per, cr, caps: [true, false] });
+    if (lod === 0 && !tee) { const ux = [el[0] - sh[0], el[1] - sh[1], el[2] - sh[2]], ul = Math.hypot(ux[0], ux[1], ux[2]); hoop(g, [el[0] - ux[0] * 0.12, el[1] - ux[1] * 0.12, el[2] - ux[2] * 0.12], [ux[0] / ul, ux[1] / ul, ux[2] / ul], 0.047, 0.005, scl(sleeves, 0.6), CLOTH, 8, 3); if (kit === 'oilskin' || kit === 'hivis') hoop(g, [lerp(sh[0], el[0], 0.5), lerp(sh[1], el[1], 0.5), lerp(sh[2], el[2], 0.5)], [ux[0] / ul, ux[1] / ul, ux[2] / ul], 0.053, 0.012, [0.66, 0.66, 0.62], CLOTH, 8, 3); }
     if (!tee && lod === 0) limb(g, [reach(-0.035), wr], [0.036, 0.036], [0.035, 0.035], scl(sleeves, 0.7), CLOTH, { segs: S, per: 1, caps: [false, false] });
     // the hand: a flat palm and a thumb
     const hint = Math.abs(dir[1]) > 0.8 ? [1, 0, 0] : [0, 1, 0];
-    limb(g, [wr, reach(0.05), reach(0.105)], [0.034, 0.04, 0.03], [0.018, 0.02, 0.013], sk, SKIN, { hint, segs: lod ? 4 : 6, per: 1, cr, caps: [false, true] });
+    limb(g, [wr, reach(0.05), reach(lod ? 0.105 : 0.085)], [0.034, 0.04, lod ? 0.03 : 0.036], [0.018, 0.02, 0.014], sk, SKIN, { hint, segs: lod ? 4 : 6, per: 1, cr, caps: [false, true] });
+    if (lod === 0) { const tx = dir[1] * hint[2] - dir[2] * hint[1], ty = dir[2] * hint[0] - dir[0] * hint[2], tz = dir[0] * hint[1] - dir[1] * hint[0], b = reach(0.082), curl = prop || waving ? 0.2 : 0.5; for (let k = 0; k < 4; k++) { const o2 = (k - 1.5) * 0.0165, len = 0.062 - 0.012 * Math.abs(k - 1.3), p0 = [b[0] + tx * o2, b[1] + ty * o2, b[2] + tz * o2], p1 = [p0[0] + dir[0] * len * 0.55 - hint[0] * len * 0.12 * curl, p0[1] + dir[1] * len * 0.55 - hint[1] * len * 0.12 * curl, p0[2] + dir[2] * len * 0.55 - hint[2] * len * 0.12 * curl], p2 = [p1[0] + dir[0] * len * 0.45 * (1 - curl * 0.6) - hint[0] * len * 0.5 * curl, p1[1] + dir[1] * len * 0.45 * (1 - curl * 0.6) - hint[1] * len * 0.5 * curl, p1[2] + dir[2] * len * 0.45 * (1 - curl * 0.6) - hint[2] * len * 0.5 * curl]; tube(g, [p0, p1, p2], [0.0088, 0.0082, 0.007], scl(sk, 0.96), SKIN, { segs: 4, caps: true }); } }
     if (lod === 0) { const a = reach(0.02), b = reach(0.065); rod(g, [a[0] + hint[0] * 0.03, a[1] + hint[1] * 0.03, a[2] + hint[2] * 0.03], [b[0] + hint[0] * 0.05, b[1] + hint[1] * 0.05, b[2] + hint[2] * 0.05], 0.011, sk, SKIN, 4, { caps: true }); }
     if (prop === 'binoculars') for (const z of [-0.034, 0.034]) lathe(g, [[0.0, 0], [0.024, 0], [0.024, 0], [0.027, 0.06], [0.034, 0.1], [0.034, 0.12], [0.034, 0.12], [0, 0.12]], [0.03, 0.03, 0.035], RUB, { segs: lod ? 5 : 8, axis: 'x', at: [hc[0] + 0.095, hc[1] + 0.02, z] });
     if (prop === 'camera') box(g, [hand[0] + 0.02, hand[1] + 0.01, 0], 0.035, 0.035, 0.06, [0.04, 0.04, 0.045], RUB);
@@ -415,6 +443,23 @@ function person(g, o, idx, fno, lod, part) {
   // place it
   const sc = (o.scale || 1) * (0.95 + 0.1 * h2);
   xf(g, s0, frame([o.x, o.y, o.z], o.yaw || 0, 0, 0, sc));
+}
+
+// A crew's shadows: each figure, at its far level, flattened along the light onto the plane its feet stand on. L: the
+// direction to the sun in the crew's frame; reach: how long a shadow may run (on a boat it would fall off the deck).
+export function crewShadowGeo(people, L, reach = 2.5) {
+  const g = new Geo(256), ly = Math.max(L[1], 0.12), ink = [0.004, 0.005, 0.007];
+  people.forEach((o, idx) => {
+    const v0 = g.nv;
+    person(g, o, idx, 0, 2, 'all');
+    const P = g.P, N = g.N, C = g.C, M = g.M;
+    for (let i = v0 * 3; i < g.nv * 3; i += 3) {
+      const t = Math.max(P[i + 1] - o.y, 0) / ly, len = Math.hypot(L[0], L[2]) * t || 1e-6, k = (reach * (1 - Math.exp(-len / reach))) / len;
+      P[i] -= L[0] * t * k; P[i + 2] -= L[2] * t * k; P[i + 1] = o.y + 0.014;
+      N[i] = 0; N[i + 1] = 1; N[i + 2] = 0; C[i] = ink[0]; C[i + 1] = ink[1]; C[i + 2] = ink[2]; M[i] = MAT.RUBBER; M[i + 1] = 0; M[i + 2] = 0;
+    }
+  });
+  return g;
 }
 
 // A crew: people placed in a host's frame. pose: 0 or 'stand', 1 or 'wave' (one arm raised, the forearm

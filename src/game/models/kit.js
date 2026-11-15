@@ -181,6 +181,8 @@ function gridNormals(R, C, wrapJ) {
 // round bar along a polyline; r: one radius or one per point. o: segs, closed, caps (flat ends), paint, along
 export function tube(g, pts, r, col, m, o) {
   const segs = (o && o.segs) || 6, closed = !!(o && o.closed), N = pts.length, R = closed ? N + 1 : N, C = segs + 1;
+  // a thin bar carries minus its radius in uv.x: the mesh shader keeps it a pixel wide however far off (mesh.js)
+  if (typeof r === 'number' && r <= 0.05 && !(m[3] > 0) && m[0] !== MAT.TEXTURED) m = [m[0], m[1], m[2], -r];
   need(R * C);
   let nx = 0, ny = 0, nz = 0, first = true, t0x = 0, t0y = 0, t0z = 0, tx = 0, ty = 0, tz = 0;
   for (let i = 0; i < R; i++) {

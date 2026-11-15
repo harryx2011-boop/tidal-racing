@@ -285,14 +285,14 @@ export class Marks {
     const next = it.gate === this.next;
     if (next) {
       const p = 0.5 + 0.5 * Math.sin(t * 5);
-      out.glow = 1.6 + 0.5 * p; out.gain = 3.2 + 1.2 * p; out.size = 0.062;
+      out.glow = 1.6 + 0.5 * p; out.gain = 3.2 + 1.2 * p; out.size = 0.02 + 0.042 * dark;
       return out;
     }
     const ph = ((t + it.gate * 0.7 + (it.side === 'port' ? 0 : FLASH_PERIOD / 2)) % FLASH_PERIOD + FLASH_PERIOD) % FLASH_PERIOD;
     const on = smoothstep(0.0, 0.1, ph) * (1 - smoothstep(FLASH_ON, FLASH_ON + 0.2, ph));
     out.glow = 0.3 + dark * (on * 2.0 - 0.2);
     out.gain = 0.16 + dark * on * 7;
-    out.size = 0.016 + 0.01 * dark * on;
+    out.size = 0.004 + 0.012 * dark + 0.01 * dark * on;
     return out;
   }
 
@@ -367,7 +367,7 @@ export class Marks {
       if (d > FAR || !this.visible(wx, wy, wz, 2)) continue;
       const k = 0.2 / d;
       pos[0] = wx + dx * k; pos[1] = wy + dy * k; pos[2] = wz + dz * k;
-      const sy = Math.max(0.9 * (0.4 + L.size * 12) / (d * tanHalf), L.size);
+      const sy = Math.max(0.9 * (0.14 + L.size * 12) / (d * tanHalf), L.size);
       half[0] = sy / aspect; half[1] = sy;
       this.prog.set('uPos', pos);
       this.prog.set('uHalf', half);

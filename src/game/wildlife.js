@@ -24,9 +24,10 @@ import { Program } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { smoothPath, rng } from './models/structures.js';
 import { crewOf } from './models/vessels.js';
+import { seatY } from './scenery.js';
 import {
   birdBuffers, dolphinGeo, fishGeo, kelpGeo, logGeo, crateGeo, potFloatGeo, crewGeo, WAVE_FRAMES,
-  flagCloth, flagStatic, FLAG_CLOTH_VERTS,
+  flagCloth, flagStatic, FLAG_CLOTH_VERTS, crewShadowGeo,
 } from './models/wildlife.js';
 
 const SEA_T0 = 60;
@@ -541,7 +542,7 @@ export class Wildlife {
         const nb = R() < 0.6 ? 1 : 2;
         for (let k = 0; k < nb; k++) { const a = R() * TAU; rk(add('world', { lx: b.x + Math.cos(a) * 1.75, lz: b.z + Math.sin(a) * 1.75, ly: 7.2 }), R() * 0.72); }
       }
-      if (L.lighthouse) for (let k = 0; k < 4; k++) { const a = R() * TAU, l = L.lighthouse; rk(add('world', { lx: l.x + Math.cos(a) * 4.3, lz: l.z + Math.sin(a) * 4.3, ly: 29.05, yaw: a + Math.PI / 2 }), R() * 0.72); }
+      if (L.lighthouse) for (let k = 0; k < 4; k++) { const a = R() * TAU, l = L.lighthouse; rk(add('world', { lx: l.x + Math.cos(a) * 4.3, lz: l.z + Math.sin(a) * 4.3, ly: 29.05 + seatY(this.land, l.x, l.z), yaw: a + Math.PI / 2 }), R() * 0.72); }
       for (const it of sc.items) {
         if (!it.float || it.kind === 'cargo') continue;
         const spots = it.kind === 'committee' ? [[0.5, 8.06, 1.55], [0.5, 8.06, -1.55], [-6.1, 3.85, 0]] : it.kind === 'yacht' ? [[1.0, 6.4, 0.95], [-5.0, 1.15, 0.0]] : it.kind === 'cruiser' ? [[-1.95, 4.7, 0]] : [];
@@ -1050,6 +1051,25 @@ export class Wildlife {
     return (c.lods[lod] = L);
   }
 
+  // A crew's shadows: each figure flattened along the sun onto the deck it stands on and drawn dark and half clear, so
+  // people stand on a deck instead of being pasted over it. On a boat a shadow is kept short (it would fall off the
+  // deck); none under cloud or with the sun down. Built once per crew for the sun of the race.
+  shadow(m, scene, c, yaw, reach, float, foot) {
+    const sun = scene.uSunDir, L = this.game.app.local || {};
+    const k = sun && sun[1] > 0.04 ? 1 - Math.min(Math.max((L.dark || 0) * 0.95, (L.rain || 0) * 0.7) * 1.6, 1) : 0;
+    if (k < 0.05) return;
+    if (c.shade === undefined) {
+      const cs = Math.cos(yaw), sn = Math.sin(yaw), g = crewShadowGeo(c.people, [sun[0] * cs + sun[2] * sn, sun[1], -sun[0] * sn + sun[2] * cs], reach);
+      c.shade = { mesh: g.build(this.gl), tris: g.nv / 3 };
+    }
+    const p = m.prog;
+    if (foot !== this.foot) { p.use(); p.set('uFoot', foot); this.foot = foot; }
+    const o = this.optS || (this.optS = { float: 0, alpha: 1 });
+    o.float = float; o.alpha = 0.5 * k;
+    m.draw(c.shade.mesh, this.mat, o);
+    this.stats.draws++; this.stats.tris += c.shade.tris;
+  }
+
   put(m, lod, float, foot) {
     const p = m.prog;
     if (foot !== this.foot) { p.use(); p.set('uFoot', foot); this.foot = foot; }
@@ -1084,10 +1104,11 @@ export class Wildlife {
       const h = c.host;
       if (h) {
         if (!h.shown || h.d > 550) continue;
-        rotY(mat, h.yaw + (h.sw || 0), h.x, 0, h.z);
+        rotY(mat, h.yaw + (h.sw || 0), h.x, h.oy || 0, h.z);
         const L = this.crewMeshes(c, h.d < 45 ? 0 : h.d < 160 ? 1 : 2);
         this.put(m, L.body, 1, h.foot || 0);
         if (L.wave.length) this.put(m, L.wave[(wave + Math.floor(h.phase * 3)) % L.wave.length], 1, h.foot || 0);
+        if (h.d < 120) this.shadow(m, scene, c, h.yaw, 0.85, 1, h.foot || 0);
       } else {
         const f = c.fixed;
         if (!this.visible(f.x, 4, f.z, 450, 900)) continue;
@@ -1099,6 +1120,7 @@ export class Wildlife {
         const L = this.crewMeshes(c, d < 45 ? 0 : d < 160 ? 1 : 2);
         this.put(m, L.body, 0, 0);
         if (L.wave.length) this.put(m, L.wave[wave % L.wave.length], 0, 0);
+        if (d < 120) this.shadow(m, scene, c, 0, 2.6, 0, 0);
       }
     }
     // flags
@@ -1115,7 +1137,7 @@ export class Wildlife {
       for (let i = 0; i < n; i++) { P[o + i * 3] = this.cloP[i * 3] + f.bx; P[o + i * 3 + 1] = this.cloP[i * 3 + 1] + f.by; P[o + i * 3 + 2] = this.cloP[i * 3 + 2] + f.bz; N[o + i * 3] = this.cloN[i * 3]; N[o + i * 3 + 1] = this.cloN[i * 3 + 1]; N[o + i * 3 + 2] = this.cloN[i * 3 + 2]; }
       gl.bindBuffer(gl.ARRAY_BUFFER, M.bufs[0]); gl.bufferSubData(gl.ARRAY_BUFFER, o * 4, P, o, n * 3);
       gl.bindBuffer(gl.ARRAY_BUFFER, M.bufs[1]); gl.bufferSubData(gl.ARRAY_BUFFER, o * 4, N, o, n * 3);
-      rotY(mat, yaw, x, 0, z);
+      rotY(mat, yaw, x, h ? h.oy || 0 : 0, z);
       this.put(m, f.lod, fl, foot);
     }
     if (this.foot) { m.prog.use(); m.prog.set('uFoot', 0); this.foot = 0; }
