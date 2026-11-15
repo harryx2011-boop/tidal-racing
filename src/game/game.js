@@ -16,6 +16,7 @@ import { Wake } from './wake.js';
 import { BoatSpray } from './boatspray.js';
 import { Marks } from './marks.js';
 import { Scenery } from './scenery.js';
+import { Wildlife } from './wildlife.js';
 
 const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
@@ -76,6 +77,7 @@ export class Game {
     this.systems.push(new BoatSpray(this));
     this.systems.push(new Marks(this));
     this.systems.push(new Scenery(this));
+    this.systems.push(new Wildlife(this));
     this.state = 'menu';        // menu | countdown | racing | finished
     this.paused = false;
     this.camMode = 'chase';
