@@ -128,6 +128,60 @@ float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 // a pattern of spatial frequency f (1/m) averages out where one pixel spans more than ~a third of its period
 float fadeOut(float pf, float f) { return 1.0 - smoothstep(0.3, 0.8, pf * f); }
 
+// ---- procedural surfaces for RUBBER, picked by uv.x (models/kit.js: DV) ----
+// 1 grain, 2 ashlar courses, 3 cast concrete, 4 hull plating, 5 corrugated steel, 6 slates, 7 rock; +8: uv.y
+// carries the distance along the surface (round a tower, along a wall), otherwise the pattern lies on
+// the object's own axes. Each pattern fades to its mean tone before a pixel is too coarse to hold it.
+void rubberSurface(inout vec3 albedo, inout float ra, inout vec3 Nm, vec3 N, vec3 On, float pf) {
+  int dv = int(vUV.x + 0.5);
+  bool along = dv >= 8;
+  if (along) dv -= 8;
+  bool flat_ = abs(On.y) > 0.6;
+  vec2 q = vec2(along ? vUV.y : (flat_ || abs(On.z) > abs(On.x) ? vObj.x : vObj.z), flat_ ? (along ? 0.37 : vObj.z) : vObj.y);
+  float grain = mix(0.5, vnoise(vObj * 7.0) * 0.55 + vnoise(vObj * 31.0 + 4.7) * 0.45, fadeOut(pf, 20.0));
+  albedo *= 0.86 + 0.28 * grain;
+  ra = 0.8;
+  if (dv == 7) {
+    // rock: broad mottling, bedding planes and thin dark cracks
+    float n1 = vnoise(vObj * 0.9 + 3.1), n2 = vnoise(vObj * 3.7 + 9.0);
+    float strata = sin(vObj.y * 7.0 + n1 * 9.0 + vObj.x * 0.9 + vObj.z * 0.6);
+    float crack = (1.0 - smoothstep(0.0, 0.03 + pf * 1.5, abs(n2 - 0.5))) * fadeOut(pf, 5.0);
+    albedo *= (0.8 + 0.4 * n2) * mix(1.0, 0.88 + 0.12 * strata, fadeOut(pf, 2.5)) * mix(1.0, 0.55, crack);
+  } else if (dv == 5) {
+    // corrugated steel: trapezoid ribs across the run; the flanks tilt the normal
+    const float per = 0.28;
+    float ph = fract(q.x / per), fo = fadeOut(pf, 1.0 / per);
+    float prof = smoothstep(0.08, 0.28, ph) * (1.0 - smoothstep(0.58, 0.78, ph));
+    float e = 0.04, slope = (smoothstep(0.08, 0.28, ph + e) * (1.0 - smoothstep(0.58, 0.78, ph + e)) - smoothstep(0.08, 0.28, ph - e) * (1.0 - smoothstep(0.58, 0.78, ph - e))) / (2.0 * e * per) * 0.03;
+    vec3 dpx = dFdx(vWorld), dpy = dFdy(vWorld), r1 = cross(dpy, N), r2 = cross(N, dpx);
+    float det = dot(dpx, r1);
+    vec3 grad = (r1 * dFdx(q.x) + r2 * dFdy(q.x)) / (abs(det) > 1e-10 ? det : 1e-10);
+    if (dot(grad, grad) < 4.0) Nm = normalize(N - grad * slope * fo);
+    albedo *= mix(0.87, 0.76 + 0.24 * prof, fo);
+    ra = 0.6;
+  } else if (dv >= 2) {
+    vec2 sz = dv == 2 ? vec2(0.72, 0.36) : dv == 3 ? vec2(2.4, 1.2) : dv == 4 ? vec2(6.0, 2.4) : vec2(0.34, 0.2);
+    float w = dv == 2 ? 0.011 : dv == 6 ? 0.005 : 0.008;
+    float row = floor(q.y / sz.y);
+    float x = q.x / sz.x + (dv == 3 ? 0.0 : 0.5 * mod(row, 2.0)) + (dv == 2 || dv == 6 ? h11(row) * 0.37 : 0.0);
+    vec2 f = vec2(fract(x), fract(q.y / sz.y));
+    vec2 d = min(f, 1.0 - f) * sz;
+    // a joint thinner than a pixel is drawn a pixel wide and fainter, so courses still read at a distance
+    float we = max(w, pf * 0.6), fo = fadeOut(pf, 0.6 / sz.y);
+    float joint = (1.0 - smoothstep(we, we + max(pf, 0.002), min(d.x, d.y))) * sqrt(w / we) * fo;
+    float id = h11(row * 17.0 + floor(x) * 3.1);
+    albedo *= 1.0 + (dv == 2 ? 0.26 : dv == 6 ? 0.3 : 0.09) * (id - 0.5) * fo;
+    if (dv == 3 || dv == 4) {
+      // run-off streaks down the face; tie holes in cast concrete
+      albedo *= 0.88 + 0.2 * vnoise(vec3(q.x * 2.6, q.y * 0.22, 1.7));
+      if (dv == 3) albedo *= 1.0 - 0.45 * (1.0 - smoothstep(0.016, 0.022 + pf, length((fract(q / 0.6) - 0.5) * 0.6))) * fadeOut(pf, 25.0);
+      else ra = 0.5;
+    }
+    if (dv == 6) albedo *= 0.8 + 0.25 * f.y;
+    albedo *= mix(1.0, dv == 4 ? 0.72 : 0.5, joint);
+  }
+}
+
 // ---- shadow and occlusion ----
 float boatShadow(vec3 P, vec3 N, float ndl) {
   if (uBoatShadowInfo.x < 0.5) return 1.0;
@@ -383,6 +437,7 @@ void main() {
     ra = 0.8;
   } else if (mid == 7) {
     albedo = vCol * 0.8; ra = 0.7;
+    if (vUV.x > 0.5) rubberSurface(albedo, ra, Nm, N, On, pf);
   } else if (mid == 8) {
     emis = albedo * (vMat.z > 0.0 ? vMat.z : 1.0);
     ra = 0.15;
