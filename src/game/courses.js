@@ -1,5 +1,6 @@
-// Courses are buoy gates on open sea. A gate is a pair of marks (port red, starboard green);
-// boats pass between them in order.
+// Courses are buoy gates laid along a coast (models/coast.js: islands, headlands, a mainland shore). A gate is
+// a pair of marks (port red, starboard green); boats pass between them in order. Every gate stands in at
+// least 6 m of water with 25 m of water either side of the racing width (checked in node, see landfield.js).
 const unit = (x, z) => { const l = Math.hypot(x, z) || 1; return [x / l, z / l]; };
 
 // turns sharper than this (radians, about 52 degrees) put a pylon on the inside of the corner
@@ -35,7 +36,7 @@ for (let i = 0; i < 13; i++) sprint.push([330 * i, 170 * Math.sin(i * 0.85) + 60
 export const COURSES = [
   build({
     id: 'circuit', name: 'Breakwater Circuit', blurb: 'Technical loop, 3 laps', laps: 3, width: 34, loop: true,
-    pts: [[0, 0], [240, 0], [448, 72], [560, 256], [480, 448], [272, 480], [128, 368], [-64, 416], [-240, 320], [-264, 120], [-160, 0]],
+    pts: [[0, 0], [250, -10], [470, 40], [600, 190], [570, 380], [420, 480], [260, 540], [100, 480], [-80, 500], [-260, 400], [-310, 200], [-210, 40]],
   }),
   build({ id: 'sprint', name: 'Long Reach', blurb: 'Point to point, 4 km', laps: 1, width: 38, loop: false, pts: sprint }),
   build({

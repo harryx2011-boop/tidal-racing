@@ -319,13 +319,41 @@ export class HUD {
     this.text(e.dist, `${Math.round(Math.hypot(x - g.boat.pos[0], z - g.boat.pos[2]))} m`);
   }
 
+  // The coast for the minimap, baked once per course into its own canvas: land is a quarter-dither with a
+  // solid edge, the shallows a sparse dot pattern, all in the paper tone, so it reads against the dark dither
+  // of the map without competing with the course line drawn over it.
+  mapCoast(id, field, x0, z0, sc, ox, oz) {
+    if (this.coast && this.coast.id === id) return this.coast.canvas;
+    const c = document.createElement('canvas');
+    c.width = c.height = MAP;
+    const x = c.getContext('2d');
+    x.fillStyle = PAPER;
+    const hAt = (px, py) => field.heightAt(x0 + (px + 0.5 - ox) / sc, z0 + (py + 0.5 - oz) / sc);
+    for (let py = 0; py < MAP; py++) for (let px = 0; px < MAP; px++) {
+      const h = hAt(px, py);
+      let on = false;
+      if (h > 0) {
+        // the edge of the land: a land pixel with water next to it
+        const edge = hAt(px - 1, py) <= 0 || hAt(px + 1, py) <= 0 || hAt(px, py - 1) <= 0 || hAt(px, py + 1) <= 0;
+        on = edge || ((px & 1) === 0 && (py & 1) === 0);
+      } else if (h > -2.5) on = ((px + py) & 3) === 0 && (px & 1) === 0;
+      if (on) x.fillRect(px, py, 1, 1);
+    }
+    this.coast = { id, canvas: c };
+    return c;
+  }
+
   minimap() {
     const g = this.game, m = this.map, gates = g.course.gates;
     let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
     for (const q of gates) { x0 = Math.min(x0, q.c[0]); x1 = Math.max(x1, q.c[0]); z0 = Math.min(z0, q.c[1]); z1 = Math.max(z1, q.c[1]); }
+    // room round the course for the coast to show
+    const pad = 0.16 * Math.max(x1 - x0, z1 - z0);
+    x0 -= pad; x1 += pad; z0 -= pad; z1 += pad;
     const sc = (MAP - 14) / Math.max(x1 - x0, z1 - z0, 1), ox = (MAP - (x1 - x0) * sc) / 2, oz = (MAP - (z1 - z0) * sc) / 2;
     const X = (x) => ox + (x - x0) * sc, Z = (z) => oz + (z - z0) * sc;
     m.clear();
+    if (g.land && g.land.field) m.c.drawImage(this.mapCoast(g.course.id, g.land.field, x0, z0, sc, ox, oz), 0, 0);
     const n = gates.length, last = g.course.loop ? n : n - 1;
     // the course: an ink line three pixels wide with a paper line down its middle
     for (const [r, col] of [[1, INK], [0, PAPER]])

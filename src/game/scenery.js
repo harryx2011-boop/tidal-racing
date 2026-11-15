@@ -3,7 +3,7 @@
 // committee boat, anchored spectator boats and a container ship (they ride the waves). Everything
 // is built in code (models/structures.js, models/vessels.js) and placed deterministically from the
 // course: a layout is plain data (buildLayout), the same for every player, kept clear of the racing
-// line, and easy to move when land and coastline arrive.
+// line, and kept in water deep enough for what stands in it (tools/check-land.mjs checks it against the land).
 //
 // Lights: the lighthouse sweeps a beam round that shows at low sun and in storms; beacons, the
 // breakwater head and the platform's obstruction lights flash or burn; boats show anchor lights,
@@ -51,19 +51,21 @@ export function buildLayout(course) {
   { const [x, z] = at(course, 0, 4, hw + 34); L.committee = { x: round(x), z: round(z), yaw: round(windYaw + 0.2) }; }
   const cluster = (kinds, i, pts) => pts.forEach(([al, ac], k) => { const [x, z] = at(course, i, al, ac); spec(kinds[k % kinds.length], x, z); });
   if (course.id === 'circuit') {
-    // Breakwater Circuit: a rubble breakwater runs beside the first straight, with its light on the head
-    L.breakwater = { path: [[-40, -122], [120, -116], [270, -98], [360, -72]], side: -1, seed: 5 };
-    L.lighthouse = { x: 1050, z: 120, yaw: round(heading + Math.PI) };
-    L.beacons = [{ x: 690, z: 210, style: 'stbd' }, { x: 340, z: 590, style: 'north' }, { x: -360, z: 250, style: 'port' }];
-    L.platform = { x: -900, z: 1000, yaw: 0.6 };
+    // Breakwater Circuit: a rubble wall runs out from the beach of the harbour bay (its root buried in the
+    // shore) and along the first straight, with its light on the head; the lighthouse stands on the
+    // headland to the east; a platform stands off to the south-west
+    L.breakwater = { path: [[34, -208], [66, -158], [140, -122], [250, -104], [350, -92], [430, -82]], side: 1, seed: 5 };
+    L.lighthouse = { x: 706, z: 46, yaw: round(heading + Math.PI) };
+    L.beacons = [{ x: 700, z: 300, style: 'stbd' }, { x: 160, z: 585, style: 'north' }, { x: -400, z: 60, style: 'port' }];
+    L.platform = { x: -300, z: 1080, yaw: 0.6 };
     cluster(KIND_CYCLE, 0, [[60, 60], [110, 84], [150, 66], [-52, 64], [30, -58], [90, -70]]);
-    spec('yacht', 690, 330); spec('cruiser', 660, 255); spec('rib', 700, 390); spec('yacht', 640, 440);
+    spec('yacht', 720, 380); spec('cruiser', 690, 330); spec('rib', 720, 440); spec('yacht', 640, 480);
     L.cargo = { x: 3300, z: 800, heading: 1.9, speed: 3.5 };
   } else if (course.id === 'sprint') {
     // Long Reach: a passage marked by beacons, the lighthouse beyond the finish
     for (const k of [2, 5, 8, 11]) for (const s of [-1, 1]) { const [x, z] = at(course, k, 0, s * (hw + 55)); L.beacons.push({ x: round(x), z: round(z), style: s < 0 ? 'port' : 'stbd' }); }
-    { const [x, z] = at(course, n - 1, 300, -200); L.lighthouse = { x: round(x), z: round(z), yaw: round(Math.atan2(g0.dir[1], g0.dir[0]) + 2.6) }; }
-    L.platform = { x: 2100, z: -1350, yaw: 0.3 };
+    L.lighthouse = { x: 4580, z: -300, yaw: round(Math.atan2(g0.dir[1], g0.dir[0]) + 2.6) };   // on the headland by the harbour
+    L.platform = { x: 2100, z: 950, yaw: 0.3 };
     cluster(KIND_CYCLE, 0, [[110, 62], [175, 82], [240, 66], [95, -64], [165, -86]]);
     cluster(KIND_CYCLE.slice(2), n - 1, [[-30, 70], [20, 92], [-60, -70], [40, -88]]);
     cluster(KIND_CYCLE.slice(1), 6, [[-40, 85], [30, 100]]);
@@ -71,11 +73,11 @@ export function buildLayout(course) {
   } else {
     // Tidal Speedway: spectators line the straights, the platform stands off in the distance
     L.beacons = [{ x: 720, z: 160, style: 'stbd' }, { x: -720, z: 160, style: 'port' }];
-    L.platform = { x: 1500, z: -380, yaw: 0.9 };
+    L.platform = { x: 700, z: 1150, yaw: 0.9 };   // outside the barrier beach
     const south = [[110, -104], [190, -116], [270, -100], [350, -114], [-120, -104], [-260, -112]];
     south.forEach(([x, z], k) => spec(KIND_CYCLE[k], x, z));
     [[-250, 408], [-90, 420], [60, 410], [200, 424], [330, 412]].forEach(([x, z], k) => spec(KIND_CYCLE[(k + 3) % 8], x, z));
-    [[150, 140], [290, 150], [-60, 205]].forEach(([x, z], k) => spec(KIND_CYCLE[(k + 5) % 8], x, z));
+    [[150, -180], [290, -200], [-60, -190]].forEach(([x, z], k) => spec(KIND_CYCLE[(k + 5) % 8], x, z));
     L.cargo = { x: 3600, z: -900, heading: 1.6, speed: 3.2 };
   }
   return L;
@@ -165,7 +167,8 @@ void main() {
   oColor = vec4(fogged - applyFog(vec3(0.0), -V, dist), 1.0);
 }`;
 const BEAM_COLOUR = [1, 0.9, 0.62];
-const BEAM_LEN = 7000, BEAM_R = [1.2, 190], BEAM_PERIOD = 10;
+// (short and faint: there is no night in this game, and by day a long bright beam seen side-on is a pale band across the far shore)
+const BEAM_LEN = 2600, BEAM_R = [1.2, 72], BEAM_PERIOD = 10;
 function beamMesh(gl) {
   const segs = 14, rings = 14, p = [];
   const pt = (i, j) => { const s = Math.pow(i / rings, 1.8), a = (j / segs) * Math.PI * 2; return [s, Math.cos(a), Math.sin(a)]; };
@@ -508,9 +511,10 @@ export class Scenery {
         this.beam.set('uR', BEAM_R);
         this.beam.set('uColor', BEAM_COLOUR);
         // the beam's gain is relative to the light everything else gets; under storm cloud the sky is far
-        // darker than that light suggests (the sun's share does not reach the sea), so it needs much less
+        // darker than that light suggests (the sun's share does not reach the sea), and any beam bright enough
+        // to see there is a pale band along the far shore: it shows at dusk and dawn only
         const L = app.local || {}, storm = Math.min(Math.max((L.dark || 0) * 0.95, (L.rain || 0) * 0.7) * 1.4, 1);
-        this.beam.set('uGain', beamDark * (2.5 - 2.45 * storm));
+        this.beam.set('uGain', beamDark * 0.5 * (1 - storm) * (1 - storm));
         for (const k of [0, 1]) {
           const dv = this._dir || (this._dir = [0, 0]);
           dv[0] = Math.cos(a + k * Math.PI); dv[1] = Math.sin(a + k * Math.PI);

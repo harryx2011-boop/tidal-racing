@@ -6,6 +6,7 @@ import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { FOAM_GLSL } from './foam.js';
 import { RAIN_SURFACE_GLSL } from '../fx/ripples.js';
 import { WAKE_GLSL, WAKE_AMT_GLSL } from '../game/wake.js';
+import { LAND_COMMON_GLSL, LAND_TEX_GLSL } from '../game/landgl.js';
 
 // What both shader stages know about the boats: where they are, the hull's outline, and the bow wave
 // (a ridge of water lifted along each hull side, thrown outward at its crest). The vertex stage
@@ -131,7 +132,7 @@ BoatFx boatFx(vec3 P, vec3 L) {
 }
 `;
 
-const VS = WAKE_GLSL + BOAT_SHARED + `
+const VS = WAKE_GLSL + BOAT_SHARED + LAND_COMMON_GLSL + LAND_TEX_GLSL + `
 layout(location = 0) in vec2 aPolar; // radius (m), angle (rad)
 uniform mat4 uViewProj;
 uniform vec3 uCamPos;
@@ -143,6 +144,8 @@ uniform float uDispScale;
 out vec3 vWorld;
 out vec2 vXZ;
 out float vDisp;
+out float vDepth;  // depth of the bottom under the vertex (m); 99 away from land
+out vec2 vBg;      // slope of the bottom there (dh/dx, dh/dz), where the water is shallow
 out vec4 vWkC;     // boat wakes: pattern frame (along the path, across it, metres behind the stern, age)
 out vec3 vWkD;     // boat wakes: strength, foam, width
 out vec2 vWkS;     // boat wakes: slope
@@ -157,6 +160,17 @@ void main() {
   D += textureLod(uDisp[1], xz / uSize[1], max(lsp - log2(uTexel[1]), 0.0)).xyz;
   D += textureLod(uDisp[2], xz / uSize[2], max(lsp - log2(uTexel[2]), 0.0)).xyz;
   D *= uDispScale;
+  // waves die as the bottom comes up (one tap of the height field, only within 6 km of the camera): the
+  // displacement is scaled by waveAtt(depth), so the surface never rises through a beach
+  float depth = 99.0;
+  vBg = vec2(0.0);
+  if (uLandOn > 0.5 && r < 6000.0) {
+    depth = -landH(xz);
+    // the slope of the bottom, for the colour and the surf, only where it matters
+    if (depth < 14.0) vBg = vec2(landH(xz + vec2(2.0, 0.0)) - landH(xz - vec2(2.0, 0.0)), landH(xz + vec2(0.0, 2.0)) - landH(xz - vec2(0.0, 2.0))) * 0.25;
+  }
+  D *= waveAtt(depth);
+  vDepth = depth;
   // fade displacement where the mesh is extremely coarse (far field)
   vec3 P = vec3(xz.x + D.x, D.y, xz.y + D.z);
   // boat wakes lift the sea (the same field the physics feels, see src/game/wake.js)
@@ -192,7 +206,9 @@ void main() {
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
-const FS = SKY_LOOKUP_GLSL + WAKE_AMT_GLSL + FOAM_GLSL + RAIN_SURFACE_GLSL + BOATS_GLSL + `
+const FS = SKY_LOOKUP_GLSL + WAKE_AMT_GLSL + FOAM_GLSL + RAIN_SURFACE_GLSL + BOATS_GLSL + LAND_COMMON_GLSL + `
+in float vDepth;
+in vec2 vBg;
 in vec4 vWkC;
 in vec3 vWkD;
 in vec2 vWkS;
@@ -377,6 +393,60 @@ vec2 wakeFoam(vec4 fo, float contact, vec4 wc, float hw, vec2 dAx, vec2 dAy, vec
   return vec2(cov, clamp(th, 0.0, 1.0));
 }
 
+uniform int uFixN;
+uniform vec4 uFix[8];         // fixed structures nearest the view: x, z, radius, strength (land.js)
+// Foam where fixed things stand in the sea (the lighthouse rock, the breakwater's toe, platform legs and
+// beacon piles): the swell lifts and drops the waterline against them, the wash is a ragged band at it
+// with a thinner fringe further out, stronger the rougher the sea; rings run out from it.
+float fixedFx(vec2 xz, inout vec2 sl) {
+  float foam = 0.0;
+  float rough = 0.3 + 0.7 * smoothstep(0.2, 2.5, uHs);
+  for (int i = 0; i < 8; i++) {
+    if (i >= uFixN) break;
+    vec2 dv = xz - uFix[i].xy;
+    float r = uFix[i].z, d = length(dv);
+    if (d > r + 8.0 || d < r * 0.8) continue;
+    float a = atan(dv.y, dv.x);
+    float lap = 0.5 + 0.5 * sin(6.2831853 * (uTime / 6.0 + float(i) * 0.37));
+    float n = bn(vec2(a * 3.0 * min(r, 14.0) * 0.5, uTime * 0.6 + float(i) * 5.0)) * 0.6 + bn(vec2(a * 9.0 * min(r, 14.0) * 0.5 + 3.0, uTime * 1.3)) * 0.4;
+    float e = d - r;
+    float w = 0.2 + (0.25 + 0.6 * rough) * n;
+    foam += exp(-pow((e - 0.1 - 0.5 * rough * lap) / w, 2.0)) * (0.9 + 1.6 * rough) * uFix[i].w;
+    foam += exp(-pow((e - 1.0 - 2.0 * rough * lap * n) / (0.5 + 0.6 * rough), 2.0)) * 0.55 * rough * smoothstep(0.3, 0.7, n) * uFix[i].w;
+    sl += dv / d * 0.06 * (0.4 + rough) * sin(9.0 * e - uTime * 3.0 + float(i)) * exp(-e * 0.5) * smoothstep(0.0, 0.2, e);
+  }
+  return foam;
+}
+
+// Foam of the shore (coverage, thickness) from the depth and the slope of the bottom: the waterline
+// itself, surf lines that break and run in with the swell over a zone that widens with the sea state, and
+// a broad skirt that rises and falls against a cliff. Lines and noise average out as they shrink to a pixel.
+vec2 shoreFoam(vec2 xz, float depth, vec2 bg, float fpm) {
+  float slope = max(length(bg), 0.015);
+  float hs = max(uHs, 0.25);
+  float surf = smoothstep(0.2, 2.2, hs);
+  float rough = 0.35 + 0.65 * surf;
+  float dh = depth / slope;                       // metres to the shoreline, along the slope
+  float cliff = smoothstep(0.25, 0.6, slope);
+  float k = 1.0 - smoothstep(0.1, 0.35, fpm * 3.1);
+  float n1 = bn(xz * 0.9 + vec2(uTime * 0.25, 0.0));
+  float n2 = mix(0.5, bn(xz * 3.1 - uTime * 0.4), k);
+  float n3 = bn(xz * 0.13);
+  float line = 1.0 - smoothstep(0.0, 0.3 + 0.5 * rough * (0.4 + n1), depth + 0.14 * (n2 - 0.5));
+  float lam = 7.0 + 5.0 * hs;
+  float zoneW = 14.0 + 38.0 * surf;
+  float ph = dh / lam - uTime / 6.5 + 0.8 * n3;
+  float lines = mix(0.28, smoothstep(0.55, 0.95, 0.5 + 0.5 * sin(6.2831853 * ph)), 1.0 - smoothstep(0.08, 0.2, fpm / lam));
+  float zone = smoothstep(0.0, 3.0, dh) * (1.0 - smoothstep(zoneW * 0.5, zoneW, dh)) * (1.0 - smoothstep(5.0, 8.0, depth));
+  float surfF = lines * zone * surf * (0.4 + 0.6 * n1) * (1.0 - cliff);
+  float lap = 0.5 + 0.5 * sin(6.2831853 * (uTime / 5.5 + n3 * 1.7));
+  float skirt = exp(-dh / (2.5 + (2.0 + 3.5 * hs) * lap)) * cliff * (0.45 + 0.65 * rough) * (0.7 + 0.6 * n2);
+  float resid = zone * surf * smoothstep(0.55, 0.9, n1 * 0.6 + n2 * 0.4) * 0.5;
+  float cov = clamp(line * (0.75 + 0.25 * n2) + surfF + skirt + resid, 0.0, 1.0);
+  float th = clamp(line * 0.9 + surfF * 0.85 + skirt + resid * 0.4, 0.0, 1.0);
+  return vec2(cov, th);
+}
+
 void main() {
   vec3 uSunE = sunIlluminance();
   vec3 uSkyE = skyIrradiance();
@@ -389,6 +459,17 @@ void main() {
   vec2 ex = dFdx(vXZ), ey = dFdy(vXZ), qc = vXZ - uCamPos.xz;
   vec2 gCell = floor(vec2(dot(qc, ex) / max(dot(ex, ex), 1e-12), dot(qc, ey) / max(dot(ey, ey), 1e-12)));
   vec3 V = toCam / dist;
+
+  // the shore: the depth under this point and the slope of the bottom, interpolated from the vertices (the
+  // fragment stage reads no height texture; open sea pays nothing here but a compare)
+  float depth = 99.0, attF = 1.0, shoreOn = 0.0;
+  vec2 bg = vec2(0.0);
+  if (uLandOn > 0.5 && vDepth < 14.0) {
+    depth = vDepth;
+    attF = waveAtt(depth);
+    shoreOn = 1.0 - smoothstep(9.0, 14.0, depth);
+    bg = vBg;
+  }
 
   // slopes and their variance from all cascades (hardware anisotropic + trilinear filtering)
   vec2 s = vec2(0.0);
@@ -408,6 +489,8 @@ void main() {
   // slopes of the waves long enough to make thin, backlit crests
   vec2 sL = s;
   SLOPE(2, sm) SLOPE(3, sm)
+  // (the shallows have no waves to speak of: slopes and whitecaps die with the displacement)
+  s *= attF; sL *= attF; var *= attF * attF;
   float foamRaw = 0.0;
   float plume = 0.0;
   float activeRaw = 0.0;
@@ -434,6 +517,7 @@ void main() {
     // (it follows recent breaking: mostly the active field, a little of the old foam)
     float pa = textureLod(uActive, u1, 3.5).r;
     plume = clamp(pa * 1.5 * mix(0.5, 1.3, crest), 0.0, 2.0);
+    foamRaw *= attF; activeRaw *= attF; plume *= attF;
   }
 
   // rain ripples: normal perturbation near the camera, extra roughness further away
@@ -441,6 +525,7 @@ void main() {
   s += rr.xy + vWkS;
   // (against the displaced surface: the mark rides with the water, not with the grid)
   float markFoam = markFx(P.xz, s);
+  if (uFixN > 0) markFoam += fixedFx(P.xz, s);
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
   float unres = uUnresolved * 0.5 * sm * sm * (1.0 - 0.4 * uRain);
   vec2 sigmaSq = var + vec2(unres);
@@ -566,6 +651,15 @@ void main() {
 
   // water-leaving radiance (deep, optically infinite water)
   vec3 body = uRrs * Ed * (1.0 - F) / 0.98;
+  if (shoreOn > 0.0) {
+    // over a shallow bottom the colour is the bottom's, seen through the water: red goes first, then green,
+    // so sand turns turquoise and has gone to the deep colour by about 10 m
+    vec3 T = exp(-2.0 * max(depth, 0.0) * vec3(0.55, 0.14, 0.10));
+    float rockB = smoothstep(0.16, 0.42, length(bg));
+    vec3 bottom = mix(vec3(0.34, 0.28, 0.17), vec3(0.05, 0.045, 0.04), rockB) * (0.8 + 0.4 * bn(P.xz * 0.7));
+    vec3 shallow = (uRrs * (1.0 - T) + bottom / M_PI * T) * Ed * (1.0 - F) / 0.98;
+    body = mix(body, shallow, shoreOn);
+  }
 
   // crest subsurface scattering (light transmitted through thin backlit crests)
   float H = max(vDisp + 0.15 * uHs, 0.0) / max(uHs, 0.3);
@@ -590,6 +684,10 @@ void main() {
   vec2 dAx = dFdx(vWkC.xy), dAy = dFdy(vWkC.xy), dWx = dFdx(vXZ), dWy = dFdy(vXZ);
   vec2 wbump;
   vec2 wf = wakeFoam(wkAmt, bfx.act + markFoam, vWkC, wkHw, dAx, dAy, dWx, dWy, wbump);
+  if (shoreOn > 0.0) {
+    vec2 sf = shoreFoam(P.xz, depth, bg, sqrt(length(dWx) * length(dWy))) * shoreOn;
+    wf = vec2(1.0 - (1.0 - wf.x) * (1.0 - sf.x), max(wf.y, sf.y));
+  }
   foamBump = mix(foamBump, wbump, wf.x);
   fc = vec2(1.0 - (1.0 - fc.x) * (1.0 - wf.x), mix(fc.y, wf.y, wf.x / max(fc.x + wf.x, 1e-3)));
   float foam = fc.x;

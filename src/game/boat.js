@@ -22,6 +22,7 @@ export class Boat {
     this.wYaw = 0; this.wPitch = 0; this.wRoll = 0;
     this.boost = 0; this.boosting = false;
     this.wet = 1; this.airTime = 0; this.lastAir = 0; this.slam = 0;
+    this.ground = 0;   // 0..1: how hard the hull is aground (collide.js)
     this.throttle = 0; this.steer = 0;
     this.settle = true; // drop onto the sea surface on the next step
   }

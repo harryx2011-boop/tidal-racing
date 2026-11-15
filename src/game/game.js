@@ -17,6 +17,8 @@ import { BoatSpray } from './boatspray.js';
 import { Marks } from './marks.js';
 import { Scenery } from './scenery.js';
 import { Wildlife } from './wildlife.js';
+import { Land } from './land.js';
+import { Collisions } from './collide.js';
 
 const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
@@ -31,7 +33,7 @@ function attach(m, p) {
 const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 const store = {
-  key: (c, w) => `tidal.best.${c}.${w}`,
+  key: (c, w) => `tidal.best2.${c}.${w}`,   // 2: the courses changed with the land, so older times and ghosts do not apply
   load(c, w) {
     try {
       const o = JSON.parse(localStorage.getItem(this.key(c, w)));
@@ -71,6 +73,8 @@ export class Game {
     //   seaOffset(x, z, s)
     // See docs/BRIEF_VISUAL_UPGRADE.md. Register one per line so merges stay trivial.
     this.systems = [];
+    this.land = new Land(this);
+    this.systems.push(this.land);
     this.systems.push(new BoatShadow(this));
     this.systems.push(new Lights(this));
     this.systems.push(new Wake(this));
@@ -84,10 +88,14 @@ export class Game {
     this.camYaw = 0; this.camY = 4; this.fov = 0.9;
     this.acc = 0;
     this.model = new Float32Array(16);
+    this.collisions = new Collisions(this);
     this.sample = { h: 0, sx: 0, sz: 0 };
     this.sea = (i, x, z) => {
       const r = this.probe.result[i], s = this.sample;
       s.h = this.probe.heightAt(i, x, z); s.sx = r.sx; s.sz = r.sz;
+      // waves die in shallow water (the sea shader does the same): the hull does not ride waves that are not drawn
+      const a = this.land.wave(x, z);
+      if (a < 1) { s.h *= a; s.sx *= a; s.sz *= a; }
       // systems may add to the sea the hull feels (boat wakes): seaOffset(x, z, s) adds to s.h, s.sx, s.sz
       for (const sy of this.systems) sy.seaOffset?.(x, z, s);
       return s;
@@ -98,6 +106,7 @@ export class Game {
 
   setCourse(course) {
     this.course = course;
+    this.land.setCourse(course);
     this.progress = new Progress(course);
     this.place(grid(course));
   }
@@ -175,7 +184,7 @@ export class Game {
     if (ready) {
       const p0 = [boat.pos[0], boat.pos[2]];
       this.acc = Math.min(this.acc + dt, 0.1);
-      while (this.acc >= STEP) { boat.step(STEP, inp, this.sea, drive); this.acc -= STEP; }
+      while (this.acc >= STEP) { boat.step(STEP, inp, this.sea, drive); this.collisions.step(boat, STEP); this.acc -= STEP; }
       if (drive) this.track(p0, dt);
     }
     for (const s of this.systems) s.update?.(dt, ot);
@@ -245,7 +254,8 @@ export class Game {
       // the camera's height follows the boat lazily: a jump lifts the boat in the frame
       this.camY += (boat.pos[1] - this.camY) * k(2.5);
       const px = boat.pos[0] - Math.cos(this.camYaw) * dist, pz = boat.pos[2] - Math.sin(this.camYaw) * dist;
-      const py = Math.max(this.camY + height, (seaAtCam ? seaAtCam.h : 0) + 1.3);
+      // (and above the ground, where the boat has turned along a shore or a cliff)
+      const py = Math.max(this.camY + height, (seaAtCam ? seaAtCam.h : 0) + 1.3, this.land.field.heightAt(px, pz) + 1.5);
       // racing: look a little ahead of the bow. menu: aim left of the boat so it sits clear of the panel
       const ax = menu ? Math.sin(this.camYaw) * 5 : Math.cos(boat.yaw) * 6, az = menu ? -Math.cos(this.camYaw) * 5 : Math.sin(boat.yaw) * 6;
       const tx = boat.pos[0] + ax - px, ty = this.camY + 1.5 - py, tz = boat.pos[2] + az - pz;
