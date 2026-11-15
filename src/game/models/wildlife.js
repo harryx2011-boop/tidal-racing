@@ -349,7 +349,7 @@ function person(g, o, idx, fno, lod, part) {
         if (h2 > 0.7 && head !== 'hood' && head !== 'long') blob(g, [hc[0] + 0.05, hc[1] - 0.075, 0], 0.052, 0.05, 0.06, scl(hair, 1.1), CLOTH, { n: 4, segs: 8 });   // a beard
         if (hs > 0.55 && pose !== 'binoculars') { for (const sd of [-1, 1]) box(g, [hc[0] + 0.088, hc[1] + 0.018, sd * 0.034], 0.004, 0.017, 0.028, [0.01, 0.01, 0.012], GLS); box(g, [hc[0] + 0.09, hc[1] + 0.024, 0], 0.003, 0.004, 0.012, [0.01, 0.01, 0.012], RUB); }   // sunglasses
       }
-      if (head !== 'bald') { const gr = head === 'hood' ? 0.016 : 0; blob(g, [hc[0] - 0.012, hc[1] + 0.016, 0], 0.098 + gr, 0.112 + gr, 0.084 + gr, head === 'hood' ? top : hair, CLOTH, hd); }
+      if (head !== 'bald') { const gr = head === 'hood' ? 0.016 : 0; blob(g, [hc[0] - 0.012, hc[1] + 0.016, 0], 0.098 + gr, 0.112 + gr, 0.084 + gr, head === 'hood' ? top : hair, CLOTH, head === 'hood' ? ho : hd); }
       if (head === 'long') blob(g, [hc[0] - 0.06, hc[1] - 0.1, 0], 0.05, 0.13, 0.082, hair, CLOTH, hd);
       if (head === 'cap') { blob(g, [hc[0] - 0.006, hc[1] + 0.03, 0], 0.103, 0.1, 0.09, Pl.hat, CLOTH, hd); blob(g, [hc[0] + 0.1, hc[1] + 0.045, 0], 0.075, 0.007, 0.066, scl(Pl.hat, 0.8), CLOTH, { n: 2, segs: lod ? 6 : 8 }); }
       if (head === 'beanie') {
@@ -390,7 +390,7 @@ function person(g, o, idx, fno, lod, part) {
     const dl = Math.hypot(d2[0], d2[1], d2[2]), dir = [d2[0] / dl, d2[1] / dl, d2[2] / dl], reach = (k) => [wr[0] + dir[0] * k, wr[1] + dir[1] * k, wr[2] + dir[2] * k], hand = reach(0.07);
     const tee = sleeves === sk;
     if (far) { rod(g, sh, el, 0.05, top, CLOTH, 3); rod(g, el, hand, 0.04, sleeves, tee ? SKIN : CLOTH, 3); continue; }
-    if (lod === 0) blob(g, [sh[0], sh[1] + 0.005, sh[2] - sd * 0.012], 0.064, 0.064, 0.06, kit === 'vest' ? under : top, CLOTH, { n: 3, segs: 6 });
+    if (lod === 0) blob(g, [sh[0], sh[1] + 0.005, sh[2] - sd * 0.012], 0.064, 0.064, 0.06, kit === 'vest' ? under : top, CLOTH, { n: 4, segs: 8 });
     limb(g, [sh, el], [0.054 * wide, 0.044], [0.056 * wide, 0.045], tee ? sk : sleeves, tee ? SKIN : CLOTH, { segs: S, per, cr, caps: [lod > 0, true] });
     if (tee && lod === 0) limb(g, [sh, [lerp(sh[0], el[0], 0.55), lerp(sh[1], el[1], 0.55), lerp(sh[2], el[2], 0.55)]], [0.06 * wide, 0.056], [0.062 * wide, 0.058], top, CLOTH, { segs: S, per: 1, caps: [false, false] });
     limb(g, [el, wr], [0.043, 0.031], [0.044, 0.03], sleeves, tee ? SKIN : CLOTH, { segs: S, per, cr, caps: [true, false] });
