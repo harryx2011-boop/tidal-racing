@@ -304,8 +304,10 @@ export class App {
       uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 10) / 8, 0), 1), uDebug: 0,
     };
     Object.assign(this.waterUniforms, this.game?.waterUniforms());
-    this.water.draw(this.waterUniforms);
+    // opaque meshes first, so the sea (the dearest shader) is not shaded under hulls, land and scenery
     this.game?.draw(this.waterUniforms);
+    this.water.draw(this.waterUniforms);
+    this.game?.drawBlended(this.waterUniforms);
 
     P.section('rain');
     this.rainDrift = this.rainDrift || [0, 0];

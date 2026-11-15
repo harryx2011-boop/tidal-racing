@@ -509,7 +509,8 @@ export class MeshPass {
   // float: 1 rides the waves at the model origin, 2 hangs a span of length `span` between two anchors (see the vertex shader);
   // livery: { color, stripe, number } (boats); speed: the boat's speed in m/s (wet hull height); texture: base colour for MAT.TEXTURED surfaces;
   // ao: use the mesh's baked occlusion (default: when a livery is given, i.e. for boats)
-  draw(mesh, model, { tint = [1, 1, 1], glow = 0, alpha = 1, float = 0, span = 0, livery = null, speed = 0, texture = null, ao = !!livery } = {}) {
+  // pass (boats only): 0 draws the body and then its glass; 1 the body alone and 2 the glass alone, so the sea can be drawn in between
+  draw(mesh, model, { tint = [1, 1, 1], glow = 0, alpha = 1, float = 0, span = 0, livery = null, speed = 0, texture = null, ao = !!livery, pass = 0 } = {}) {
     const gl = this.gl;
     const p = this.prog;
     if (ao && mesh.ao === undefined) this.bakeAo(mesh);
@@ -527,16 +528,16 @@ export class MeshPass {
     // boats: the glass is drawn last, blended, so the cockpit shows through the windscreen
     const split = ao && !float && alpha >= 1;
     p.set('uGlassMode', split ? 1 : 0);
-    gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
-    if (split) {
+    if (!(split && pass === 2)) gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
+    if (split && pass !== 1) {
       p.set('uGlassMode', 2);
       gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false);
       gl.drawArrays(gl.TRIANGLES, 0, mesh.count);
       gl.depthMask(true);
       gl.disable(gl.BLEND);
-      p.set('uGlassMode', 0);
     }
+    if (split) p.set('uGlassMode', 0);
     gl.bindVertexArray(null);
     if (alpha < 1) gl.disable(gl.BLEND);
   }

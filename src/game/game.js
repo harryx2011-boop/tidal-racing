@@ -284,20 +284,28 @@ export class Game {
     c.roll += n(19, 0.7) * 0.006 * amp;
   }
 
-  // inside the main HDR pass, depth test on, after the water
+  // inside the main HDR pass, depth test on, BEFORE the sea: everything opaque. The sea is the dearest surface to
+  // shade, and drawn after the hulls, the land and the scenery it is only shaded where it shows.
   draw(scene) {
     const m = this.meshes;
     m.begin(scene);
     const mat = this.model;
     for (const b of this.renderBoats()) {
       if (b.ghost) continue;
-      m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery, speed: b.pose.speed });
+      m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery, speed: b.pose.speed, pass: 1 });
       // the driver sits at the helm; from the helm camera only the arms on the wheel are drawn (the head would be around the lens)
       if (b.pose === this.boat && this.camMode === 'helm' && this.state !== 'menu') { m.draw(this.driverArmsMesh, attach(mat, BOAT_ANCHORS.helm), { tint: b.livery.color }); continue; }
       m.draw(this.driverMesh, attach(mat, BOAT_ANCHORS.helm), { tint: b.livery.color });
     }
     for (const s of this.systems) s.draw?.(scene, m);
-    // translucent last
+  }
+
+  // straight after the sea: what blends over it and over the boats (windscreens, then the ghost)
+  drawBlended(scene) {
+    const m = this.meshes;
+    m.begin(scene);
+    const mat = this.model;
+    for (const b of this.renderBoats()) if (!b.ghost) m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery, speed: b.pose.speed, pass: 2 });
     for (const b of this.renderBoats()) if (b.ghost) m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery, alpha: 0.4 });
   }
 
