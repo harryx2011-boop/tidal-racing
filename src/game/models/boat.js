@@ -148,7 +148,8 @@ const ring = (y, cx, ax, az, p = 2.6, n = 20, cz = 0) => Array.from({ length: n 
 
 export function boatGeo() {
   const g = new Geo();
-  const WHITE = [0.86, 0.87, 0.88], GEL = [0.88, 0.89, 0.9], CREAM = [0.9, 0.88, 0.83], TEAK = [0.55, 0.36, 0.18];
+  // (real white gelcoat and vinyl reflect about 0.7-0.78 of the light; brighter albedos clip in full sun)
+  const WHITE = [0.72, 0.73, 0.74], GEL = [0.74, 0.75, 0.76], CREAM = [0.83, 0.82, 0.79], TEAK = [0.55, 0.36, 0.18];
   const GLASS = [0.02, 0.035, 0.05], CHROME = [0.74, 0.76, 0.79], DARK = [0.05, 0.055, 0.06], BLACK = [0.025, 0.025, 0.03], SKID = [0.55, 0.57, 0.58];
   const M = (id, tint = 0, glow = 0) => [id, tint, glow];
   const PAINT1 = M(MAT.PAINT, 1), GELM = M(MAT.GELCOAT), UPH = M(MAT.UPHOLSTERY), METAL = M(MAT.METAL), RUBBER = M(MAT.RUBBER);

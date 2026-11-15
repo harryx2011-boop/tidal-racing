@@ -230,11 +230,12 @@ export function dither(level, fg, bg = null) {
   return `url(${cv.toDataURL()})`;
 }
 
-// Size of one logical pixel in CSS pixels: a whole number of device pixels, about 1/360 of the
-// window height, so a 1080p screen is a 640x360 canvas of 3x3 blocks.
+// Size of one logical pixel in CSS pixels: the largest whole number of device pixels that still
+// leaves the window at least 340 logical rows tall (the menus are laid out to fit that). A 1080p
+// screen is a 640x360 canvas of 3x3 blocks; 720p is the same canvas in 2x2 blocks.
 export function unit() {
   const dpr = window.devicePixelRatio || 1;
-  return Math.max(1, Math.round((innerHeight * dpr) / 360)) / dpr;
+  return Math.max(1, Math.floor((innerHeight * dpr) / 340)) / dpr;
 }
 
 // Line and block drawing on a small canvas without anti-aliasing (the minimap).

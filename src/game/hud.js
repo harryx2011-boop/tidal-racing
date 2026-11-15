@@ -1,7 +1,7 @@
 // Menus and the in-race HUD: DOM over the canvas, drawn as pixel art. Two tones and one accent;
 // every shade between them is an ordered dither, all text is the bitmap font in pixel.js, and
 // every length is in logical pixels (1em inside #ui, a whole number of device pixels).
-import { COURSES, CONDITIONS } from './courses.js';
+import { COURSES, CONDITIONS, TIMES } from './courses.js';
 import { settings, SWATCHES, STRIPES, TIERS } from './settings.js';
 import { T, dither, unit, Bitmap, PAPER, INK, ACCENT } from './pixel.js';
 
@@ -49,7 +49,11 @@ export const HUD_CSS = `
 .seg { display: flex; gap: 2em; flex: 1; }
 .seg .btn { flex: 1; padding: 2em 1em; }
 #menu { width: 172em; }
-#menu .title { display: flex; flex-direction: column; gap: 3em; align-items: flex-start; margin-bottom: 1em; }
+#menu .title { display: flex; flex-direction: column; gap: 2em; align-items: flex-start; }
+#menu { gap: 3em; padding: 6em 9em; }
+#menu .lbl { margin-top: 2em; }
+#menu .btn.left { padding: 3em 5em; }
+#menu .go { padding: 4em; margin: 1em; }
 #courses { gap: 2em; }
 .centre { align-items: stretch; text-align: center; min-width: 120em; }
 .centre > px-t { align-self: center; }
@@ -87,7 +91,7 @@ const BOOST_CELLS = 12, MAP = 64;
 export class HUD {
   constructor(game) {
     this.game = game;
-    this.sel = { course: COURSES[0].id, cond: 'random' };
+    this.sel = { course: COURSES[0].id, cond: 'random', tod: 'random' };
     const root = (this.root = document.createElement('div'));
     root.id = 'ui';
     // dither patterns: ink over the picture (k), paper over ink (p); the number is how many of 16 pixels are set
@@ -97,6 +101,7 @@ export class HUD {
     fit();
     window.addEventListener('resize', fit);
     const conds = [['random', 'Random'], ...Object.entries(CONDITIONS).map(([k, v]) => [k, v.name])];
+    const times = [['day', 'Day'], ['sunrise', 'Sunrise'], ['sunset', 'Sunset'], ['random', 'Random']];
     const stat = (label, id) => `<div class="col">${T(label, 'f=t o')}<px-t id="${id}" o></px-t></div>`;
     const row = (name, body, title = '') => `<div class="srow"><span class="nm"${title ? ` title="${title}"` : ''}>${T(name, 'f=t')}</span>${body}</div>`;
     const onoff = (key) => `<div class="seg"><button class="btn" data-${key}="1">${T('On', 'f=t')}</button><button class="btn" data-${key}="0">${T('Off', 'f=t')}</button></div>`;
@@ -118,10 +123,12 @@ export class HUD {
         <div class="col" id="courses">${COURSES.map((c) => `<button class="btn left" data-course="${c.id}">${T(c.name)}${T(c.blurb, 'f=t')}</button>`).join('')}</div>
         <div class="lbl">${T('Conditions', 'f=t c=accent')}</div>
         <div class="seg" id="conds">${conds.map(([k, n]) => `<button class="btn" data-cond="${k}">${T(n, 'f=t')}</button>`).join('')}</div>
+        <div class="lbl">${T('Time of day', 'f=t c=accent')}</div>
+        <div class="seg" id="tods">${times.map(([k, n]) => `<button class="btn" data-tod="${k}">${T(n, 'f=t')}</button>`).join('')}</div>
         <px-t id="best" f="t" w="152"></px-t>
         <button class="go" id="start">${T('Start', 's=2 c=ink')}</button>
         <button class="btn" id="settings-btn">${T('Settings')}</button>
-        <div class="lbl">${T('W/S throttle · A/D steer · Shift boost\nC camera · R reset · Esc pause · M sound\nGamepad: triggers, left stick, A boost\nAirtime off wave crests fills your boost', 'f=t')}</div>
+        <div class="lbl">${T('W/S throttle · A/D steer · Shift boost\nC camera · R reset · Esc pause · F3 stats\nAirtime off wave crests fills your boost', 'f=t')}</div>
       </div></div>
       <div class="wrap">
         <div id="pause" class="plate centre hide">${T('Paused', 's=2')}<button class="go" id="resume">${T('Resume', 'c=ink')}</button><button class="btn" id="pause-settings">${T('Settings')}</button><button class="btn" id="restart">${T('Restart')}</button><button class="btn" id="quit">${T('Quit to menu')}</button></div>
@@ -153,7 +160,8 @@ export class HUD {
     this.cellsOn = -1;
     root.querySelector('#courses').addEventListener('click', (e) => { const b = e.target.closest('[data-course]'); if (b) { this.sel.course = b.dataset.course; game.setCourse(COURSES.find((c) => c.id === this.sel.course)); this.sync(); } });
     root.querySelector('#conds').addEventListener('click', (e) => { const b = e.target.closest('[data-cond]'); if (b) { this.sel.cond = b.dataset.cond; this.sync(); } });
-    const go = () => game.start(this.sel.course, this.sel.cond);
+    root.querySelector('#tods').addEventListener('click', (e) => { const b = e.target.closest('[data-tod]'); if (b) { this.sel.tod = b.dataset.tod; this.sync(); } });
+    const go = () => game.start(this.sel.course, this.sel.cond, this.sel.tod);
     $('start').addEventListener('click', go);
     $('again').addEventListener('click', go);
     $('restart').addEventListener('click', go);
@@ -240,9 +248,10 @@ export class HUD {
   sync() {
     for (const b of this.root.querySelectorAll('[data-course]')) b.classList.toggle('sel', b.dataset.course === this.sel.course);
     for (const b of this.root.querySelectorAll('[data-cond]')) b.classList.toggle('sel', b.dataset.cond === this.sel.cond);
+    for (const b of this.root.querySelectorAll('[data-tod]')) b.classList.toggle('sel', b.dataset.tod === this.sel.tod);
     let best = null;
     if (this.sel.cond !== 'random') { try { best = JSON.parse(localStorage.getItem(`tidal.best.${this.sel.course}.${this.sel.cond}`)); } catch { /* none */ } }
-    this.el.best.textContent = this.sel.cond === 'random' ? 'Random rolls the sea and the sun for each race. Best times are kept per condition.' : best ? `Your best: ${fmt(best.time)} (you race its ghost)` : 'No time set in these conditions yet.';
+    this.el.best.textContent = this.sel.cond === 'random' ? 'Random rolls the sea for each race. Best times are kept per sea condition, whatever the time of day.' : best ? `Your best: ${fmt(best.time)} (you race its ghost)` : 'No time set in these conditions yet.';
   }
 
   show(state) {
@@ -255,7 +264,7 @@ export class HUD {
     if (state === 'menu') this.sync();
     if (state === 'countdown') { e.pb.textContent = g.best ? fmt(g.best.time) : '--'; this.lastCount = ''; e.keys.style.visibility = ''; }
     if (state === 'finished') {
-      e.rtitle.textContent = `${g.course.name} · ${CONDITIONS[g.cond].name}`;
+      e.rtitle.textContent = `${g.course.name} · ${CONDITIONS[g.cond].name}${g.tod && g.tod !== 'day' ? ` · ${TIMES[g.tod].name}` : ''}`;
       e.rtime.textContent = fmt(g.finishTime);
       e.rbest.setAttribute('c', g.newBest ? 'accent' : 'paper');
       e.rbest.textContent = g.newBest ? `New best${g.prevBest ? `  -${(g.prevBest - g.finishTime).toFixed(2)}s` : ''}` : `Best ${fmt(g.prevBest)}  +${(g.finishTime - g.prevBest).toFixed(2)}s`;

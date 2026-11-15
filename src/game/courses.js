@@ -90,9 +90,34 @@ export const CONDITIONS = {
   rough: { name: 'Rough', preset: 'rain', set: { wind: 13, rain: 0.03, clouds: 0.82, cloudDark: 0.4, swellHs: 1.6 }, sun: [24, 230] },
   storm: { name: 'Storm', preset: 'storm', set: { wind: 16.5, swellHs: 2.2, rain: 0.06, lightning: 0.5 }, sun: [20, 190] },
 };
-export function rollConditions(seed) {
+// Time of day. Sunrise and sunset are one low sun each; the engine's atmosphere supplies the colour.
+// The azimuth is set from the course's first leg: the sun sits well to one side of the heading, so the
+// glitter path runs across the picture and a lap is not driven into the glare (a loop still turns
+// toward it for a stretch, as a real one would). Sunrise is to starboard, sunset to port.
+export const TIMES = {
+  day: { name: 'Day' },
+  sunrise: { name: 'Sunrise', elev: [3.5, 7.5], side: 1 },
+  sunset: { name: 'Sunset', elev: [2.5, 6.5], side: -1 },
+};
+function rng(seed) {
   let a = seed >>> 0;
-  const r = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+// tod: a TIMES key; cond: a CONDITIONS key; rolled: the sea was random, so the day sun is rolled too.
+// Returns [elevation, azimuth] in degrees.
+export function sunFor(course, cond, tod, seed, rolled = false) {
+  const r = rng(seed ^ 0x5eed);
+  const j1 = r(), j2 = r(), j3 = r();
+  const g = course.gates[0], heading = Math.atan2(g.dir[1], g.dir[0]) * 180 / Math.PI;
+  const T = TIMES[tod];
+  if (T && T.elev) return [T.elev[0] + (T.elev[1] - T.elev[0]) * j1, heading + T.side * (22 + 26 * j2)];
+  if (!rolled) return CONDITIONS[cond].sun;
+  return [[9, 16, 28, 44][Math.floor(j1 * 4)], heading + (j3 < 0.5 ? -1 : 1) * (55 + 75 * j2)];
+}
+// the seed decides the sea and the time of day when the player asks for random
+export function rollConditions(seed) {
+  const r = rng(seed);
   const id = ['calm', 'breeze', 'breeze', 'rough', 'rough', 'storm'][Math.floor(r() * 6)];
-  return { id, sun: [[9, 16, 28, 44][Math.floor(r() * 4)], Math.floor(r() * 360)] };
+  const tod = ['day', 'day', 'sunrise', 'sunset'][Math.floor(r() * 4)];
+  return { id, tod };
 }

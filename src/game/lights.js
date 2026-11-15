@@ -73,7 +73,8 @@ export class Lights {
   // how dark it is: low sun, night, and the gloom under storm cloud and rain
   prePass(light) {
     const app = this.game.app, L = app.local || {};
-    const lowSun = light.night ? 1 : 1 - smoothstep(-0.02, 0.3, light.sunDir[1]);
+    // (the lamps start to show as the sun nears the horizon, about 8 degrees up, and are well on by 2)
+    const lowSun = light.night ? 1 : Math.pow(1 - smoothstep(-0.04, 0.22, light.sunDir[1]), 1.5);
     const storm = Math.max((L.dark || 0) * 0.95, (L.rain || 0) * 0.7);
     const dark = Math.max(lowSun, storm);
     this.level = 0.1 + 0.9 * dark;

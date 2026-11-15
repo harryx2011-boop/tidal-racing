@@ -7,7 +7,7 @@ import { driverGeo } from './models/driver.js';
 import { MultiProbe } from './probe.js';
 import { Boat } from './boat.js';
 import { Input } from './input.js';
-import { COURSES, CONDITIONS, Progress, grid, rollConditions } from './courses.js';
+import { COURSES, CONDITIONS, Progress, grid, rollConditions, sunFor, TIMES } from './courses.js';
 import { HUD } from './hud.js';
 import { BoatShadow } from './shadow.js';
 import { Lights } from './lights.js';
@@ -104,21 +104,28 @@ export class Game {
     this.app.clouds.reset = true;
   }
 
-  // Start a time trial. cond: a CONDITIONS key or 'random'.
-  start(courseId, cond, seed = (Math.random() * 4294967296) >>> 0) {
+  // Start a time trial. cond: a CONDITIONS key or 'random'; tod: a TIMES key or 'random'. The seed decides
+  // everything that is random. Best times are kept per course and sea condition: the sun does not
+  // change the waves.
+  start(courseId, cond, tod = 'day', seed = (Math.random() * 4294967296) >>> 0) {
     const app = this.app;
     this.audio.enable(true).catch(() => {});
-    let sun;
-    if (cond === 'random') ({ id: cond, sun } = rollConditions(seed));
+    const rolled = rollConditions(seed);
+    const randomSea = cond === 'random';
+    if (randomSea) cond = rolled.id;
+    if (tod === 'random') tod = rolled.tod;
+    if (!TIMES[tod]) tod = 'day';
+    const course = COURSES.find((c) => c.id === courseId) || COURSES[0];
     const C = CONDITIONS[cond];
-    sun = sun || C.sun;
+    const sun = sunFor(course, cond, tod, seed, randomSea);
     const W = app.weather;
     W.setPreset(C.preset);
     for (const k in C.set) W.set(k, C.set[k]);
     W.set('sunElev', sun[0]); W.set('sunAz', sun[1]);
     W.snap();
     this.cond = cond;
-    this.setCourse(COURSES.find((c) => c.id === courseId) || COURSES[0]);
+    this.tod = tod;
+    this.setCourse(course);
     app.time = SEA_T0;
     this.t0 = SEA_T0 + COUNTDOWN;
     this.best = store.load(this.course.id, cond);
