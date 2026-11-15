@@ -33,7 +33,7 @@ function attach(m, p) {
 const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
 
 const store = {
-  key: (c, w) => `tidal.best2.${c}.${w}`,   // 2: the courses changed with the land, so older times and ghosts do not apply
+  key: (c, w) => `tidal.best3.${c}.${w}`,   // 3: the courses moved close to the coast, so older times and ghosts do not apply
   load(c, w) {
     try {
       const o = JSON.parse(localStorage.getItem(this.key(c, w)));

@@ -1,6 +1,7 @@
 // Courses are buoy gates laid along a coast (models/coast.js: islands, headlands, a mainland shore). A gate is
 // a pair of marks (port red, starboard green); boats pass between them in order. Every gate stands in at
-// least 6 m of water with 25 m of water either side of the racing width (checked in node, see landfield.js).
+// least 6 m of water across the racing width (checked in node, see tools/check-land.mjs); land and features stand
+// 20 to 40 m from the line by design.
 const unit = (x, z) => { const l = Math.hypot(x, z) || 1; return [x / l, z / l]; };
 
 // turns sharper than this (radians, about 52 degrees) put a pylon on the inside of the corner
@@ -30,18 +31,20 @@ function build({ id, name, blurb, laps, width, loop, pts }) {
   return { id, name, blurb, laps: loop ? laps : 1, loop, gates, length: length * (loop ? laps : 1), total };
 }
 
-const sprint = [];
-for (let i = 0; i < 13; i++) sprint.push([330 * i, 170 * Math.sin(i * 0.85) + 60 * Math.sin(i * 2.1 + 1)]);
-
+// The lines hug the coast (models/coast.js): quays, piers, cliffs, rocks and moored boats pass at 20 to 40 m, so
+// gates sit where the straight between them stays clear (the autopilot and a player both take that line).
 export const COURSES = [
   build({
-    id: 'circuit', name: 'Breakwater Circuit', blurb: 'Technical loop, 3 laps', laps: 3, width: 34, loop: true,
-    pts: [[0, 0], [250, -10], [470, 40], [600, 190], [570, 380], [420, 480], [260, 540], [100, 480], [-80, 500], [-260, 400], [-310, 200], [-210, 40]],
+    id: 'circuit', name: 'Breakwater Circuit', blurb: 'Harbour front, headland and channel, 3 laps', laps: 3, width: 34, loop: true,
+    pts: [[0, -12], [230, -14], [440, -10], [615, 62], [632, 225], [580, 395], [465, 515], [320, 565], [110, 562], [-90, 548], [-250, 530], [-252, 400], [-250, 230], [-232, 60], [-150, -8]],
   }),
-  build({ id: 'sprint', name: 'Long Reach', blurb: 'Point to point, 4 km', laps: 1, width: 38, loop: false, pts: sprint }),
   build({
-    id: 'oval', name: 'Tidal Speedway', blurb: 'Flat-out oval, 3 laps', laps: 3, width: 70, loop: true,
-    pts: [[0, 0], [400, 0], [560, 160], [400, 320], [0, 320], [-400, 320], [-560, 160], [-400, 0]],
+    id: 'sprint', name: 'Long Reach', blurb: 'Point to point, 5 km', laps: 1, width: 38, loop: false,
+    pts: [[0, 0], [320, -50], [660, -95], [990, -118], [1270, -5], [1480, 225], [1760, 300], [2060, 285], [2380, 300], [2640, 330], [3000, 318], [3350, 315], [3680, 190], [3960, 25], [4260, 30], [4560, 64], [4950, 60]],
+  }),
+  build({
+    id: 'oval', name: 'Tidal Speedway', blurb: 'Flat-out oval, 3 laps', laps: 3, width: 56, loop: true,
+    pts: [[0, 0], [400, 0], [580, 154], [400, 308], [0, 308], [-400, 308], [-580, 154], [-400, 0]],
   }),
 ];
 
