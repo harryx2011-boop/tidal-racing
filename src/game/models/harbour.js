@@ -19,7 +19,7 @@
 //
 // Triangles (near / middle / far): a quay about 150 / 25 / 3 per metre of wall plus 60k / 9k / 0.6k of
 // furniture; a 165 m pier 62k / 9k / 0.5k.
-import { Geo, MAT, mat, GEL, RUB, MET, GLS, GRAIN, CLOTH, LIT, DV, rng, TAU, lerp, smooth, clamp, hash1, vn, fb, sheet, loft, tube, rod, box, slab, lathe, quad, blob, hoop, mark, paint, xf, frame, stamp, both, mottle, stain, rust, faded, guano, mixc, scl, text, railing, ladder, chain, lifering, bollard, coil } from './kit.js';
+import { Geo, MAT, mat, GEL, RUB, MET, GLS, GRAIN, CLOTH, LIT, DV, rng, TAU, lerp, smooth, clamp, hash1, vn, fb, sheet, loft, tube, rod, box, slab, lathe, quad, blob, hoop, mark, paint, xf, frame, stamp, both, mottle, stain, rust, faded, scl, text, railing, ladder, chain, lifering, bollard, coil } from './kit.js';
 import { crewGeo } from './wildlife.js';
 import { GROUND } from './cover.js';
 import { openBoatGeo } from './smallcraft.js';
@@ -116,6 +116,20 @@ export function deckGeo(q, lod = 0) {
     for (let i = 0; i < nx; i++) {
       const u0 = i / nx, u1 = (i + 1) / nx;
       quad(g, pt(lerp(-wa, wa2, u0), za), pt(lerp(-wb, wb2, u0), zb), pt(lerp(-wb, wb2, u1), zb), pt(lerp(-wa, wa2, u1), za), [1, 1, 1], PAVED, up);
+    }
+  }
+  // behind the paved front the block's sides still stand in water behind their walls: a paved walk along each,
+  // as far back as the wall runs, going under the ground at its inner edge
+  const strip = [0, 4, 9, 13];
+  for (const s of [-1, 1]) {
+    const end = q.side[s < 0 ? 0 : 1], step = lod ? 9 : 3;
+    for (let za = z1; za < end; za += step) {
+      const zb = Math.min(za + step, end);
+      const sp = (zin, d) => {
+        const X = s * (q.half(zin) + q.wo - d), y = d < 10 ? q.deckY(X, zin) : q.hAt(X, -zin) - 0.25;
+        return [q.ax * X - q.ox * zin, y, q.az * X - q.oz * zin];
+      };
+      for (let k = 0; k < 3; k++) quad(g, sp(za, strip[k]), sp(zb, strip[k]), sp(zb, strip[k + 1]), sp(za, strip[k + 1]), [1, 1, 1], PAVED, up);
     }
   }
   return g;
@@ -257,7 +271,6 @@ function hoist(g, p, lod, lamps) {
     box(g, [0.3, 1.1, -0.2], 0.16, 0.2, 0.2, [0.2, 0.3, 0.42], GEL);
   }
   xf(g, s0, frame(p, 0));
-  void lamps;
 }
 function bin(g, p, yaw, lod) {
   const s0 = mark(g), c = [0.08, 0.25, 0.12];
@@ -447,7 +460,7 @@ export function pierGeo(P, lod = 0) {
       slab(g, t - 0.16, t + 0.16, yp - 0.42, yp - 0.12, -hw - 0.1, hw + 0.1, TIMBER, GRAIN, tim(k));
       const y0 = Math.max(bed + 0.4, 0.55), y1 = yp - 0.6;
       if (y1 - y0 > 0.8) {
-        for (const s of [-1, 1]) { const s1 = mark(g); rod(g, [t + 0.2 * s, y0, -a * s], [t + 0.2 * s, y1, a * s], 0.07, TIMBER, GRAIN, 4, tim(k + 7)); void s1; }
+        for (const s of [-1, 1]) rod(g, [t + 0.2 * s, y0, -a * s], [t + 0.2 * s, y1, a * s], 0.07, TIMBER, GRAIN, 4, tim(k + 7));
         rod(g, [t - 0.24, y0 + 0.1, -a - 0.2], [t - 0.24, y0 + 0.1, a + 0.2], 0.075, TIMBER, GRAIN, 4, tim(k + 3));
       }
       // a brace along the pier in every other bay, each side
@@ -532,6 +545,5 @@ export function pierGeo(P, lod = 0) {
     if (lod === 0) rod(g, [len - 2.0, yp + 1.0, 0.7], [len + 2.4, yp + 2.6, 1.0], 0.012, [0.1, 0.1, 0.1], RUB, 3);
   }
   people(g, who, lod);
-  void guano; void GLS; void CLOTH; void blob;
   return { g, lamps };
 }

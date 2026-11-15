@@ -10,10 +10,11 @@
 // leaning a little, and always wider than the terrain pillar inside it (it is measured from the height field).
 //
 // Triangles: a lump 560 / 176 / 70 at the three levels; a stack 6.7k / 1.7k / 0.4k.
-import { Geo, sheet, stamp, frame, rng, vn, fb, TAU, lerp, smooth, clamp, paint, mark, hash1 } from './kit.js';
+import { Geo, sheet, stamp, frame, rng, vn, fb, TAU, lerp, smooth, clamp, paint, hash1 } from './kit.js';
 import { GROUND } from './cover.js';
 
-const ROCK = [GROUND.ROCK, 0, 0, 0];
+// (the second entry: how much finer than a cliff's the rock's beds and joints are drawn; the terrain shader reads it)
+const ROCK = [GROUND.ROCK, 1, 0, 0], SMALL = [GROUND.ROCK, 3, 0, 0];
 export const STYLES = {
   boulder: { top: [0.7, 1.15], cuts: 8, cut: [0.5, 0.82], pw: 2.6, sq: 0.6, dip: 0.12 },
   skerry: { top: [0.3, 0.55], cuts: 6, cut: [0.55, 0.9], pw: 3.2, sq: 0.75, dip: 0.3 },
@@ -36,11 +37,21 @@ export function rockProto(seed, lod = 0, style = 'boulder', tint = 'sea') {
   const l0 = R() * TAU, ln = 2 + Math.floor(R() * 3), la = 0.08 + 0.14 * R(), ell = style === 'fin' ? 0.45 + 0.2 * R() : 0.75 + 0.25 * R(), ea = R() * TAU;
   const lean = (R() - 0.5) * (style === 'fin' ? 0.5 : 0.25), la2 = R() * TAU;
   const ce = Math.cos(ea), se = Math.sin(ea);
+  // ledges (the lump is stepped where its beds end) and one cleft down a side
+  const steps = 3 + Math.floor(R() * 3), stepK = 0.5 + 0.35 * R(), cleft = R() * TAU, cleftD = 0.2 + 0.25 * R();
   sheet(g, rows + 1, cols + 1, (i, j, out) => {
     const v = i / rows, th = ((j % cols) / cols) * TAU, c = Math.cos(th), s = Math.sin(th);
     let y, rad;
     if (v < 0.28) { const t = v / 0.28; y = lerp(-1.6, 0, t); rad = lerp(1.32, 1.0, t * t); }
-    else { const t = (v - 0.28) / 0.72; y = Math.pow(t, 0.85); rad = Math.pow(Math.max(1 - Math.pow(t, S.pw), 0), S.sq); }
+    else {
+      let t = (v - 0.28) / 0.72;
+      rad = Math.pow(Math.max(1 - Math.pow(t, S.pw), 0), S.sq);
+      // (the radius follows the smooth profile, the height is held on each ledge and then rises: treads and risers)
+      t = lerp(t, Math.round(t * steps) / steps, stepK);
+      y = Math.pow(t, 0.85);
+      const da = Math.abs(((th - cleft + Math.PI * 3) % TAU) - Math.PI);
+      rad *= 1 - cleftD * smooth(0.3, 0, da) * smooth(0, 0.15, t);
+    }
     let r = rad * (1 + la * Math.cos(th * ln + l0)) * (0.72 + 0.56 * fb(c * 1.4 + seed * 3.1, y * 1.7, s * 1.4)) * (0.92 + 0.16 * vn(c * 4.1 + seed, y * 4.1, s * 4.1));
     // unit-space point; the planes cut it into faces
     let x = c * r, z = s * r, yy = y;
@@ -52,7 +63,7 @@ export function rockProto(seed, lod = 0, style = 'boulder', tint = 'sea') {
     x = xa * ce - za * se; z = xa * se + za * ce;
     const h = Math.max(yy, 0) * top;
     out[0] = x + Math.cos(la2) * lean * h; out[1] = yy > 0 ? h : yy; out[2] = z + Math.sin(la2) * lean * h;
-  }, [1, 1, 1], ROCK, { wrap: true, flat: 0.8 });
+  }, [1, 1, 1], SMALL, { wrap: true, flat: 0.8 });
   // tone from face to face and patch to patch; birds whiten the crowns of rocks that stand in the sea
   paint(g, 0, (P, N, C, i) => {
     let k = 0.8 + 0.4 * fb(P[i] * 2.3 + seed, P[i + 1] * 2.3, P[i + 2] * 2.3);
@@ -89,7 +100,6 @@ export function rockFieldGeo(f, spots, lod = 0) {
         stamp(g, sets.boulder[k % 3], frame([s.x - f.x + Math.cos(a) * d, -0.15 * R(), s.z - f.z + Math.sin(a) * d], R() * TAU, 0, 0, 1), null, [rr, rr * (0.5 + 0.5 * R()), rr]);
       }
     }
-    void i;
   });
   return g;
 }
@@ -204,4 +214,3 @@ export function looseRockGeo(list, origin, sets) {
   }
   return g;
 }
-void mark;

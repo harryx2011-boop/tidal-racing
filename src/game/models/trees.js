@@ -19,7 +19,7 @@
 // ground; and among the houses. Never in water, on a quay, a building's plot, a lane or a pier.
 //
 // Triangles a tree (near / middle / far / farthest): 1100 / 260 / 64 / 14 (every kind padded to the largest).
-import { Geo, rng, TAU, lerp, smooth, clamp, hash1, vn, fb, sheet, tube, mark } from './kit.js';
+import { Geo, rng, TAU, lerp, smooth, clamp, hash1, vn, fb, sheet, tube } from './kit.js';
 import { woodsAt, woodsGate, fieldAt, fieldMask, fieldGate, trackD, lvn } from './cover.js';
 
 export const SPECIES = ['oak', 'birch', 'pine', 'spruce', 'thorn', 'bush'];
@@ -122,7 +122,6 @@ export function treeGeo(kind, lod = 0, seed = 1) {
     }
     crown = [0, 0.45, 0, 0.9, 0.55, 0.9];
   }
-  void mark; void clamp;
   return { g, crown };
 }
 
@@ -130,13 +129,15 @@ export function treeGeo(kind, lod = 0, seed = 1) {
 // part + sway), a row of (colour). Returns { data, width, rows, verts } (verts: the vertices every instance draws).
 export function packLevel(lod, seed = 1) {
   const trees = SPECIES.map((k, i) => treeGeo(k, lod, seed + i * 11));
-  const verts = Math.max(...trees.map((t) => t.g.nv)), width = verts, rows = SPECIES.length * 3;
+  // (a row of vertices wraps at 2048 texels, so the texture fits any GL's size limit)
+  const verts = Math.max(...trees.map((t) => t.g.nv)), width = Math.min(verts, 2048), wrap = Math.ceil(verts / width), rows = SPECIES.length * 3 * wrap;
   const data = new Float32Array(width * rows * 4);
+  const at = (row, v) => ((row * wrap + Math.floor(v / width)) * width + (v % width)) * 4;
   trees.forEach((t, s) => {
     const g = t.g, P = g.P, N = g.N, C = g.C, M = g.M, cr = t.crown;
     for (let v = 0; v < verts; v++) {
       // (padding repeats the last vertex: triangles of no area)
-      const i = Math.min(v, g.nv - 1) * 3, a = ((s * 3) * width + v) * 4, b = ((s * 3 + 1) * width + v) * 4, c = ((s * 3 + 2) * width + v) * 4;
+      const i = Math.min(v, g.nv - 1) * 3, a = at(s * 3, v), b = at(s * 3 + 1, v), c = at(s * 3 + 2, v);
       const x = P[i], y = P[i + 1], z = P[i + 2], leaf = M[i] > 0.5;
       let nx = N[i], ny = N[i + 1], nz = N[i + 2], shade = 1;
       if (leaf) {
@@ -154,15 +155,16 @@ export function packLevel(lod, seed = 1) {
       data[c] = C[i]; data[c + 1] = C[i + 1]; data[c + 2] = C[i + 2]; data[c + 3] = 1;
     }
   });
-  return { data, width, rows, verts, tris: verts / 3 };
+  return { data, width, rows, wrap, verts, tris: verts / 3 };
 }
 
 // ---- planting ----
-export const TREE_CELL = 96, TREE_REACH = 1650, FLOATS = 8;
+export const TREE_CELL = 96, TREE_BLOCK = 4, TREE_REACH = 1650, FLOATS = 8;
 export const WIND_YAW = 0.6;     // the way the prevailing wind blows (the thorn trees lean with it)
 // Plant a course. avoid: [{ x, z, r }] (buildings and other plots); quays: plans with inside(); piers: plans.
 // Returns { data: Float32Array (x, y, z, height, kind, yaw, width, tint per tree), cells: [{ x0, z0, x1, z1, y0, y1,
-// start, count }] }, the trees of a cell shuffled so that drawing fewer of them thins it evenly.
+// start, count }], blocks: [{ the same, and first, n: its run of cells }] }. Cells are stored block by block
+// (TREE_BLOCK cells a side), so a far block's trees are one run of the buffer and one draw.
 export function plantTrees(field, segs, avoid, quays, piers, reach = TREE_REACH) {
   const step = 6.5, sm = { h: 0, gx: 0, gz: 0 }, f = { d: 0, id: 0, along: 0 };
   let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
@@ -181,7 +183,7 @@ export function plantTrees(field, segs, avoid, quays, piers, reach = TREE_REACH)
   for (const a of avoid) for (let j = Math.floor((a.z - a.r) / AG); j <= Math.floor((a.z + a.r) / AG); j++) for (let i = Math.floor((a.x - a.r) / AG); i <= Math.floor((a.x + a.r) / AG); i++) { const k = i * 65536 + j; let l = amap.get(k); if (!l) amap.set(k, l = []); l.push(a); }
   const blocked = (x, z) => { const l = amap.get(Math.floor(x / AG) * 65536 + Math.floor(z / AG)); if (l) for (const a of l) if (Math.hypot(a.x - x, a.z - z) < a.r) return true; return false; };
   const nearHouse = (x, z) => { for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) { const l = amap.get((Math.floor(x / AG) + di) * 65536 + Math.floor(z / AG) + dj); if (l) for (const a of l) if (a.house && Math.hypot(a.x - x, a.z - z) < a.r + 16) return true; } return false; };
-  const cells = [], all = [];
+  const cells = [];
   const ci0 = Math.floor((x0 - reach) / TREE_CELL), ci1 = Math.floor((x1 + reach) / TREE_CELL), cj0 = Math.floor((z0 - reach) / TREE_CELL), cj1 = Math.floor((z1 + reach) / TREE_CELL);
   const per = Math.round(TREE_CELL / step);
   let total = 0;
@@ -233,14 +235,19 @@ export function plantTrees(field, segs, avoid, quays, piers, reach = TREE_REACH)
       if (h < y0) y0 = h; if (h + hgt > y1) y1 = h + hgt;
     }
     if (!list.length) continue;
-    // shuffle within the cell (a seeded Fisher-Yates over whole trees)
-    const n = list.length / FLOATS, R = rng(ci * 7919 + cj * 104729 + 1);
-    for (let k = n - 1; k > 0; k--) { const m = Math.floor(R() * (k + 1)); for (let c = 0; c < FLOATS; c++) { const t = list[k * FLOATS + c]; list[k * FLOATS + c] = list[m * FLOATS + c]; list[m * FLOATS + c] = t; } }
-    cells.push({ x0: ci * TREE_CELL, z0: cj * TREE_CELL, x1: (ci + 1) * TREE_CELL, z1: (cj + 1) * TREE_CELL, y0, y1, start: total, count: n });
-    all.push(list); total += n;
+    const n = list.length / FLOATS;
+    cells.push({ x0: ci * TREE_CELL, z0: cj * TREE_CELL, x1: (ci + 1) * TREE_CELL, z1: (cj + 1) * TREE_CELL, y0, y1, start: 0, count: n, list, bi: Math.floor(ci / TREE_BLOCK), bj: Math.floor(cj / TREE_BLOCK) });
+    total += n;
   }
-  const data = new Float32Array(total * FLOATS);
-  let o = 0;
-  for (const l of all) { data.set(l, o); o += l.length; }
-  return { data, cells, count: total };
+  // block by block
+  cells.sort((a, b) => a.bj - b.bj || a.bi - b.bi || a.z0 - b.z0 || a.x0 - b.x0);
+  const data = new Float32Array(total * FLOATS), blocks = [];
+  let o = 0, blk = null;
+  cells.forEach((c, k) => {
+    if (!blk || blk.bi !== c.bi || blk.bj !== c.bj) { blk = { bi: c.bi, bj: c.bj, x0: c.x0, z0: c.z0, x1: c.x1, z1: c.z1, y0: c.y0, y1: c.y1, start: o, count: 0, first: k, n: 0 }; blocks.push(blk); }
+    c.start = o; data.set(c.list, o * FLOATS); o += c.count; delete c.list;
+    blk.count += c.count; blk.n++;
+    blk.x0 = Math.min(blk.x0, c.x0); blk.z0 = Math.min(blk.z0, c.z0); blk.x1 = Math.max(blk.x1, c.x1); blk.z1 = Math.max(blk.z1, c.z1); blk.y0 = Math.min(blk.y0, c.y0); blk.y1 = Math.max(blk.y1, c.y1);
+  });
+  return { data, cells, blocks, count: total };
 }

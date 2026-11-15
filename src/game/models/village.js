@@ -14,7 +14,7 @@
 //
 // Triangles (near / middle / far): cottage 3.3k / 0.3k / 60, house 4.4k / 0.4k / 70, terrace 2.6k a unit,
 // pub 6k, chapel 5k, net loft 0.9k, shed 1.2k, boathouse 1.5k, market 3k.
-import { Geo, MAT, mat, GEL, RUB, MET, GLS, GRAIN, CLOTH, DV, rng, TAU, lerp, smooth, clamp, hash1, vn, fb, sheet, tube, rod, box, slab, lathe, quad, mark, paint, xf, frame, mottle, mixc, scl, text } from './kit.js';
+import { MAT, mat, GEL, RUB, MET, GLS, GRAIN, CLOTH, DV, rng, TAU, lerp, smooth, hash1, vn, fb, sheet, tube, rod, box, slab, lathe, quad, mark, paint, xf, frame, mottle, scl, text } from './kit.js';
 import { fieldAt, fieldMask, fieldGate, woodsAt, woodsGate, trackD } from './cover.js';
 
 const ASHLAR = mat(MAT.RUBBER, 0, 0, DV.ASHLAR + DV.ALONG), SLATE = mat(MAT.RUBBER, 0, 0, DV.SLATE + DV.ALONG), CORR = mat(MAT.RUBBER, 0, 0, DV.CORRUGATED + DV.ALONG), STONEW = mat(MAT.RUBBER, 0, 0, DV.ASHLAR + DV.ALONG);
@@ -107,7 +107,6 @@ function shell(g, o) {
     const x = s * w / 2, F = s > 0 ? faces.right : faces.left;
     if (lod === 0) sheet(g, 3, 5, (i, j, out) => { const t = j / 4, v = i / 2, z = lerp(-d / 2, d / 2, t), top = h + rh * (1 - Math.abs(z) / (d / 2)); out[0] = x; out[1] = lerp(h, top, v); out[2] = z * (s > 0 ? -1 : 1); }, wc, wm, { paint: wp, along: (P, i) => Math.abs(P[i + 2]) });
     else quad(g, [x, h, -d / 2], [x, h, d / 2], [x, h + rh, 0], [x, h + rh, 0], wc, wm, { n: [s, 0, 0] });
-    void F;
   }
   // a plinth, where the walls are rendered
   if (o.plinth && lod < 2) for (const key of ['front', 'right', 'back', 'left']) { const F = faces[key]; bar(g, F, -0.04, F.len + 0.04, -1.5, 0.42, 0, 0.045, o.plinth, GRAIN); }
@@ -124,7 +123,9 @@ function shell(g, o) {
         sheet(g, 2, ncol + 1, (i, j, out) => {
           const t = i ? t1 : t0, lift = i ? 0.0 : (rk === 'corr' ? 0.012 : 0.024);
           out[0] = lerp(x0, x1, j / ncol); out[1] = lerp(ye, yr, t) + lift * Math.cos(pitch); out[2] = s * (lerp(zl, 0, t) + lift * Math.sin(pitch));
-        }, rc, rm, { along: (P, i) => P[i] + (c & 1) * 0.17, paint: (P, N, C, i) => { const k = 0.8 + 0.4 * hash1(Math.round(P[i] / 1.1) + c * 37, seed + (s > 0 ? 3 : 9)) + 0.15 * (fb(P[i] * 0.4 + seed, c * 0.3, s) - 0.5); const m = 0.94 + 0.12 * vn(P[i] * 0.8, c * 0.7, seed); C[i] *= k * m; C[i + 1] *= k * m * (1 + 0.06 * (hash1(c, Math.round(P[i])) - 0.5)); C[i + 2] *= k; N[i] = nrm[0]; N[i + 1] = nrm[1]; N[i + 2] = nrm[2]; } });
+        // (each course starts its slates somewhere of its own: the mesh pass tones a slate by where it lies along
+        // the course, and courses that all began together would stripe the roof from eave to ridge)
+        }, rc, rm, { along: (P, i) => P[i] + (rk === 'corr' ? 0 : 7.3 * hash1(c * 5 + 1, seed)), paint: (P, N, C, i) => { const k = 0.8 + 0.4 * hash1(Math.round(P[i] / 1.1) + c * 37, seed + (s > 0 ? 3 : 9)) + 0.15 * (fb(P[i] * 0.4 + seed, c * 0.3, s) - 0.5); const m = 0.94 + 0.12 * vn(P[i] * 0.8, c * 0.7, seed); C[i] *= k * m; C[i + 1] *= k * m * (1 + 0.06 * (hash1(c, Math.round(P[i])) - 0.5)); C[i + 2] *= k; N[i] = nrm[0]; N[i + 1] = nrm[1]; N[i + 2] = nrm[2]; } });
       }
     } else quad(g, [x0, ye, s * zl], [x1, ye, s * zl], [x1, yr, 0], [x0, yr, 0], rc, lod === 2 ? RUB : rm, { n: nrm, along: (P, i) => P[i] });
     if (lod < 2) {
@@ -352,7 +353,6 @@ function office(g, sp, lod, lamps, gy) {
     for (const s of [-1, 1]) rod(g, [nx + s * 0.5, ny, d / 2], [nx + s * 0.5, ny + 1.9, d / 2], 0.04, [0.2, 0.14, 0.08], GRAIN, 4);
     box(g, [nx, ny + 1.4, d / 2], 0.6, 0.45, 0.03, [0.06, 0.12, 0.08], GEL); if (lod === 0) for (const [a, b] of [[-0.3, 0.15], [0.2, 0.1], [0.15, -0.2], [-0.25, -0.2]]) box(g, [nx + a, ny + 1.4 + b, d / 2 + 0.035], 0.15, 0.11, 0.004, [0.8, 0.8, 0.75], GEL);
   }
-  void R;
   return { hx: w / 2 + 2.4, hz: d / 2 + 1.6, h: 10 };
 }
 function netLoft(g, sp, lod, lamps) {
@@ -366,7 +366,6 @@ function netLoft(g, sp, lod, lamps) {
     if (lod < 2) { rect(g, F, uw / 2 - 0.45, uw / 2 + 0.45, 2.7, 3.9, 0.03, scl(TAR, 1.6), GEL); rect(g, F, uw / 2 - 0.45, uw / 2 + 0.45, 4.5, 5.6, 0.03, scl(TAR, 1.6), GEL); rod(g, [d / 2, h + 0.5, 0], [d / 2 + 0.9, h + 0.5, 0], 0.06, [0.2, 0.15, 0.1], GRAIN, 4); }
     xf(g, s0, frame([(k - (n - 1) / 2) * (uw + 0.35), 0, 0], Math.PI / 2));
   }
-  void lamps;
   return { hx: w / 2 + 0.3, hz: d / 2 + 0.6, h: 9 };
 }
 function shed(g, sp, lod, lamps, gy, big = false) {
@@ -406,7 +405,6 @@ function barn(g, sp, lod, lamps, gy) {
   else rect(g, F.front, w * 0.3 - 1.5, w * 0.3 + 1.5, 0, 3.1, 0.04, [0.2, 0.14, 0.09], RUB);
   // a yard wall
   gardenWall(g, [[-w / 2, d / 2], [-w / 2, d / 2 + 9], [w * 0.2, d / 2 + 9]], gy, lod, sp.seed, [0.34, 0.32, 0.29], 1.2);
-  void lamps;
   return { hx: w / 2 + 0.5, hz: d / 2 + 9.5, h: S.top + 1 };
 }
 const BUILDERS = { cottage, house2, terrace, pub, chapel, office, netloft: netLoft, shed, market: (g, sp, lod, lamps, gy) => shed(g, sp, lod, lamps, gy, true), boathouse, barn, farmhouse: (g, sp, lod, lamps, gy) => house2(g, sp, lod, lamps, gy, true) };
@@ -527,4 +525,3 @@ export function placeBuildings(field, def, quays, piers, slips, segs, courseSeed
   }
   return out;
 }
-void TAU; void clamp; void paint; void mixc; void RUSTRED;

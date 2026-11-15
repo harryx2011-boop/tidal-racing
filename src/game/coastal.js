@@ -19,8 +19,7 @@
 // camera comes near enough to want it, one mesh a frame. Culling is by the view frustum (the terrain's planes)
 // and a distance per kind.
 //
-// Quality. The tier (settings.active) sets the trees' range and how many of them are drawn, and scales the
-// distances the levels change at; app.fx.shadows scales those again as the governor sheds load, and at 0 the
+// Quality. The tier (settings.active) sets the trees' range and scales the distances the levels change at; app.fx.shadows scales those again as the governor sheds load, and at 0 the
 // object shadows are off.
 //
 // Cost (software GL only; nothing measured on a GPU). A close pass along a harbour at the medium tier draws
@@ -35,17 +34,17 @@ import { Geo } from './models/kit.js';
 import { quayGeo, deckGeo, pierGeo, slipGeo } from './models/harbour.js';
 import { buildingGeo } from './models/village.js';
 import { rockFieldGeo, stackGeo, looseRockGeo, rockSet } from './models/rocks.js';
-import { packLevel, TREE_CELL, FLOATS } from './models/trees.js';
+import { packLevel, FLOATS } from './models/trees.js';
 import { openBoatGeo, dayBoatGeo, mooringBuoyGeo } from './models/smallcraft.js';
 import { ribGeo } from './models/vessels.js';
 
 const TIERS = {
-  low: { treeFar: 850, trees: 0.55, lod: 0.75, rocks: 900 },
-  medium: { treeFar: 1250, trees: 0.8, lod: 1, rocks: 1400 },
-  high: { treeFar: 1650, trees: 1, lod: 1.3, rocks: 1800 },
+  low: { treeFar: 800, lod: 0.7, rocks: 900 },
+  medium: { treeFar: 1250, lod: 1, rocks: 1400 },
+  high: { treeFar: 1650, lod: 1.3, rocks: 1800 },
 };
-// where a cell of trees steps down a level (m to the cell), and how many of its trees the farthest level draws
-const TREE_LOD = [42, 170, 520], FAR_SHARE = 0.6;
+// where a cell of trees steps down a level (m to the cell)
+const TREE_LOD = [42, 170, 520];
 const CHUNK = 96;              // buildings are built in chunks this size, so only the near ones are fine
 
 // ---- trees ----
@@ -54,6 +53,7 @@ layout(location = 0) in float aVid;
 layout(location = 1) in vec4 iPos;    // x, y, z, height
 layout(location = 2) in vec4 iPar;    // kind, yaw, width, tint
 uniform sampler2D uMesh;              // every kind at this level: rows of position + shade, normal + part, colour
+uniform ivec2 uDim;                   // its width, and how many texture rows one row of vertices wraps over
 uniform mat4 uViewProj;
 uniform vec3 uCamPos;
 uniform float uTime;
@@ -67,7 +67,8 @@ out vec3 vCol;
 out vec4 vP;                          // shade, leaf, tint, height up the tree
 void main() {
   int row = int(iPar.x + 0.5) * 3, v = int(aVid + 0.5);
-  vec4 A = texelFetch(uMesh, ivec2(v, row), 0), B = texelFetch(uMesh, ivec2(v, row + 1), 0), C = texelFetch(uMesh, ivec2(v, row + 2), 0);
+  ivec2 t = ivec2(v % uDim.x, v / uDim.x);
+  vec4 A = texelFetch(uMesh, ivec2(t.x, row * uDim.y + t.y), 0), B = texelFetch(uMesh, ivec2(t.x, (row + 1) * uDim.y + t.y), 0), C = texelFetch(uMesh, ivec2(t.x, (row + 2) * uDim.y + t.y), 0);
   float part = floor(B.w + 0.001), sway = (B.w - part) / 0.49;
   float c = cos(iPar.y), s = sin(iPar.y);
   vec3 lp = A.xyz * vec3(iPar.z, 1.0, iPar.z) * iPos.w;
@@ -333,7 +334,7 @@ export class Coastal {
     const T = P.trees, buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, T.data, gl.STATIC_DRAW);
-    G.trees = { buf, cells: T.cells, count: T.count };
+    G.trees = { buf, cells: T.cells, blocks: T.blocks, count: T.count };
     this.treeGL();
     this.glowBuffer(G);
     this.shadowMap(G);
@@ -375,7 +376,7 @@ export class Coastal {
     const gl = this.gl;
     this.levels = [0, 1, 2, 3].map((l) => {
       const L = packLevel(l);
-      return { tex: new Texture(gl, { w: L.width, h: L.rows, format: 'rgba32f', filter: 'nearest', data: L.data }), verts: L.verts, tris: L.verts / 3 };
+      return { tex: new Texture(gl, { w: L.width, h: L.rows, format: 'rgba32f', filter: 'nearest', data: L.data }), dim: new Int32Array([L.width, L.wrap]), verts: L.verts, tris: L.verts / 3 };
     });
     const n = Math.max(...this.levels.map((L) => L.verts)), ids = new Float32Array(n);
     for (let i = 0; i < n; i++) ids[i] = i;
@@ -450,7 +451,7 @@ export class Coastal {
     for (const it of G.ground) if (it.n === 2) { const L = it.lods[1] || it.lods[0]; p.set('uModel', rotY(mat, 0, it.origin[0], it.origin[1], it.origin[2])); gl.bindVertexArray(L.mesh.vao); gl.drawArrays(gl.TRIANGLES, 0, L.mesh.count); }
     // trees in the rectangle, at the far level but one
     const T = G.trees, L2 = this.levels[2], tp = this.treeProg;
-    tp.use({ uTop: top, uTopOn: 1, uSway: 0, uTime: 0, uWindDir: [1, 0], uMesh: L2.tex });
+    tp.use({ uTop: top, uTopOn: 1, uSway: 0, uTime: 0, uWindDir: [1, 0], uMesh: L2.tex, uDim: L2.dim });
     gl.bindVertexArray(this.treeVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, T.buf);
     for (const c of T.cells) {
@@ -514,7 +515,6 @@ export class Coastal {
     for (const it of G.fixed) if (it.want !== undefined) { if (!done && !it.lods[it.want]) { this.build(G, it, it.want); done = true; } if (it.lods[it.want]) it.want = undefined; }
     for (const m of G.models.values()) if (m.want !== undefined) { if (!done && !m.lods[m.want]) { this.buildModel(m, m.want); done = true; } if (m.lods[m.want]) m.want = undefined; }
     if (G.glowDirty) this.glowBuffer(G);
-    void dt; void ot;
   }
 
   // the level to draw at a distance: the wanted one if built, else the next coarser (and ask for the wanted one)
@@ -565,7 +565,7 @@ export class Coastal {
     // ---- trees: a cell is one draw at the level its distance asks for ----
     const T = G.trees;
     if (T && T.count) {
-      const p = this.treeProg, far = this.treeFar, share = this.tier.trees, k = this.scale, W = app.weather ? app.weather.state : null;
+      const p = this.treeProg, far = this.treeFar, k = this.scale, W = app.weather ? app.weather.state : null;
       p.use(scene);
       p.set('uTopOn', 0);
       p.set('uSway', Math.min((W ? W.wind : 6) / 9, 2));
@@ -573,19 +573,26 @@ export class Coastal {
       gl.bindVertexArray(this.treeVao);
       gl.bindBuffer(gl.ARRAY_BUFFER, T.buf);
       let bound = -1;
-      for (const c of T.cells) {
-        const d = Math.hypot(Math.max(c.x0 - cam[0], 0, cam[0] - c.x1), Math.max(c.z0 - cam[2], 0, cam[2] - c.z1));
-        if (d > far) continue;
-        if (!boxVisible(c.x0 - 8, c.y0 - 2, c.z0 - 8, c.x1 + 8, c.y1 + 2, c.z1 + 8)) continue;
-        const l = d < TREE_LOD[0] * k ? 0 : d < TREE_LOD[1] * k ? 1 : d < TREE_LOD[2] * k ? 2 : 3;
+      const put = (c, l) => {
         const L = this.levels[l];
-        if (l !== bound) { p.set('uMesh', L.tex); bound = l; }
-        // fewer of them far off and on the lower tiers (a cell's trees are shuffled, so the first n thin it evenly)
-        const n = Math.max(1, Math.round(c.count * (l >= 2 ? share : 1) * (l === 3 ? FAR_SHARE : 1)));
+        if (l !== bound) { p.set('uMesh', L.tex); p.set('uDim', L.dim); bound = l; }
         gl.vertexAttribPointer(1, 4, gl.FLOAT, false, FLOATS * 4, c.start * FLOATS * 4);
         gl.vertexAttribPointer(2, 4, gl.FLOAT, false, FLOATS * 4, c.start * FLOATS * 4 + 16);
-        gl.drawArraysInstanced(gl.TRIANGLES, 0, L.verts, n);
-        st.draws++; st.trees += n; st.treeTris += n * L.tris;
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, L.verts, c.count);
+        st.draws++; st.trees += c.count; st.treeTris += c.count * L.tris;
+      };
+      const far3 = TREE_LOD[2] * k;
+      for (const B of T.blocks) {
+        const db = Math.hypot(Math.max(B.x0 - cam[0], 0, cam[0] - B.x1), Math.max(B.z0 - cam[2], 0, cam[2] - B.z1));
+        if (db > far || !boxVisible(B.x0 - 8, B.y0 - 2, B.z0 - 8, B.x1 + 8, B.y1 + 2, B.z1 + 8)) continue;
+        // a block wholly at the farthest level is one draw; a nearer one is drawn cell by cell
+        if (db > far3) { put(B, 3); continue; }
+        for (let i = B.first; i < B.first + B.n; i++) {
+          const c = T.cells[i];
+          const d = Math.hypot(Math.max(c.x0 - cam[0], 0, cam[0] - c.x1), Math.max(c.z0 - cam[2], 0, cam[2] - c.z1));
+          if (d > far || !boxVisible(c.x0 - 8, c.y0 - 2, c.z0 - 8, c.x1 + 8, c.y1 + 2, c.z1 + 8)) continue;
+          put(c, d < TREE_LOD[0] * k ? 0 : d < TREE_LOD[1] * k ? 1 : d < far3 ? 2 : 3);
+        }
       }
       gl.bindVertexArray(null);
       st.tris += st.treeTris;
@@ -614,4 +621,3 @@ export class Coastal {
     this.stats.draws++;
   }
 }
-void TREE_CELL;

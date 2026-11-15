@@ -67,6 +67,7 @@ out vec3 vWorld;
 out vec3 vNrm;
 out vec3 vTint;
 out float vKind;
+out float vScale;
 void main() {
   vec2 xz = uChunk.xy + aG.xy * uChunk.zw;
   float h = uFar > 0.5 ? textureLod(uHF, (xz - uRectF.xy) * uRectF.zw, 0.0).r : textureLod(uHN, (xz - uRectN.xy) * uRectN.zw, 0.0).r;
@@ -74,7 +75,7 @@ void main() {
   vec3 P = vec3(xz.x, h, xz.y);
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
-  vWorld = P; vNrm = vec3(0.0, 1.0, 0.0); vTint = vec3(1.0); vKind = 0.0;
+  vWorld = P; vNrm = vec3(0.0, 1.0, 0.0); vTint = vec3(1.0); vKind = 0.0; vScale = 1.0;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
@@ -91,11 +92,12 @@ out vec3 vWorld;
 out vec3 vNrm;
 out vec3 vTint;
 out float vKind;
+out float vScale;                     // rock: how much finer than a cliff's its beds and joints are (a boulder is a small thing)
 void main() {
   vec3 P = aPos + uOrigin;
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
-  vWorld = P; vNrm = aN; vTint = aCol; vKind = aMat.x;
+  vWorld = P; vNrm = aN; vTint = aCol; vKind = aMat.x; vScale = max(aMat.y, 1.0);
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
@@ -104,6 +106,7 @@ in vec3 vWorld;
 in vec3 vNrm;
 in vec3 vTint;
 in float vKind;
+in float vScale;
 out vec4 oColor;
 uniform vec3 uCamPos;
 uniform float uFar;
@@ -311,6 +314,17 @@ vec3 pavedLook(vec2 q, float fp, float n1, float n2, out float gloss) {
   c = mix(c, rc, road);
   float yl = (1.0 - smoothstep(lw, le, abs(z - 3.3))) * lk * (0.4 + 0.6 * smoothstep(0.25, 0.55, vn(q * 2.3 + 5.0))) * (1.0 - smoothstep(1.0, 3.0, fp));
   c = mix(c, vec3(0.5, 0.36, 0.03), yl * 0.85);
+  // parking bays marked out between the working strip and the roadway, their lines half worn away
+  float bay = (1.0 - smoothstep(lw, le, abs(fract(q.x / 2.9) - 0.5) * 2.9)) * step(6.2, z) * step(z, 10.7) * lk * smoothstep(0.35, 0.6, vn(q * 1.3 + 17.0)) * (1.0 - smoothstep(1.0, 3.0, fp)) * (1.0 - road);
+  c = mix(c, vec3(0.46, 0.46, 0.43), bay * 0.8);
+  // tyre marks along the roadway and where vans turn in, patches of new concrete, iron covers
+  float tm = smoothstep(0.62, 0.8, vn(vec2(q.x * 0.11, q.y * 1.9) + 3.0)) * (1.0 - smoothstep(0.6, 2.0, fp));
+  c *= 1.0 - 0.3 * tm * smoothstep(5.0, 7.0, z);
+  float pch = step(0.86, h12(ci + 11.3)) * (1.0 - road) * (1.0 - setts);
+  c = mix(c, vec3(0.36, 0.355, 0.34), pch * 0.6);
+  vec2 mq = fract(q / vec2(19.0, 13.0) + 0.37) * vec2(19.0, 13.0) - vec2(9.5, 6.5);
+  float mh = (1.0 - smoothstep(0.32, 0.34 + fp, max(abs(mq.x), abs(mq.y)))) * (1.0 - smoothstep(0.3, 1.0, fp)) * step(3.5, z);
+  c = mix(c, vec3(0.06, 0.055, 0.05) * (0.8 + 0.4 * step(0.5, fract(mq.x * 6.0))), mh * 0.9);
   float st = smoothstep(0.6, 0.78, vn(q * 0.23 + 9.0) * 0.6 + vn(q * 0.9) * 0.4);
   c *= 1.0 - 0.45 * st * (1.0 - smoothstep(2.0, 6.0, fp));
   c *= 0.9 + 0.25 * n2 + 0.3 * n1 * fo;
@@ -428,13 +442,15 @@ void main() {
   // ---- rock, and the zones of a rocky shore ----
   float crev;
   vec3 rbump;
-  vec3 rockC = rockLook(P3, Ng, fp, n1, n2, crev, rbump);
+  vec3 rockC = rockLook(P3 * vScale, Ng, fp * vScale, n1, n2, crev, rbump);
   if (kind == 3) {
     // weathered concrete (a slipway, steps): cast in bays, ribbed across for grip
     rockC = vec3(0.27, 0.265, 0.25) * (0.85 + 0.3 * n2 + 0.3 * n1) * (1.0 - 0.25 * (1.0 - smoothstep(0.02, 0.05 + fp, abs(fract(dot(p, uQuayA[0].zw) / 0.5) - 0.5) * 0.5)) * (1.0 - smoothstep(0.1, 0.3, fp)));
     crev = 0.0; rbump = vec3(0.0);
   }
   crev *= rock;
+  // (rock that lies flat on a hilltop is weathered grey and half grown over, not a fresh face)
+  if (kind == 0) rockC = mix(rockC, mix(rockC * 0.55, grass, 0.45), 1.0 - smoothstep(0.1, 0.28, sl));
   vec3 albedo = mix(mix(grass, sandC, sand), rockC, rock);
   float hard = rock;
   float zn = (h + 0.5 * (vnf(p, 0.6, fp) - 0.5) + 0.25 * n1) / (1.0 + 0.25 * uHs);
@@ -472,7 +488,8 @@ void main() {
   albedo *= 1.0 - 0.3 * uRain;
   float gentle = 1.0 - smoothstep(0.2, 0.5, sl);
   float edgeD = run - h;
-  float sheet = smoothstep(0.0, 0.03, edgeD) * gentle;
+  // (the wash runs up beaches; a boulder's facets at the waterline are not one)
+  float sheet = smoothstep(0.0, 0.03, edgeD) * gentle * (kind >= 2 ? 0.0 : 1.0);
   float front = (1.0 - smoothstep(0.0, 0.3 + 0.12 * uHs, edgeD)) * sheet * (0.55 + 0.9 * (vn(p * 1.3 + uTime * 0.2) - 0.35));
   front = clamp(front, 0.0, 1.0);
   albedo = mix(albedo, albedo * 0.55, sheet * 0.6);

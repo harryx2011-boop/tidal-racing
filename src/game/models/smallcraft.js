@@ -4,7 +4,7 @@
 // Built with the kit, weathered like the other hulls (a wet band, weed at the waterline, salt above it).
 //
 // Triangles (near / middle / far): open boat 3.4k / 0.8k / 0.15k, day boat 4.2k / 1.0k / 0.2k, buoy 0.4k / 0.1k / 30.
-import { Geo, MAT, mat, GEL, RUB, MET, GLS, NSK, GRAIN, CLOTH, DV, rng, TAU, lerp, smooth, loft, tube, rod, box, slab, lathe, quad, blob, hoop, fender, mark, paint, xf, frame, both, mottle, stain, faded, mixc, scl } from './kit.js';
+import { Geo, GEL, RUB, MET, GLS, NSK, GRAIN, CLOTH, rng, lerp, smooth, loft, tube, rod, box, slab, lathe, quad, blob, hoop, fender, mark, paint, xf, frame, both, mottle, stain, faded, mixc, scl } from './kit.js';
 import { crewGeo } from './wildlife.js';
 
 const HULLS = [[0.78, 0.79, 0.76], [0.1, 0.2, 0.42], [0.55, 0.08, 0.06], [0.07, 0.3, 0.2], [0.75, 0.6, 0.12], [0.16, 0.17, 0.19], [0.5, 0.62, 0.7]];
@@ -168,4 +168,3 @@ export function mooringBuoyGeo(lod = 0, seed = 1) {
   if (lod < 2) { hoop(g, [0, r + 0.06, 0], [1, 0, 0], 0.05, 0.012, [0.3, 0.3, 0.3], MET, 8, 4); rod(g, [0, r, 0], [0, r + 0.03, 0], 0.03, [0.3, 0.3, 0.3], MET, 5); }
   return { g, lamps: [], foot: 0 };
 }
-void MAT; void mat; void DV;
