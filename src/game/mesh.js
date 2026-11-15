@@ -18,6 +18,7 @@ uniform mat4 uViewProj;
 uniform vec3 uCamPos;
 uniform float uFloat;        // 1: ride the waves at the model origin (buoys); 2: a span between two anchors; 0: the model matrix is the pose
 uniform float uSpan;         // float mode 2: the span's length along the model's x axis
+uniform float uFoot;         // float mode 1: the length (m) the slope is taken over, so a long hull pitches to the swell and not to every chop; 0 means a small float
 uniform sampler2D uDisp[3];
 uniform float uSize[4];
 uniform float uTexel[4];
@@ -48,7 +49,7 @@ void main() {
   if (uFloat > 0.5 && uFloat < 1.5) {
     vec2 a = uModel[3].xz;
     vec3 D = dispAt(a);
-    const float e = 1.5;
+    float e = uFoot > 0.0 ? uFoot * 0.5 : 1.5;
     float hx = dispAt(a + vec2(e, 0.0)).y - dispAt(a - vec2(e, 0.0)).y;
     float hz = dispAt(a + vec2(0.0, e)).y - dispAt(a - vec2(0.0, e)).y;
     vec3 up = normalize(vec3(-hx / (2.0 * e) * 0.6, 1.0, -hz / (2.0 * e) * 0.6));
