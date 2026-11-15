@@ -195,6 +195,39 @@ function outboard(g, p, s = 1, col = [0.08, 0.08, 0.09]) {
 // weathering shared by the hulls: tone, the wet band and weed at the waterline, salt above it
 const hullPaint = (seed, wet = 0.14) => both(mottle(seed, 0.05, 0.9), stain(seed, { weedTop: 0.06, tide: 0.1, wet, salt: 0.12 }));
 
+// Who is aboard, in the vessel's own frame: x, z, and y where their feet rest (a seated figure's hips are half a
+// metre above that); yaw 0 faces the bow, pi/2 starboard. h, 0..1, differs from boat to boat: some are left
+// empty, crews and their clothes vary. The poses and palettes are crewGeo's (models/wildlife.js).
+export function crewOf(kind, h, seed = 1) {
+  const P = (k) => (Math.floor(h * 977) + k * 3 + seed) % 10, S = (k) => (Math.floor(h * 131) + k) % 4, HP = Math.PI / 2;
+  if (kind === 'committee') return [
+    { x: -4.4, y: 1.55, z: 0.95, yaw: HP - 0.2, pal: 0, skin: S(0), pose: 'flag', side: 1, chequer: true },
+    { x: -3.2, y: 1.55, z: -1.1, yaw: -HP + 0.2, pal: 3, skin: S(1), pose: 'wave', side: -1 },
+    { x: -5.5, y: 1.54, z: 0.25, yaw: 2.9, pal: 1, skin: S(2), pose: 'clipboard' },
+    { x: 1.4, y: 3.84, z: 1.0, yaw: HP - 0.1, pal: 5, skin: S(3), pose: 'binoculars' },
+    { x: -0.4, y: 3.84, z: -1.08, yaw: -HP, pal: 4, skin: S(0), pose: 'lean' },
+    { x: 2.6, y: 3.84, z: 0.2, yaw: 0.2, pal: 7, skin: S(1), pose: 'hips' }];
+  if (kind === 'yacht') {
+    if (h >= 0.78) return null;
+    const c = [{ x: -3.35, y: 0.58, z: 0.86, yaw: -HP, pal: P(0), skin: S(0), pose: 'sit' }, { x: -4.5, y: 0.5, z: 0.02, yaw: 0.1, pal: P(1), skin: S(1), pose: h < 0.35 ? 'wave' : 'hips', side: 1 }];
+    if (h < 0.22) c.push({ x: 3.05, y: 1.21, z: 0.72, yaw: HP + 0.3, pal: P(2), skin: S(2), pose: 'camera' });
+    return c;
+  }
+  if (kind === 'cruiser') {
+    if (h >= 0.82) return null;
+    const c = [{ x: -4.5, y: 0.78, z: 0.65, yaw: HP + 0.9, pal: P(0), skin: S(0), pose: 'wave', side: -1 }, { x: -0.5, y: 3.2, z: -0.35, yaw: 0, pal: P(1), skin: S(1), pose: 'sit' }, { x: -5.52, y: 0.78, z: -0.5, yaw: 0, pal: P(2), skin: S(2), pose: 'sit' }];
+    if (h < 0.4) c.push({ x: -2.7, y: 3.16, z: 0.75, yaw: HP - 0.3, pal: P(3), skin: S(3), pose: 'binoculars' });
+    return c;
+  }
+  if (kind === 'rib') {
+    if (h >= 0.75) return null;
+    const c = [{ x: -0.42, y: 0.45, z: 0, yaw: 0, pal: seed % 3 === 1 ? 0 : P(0), skin: S(0), pose: 'helm', kit: 'vest', lj: [0.7, 0.25, 0.03] }];
+    if (h < 0.45) c.push({ x: -1.75, y: 0.42, z: 0.7, yaw: -HP, pal: P(1), skin: S(1), pose: 'sit', kit: 'vest' });
+    return c;
+  }
+  return null;
+}
+
 // =========================================================================================
 // Sailing yacht at anchor: a 10.6 m sloop, sails furled
 // =========================================================================================

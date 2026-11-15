@@ -315,7 +315,7 @@ function person(g, o, idx, fno, lod, part) {
       };
       if (kit === 'vest') {
         // a buoyancy aid: a padded shell from the waist to the shoulders, two belts, a zip
-        const lj = Pl.lj || top;
+        const lj = o.lj || Pl.lj || top;
         loft(g, [ringAt(0.14, 0.012), ringAt(0.17, 0.03), ringAt(0.3, 0.036), ringAt(0.42, 0.034), ringAt(0.49, 0.022), ringAt(0.53, 0.004)].map((r) => (lod ? r.filter((_, j) => j % 2 === 0) : r)), lj, CLOTH);
         if (lod === 0) {
           for (const d of [0.2, 0.33]) tube(g, ringAt(d, 0.04), 0.011, [0.03, 0.03, 0.035], CLOTH, { segs: 3, closed: true });
@@ -329,7 +329,7 @@ function person(g, o, idx, fno, lod, part) {
         if (kit === 'fleece' || kit === 'jacket') for (const j of [2, 14]) tube(g, [0.08, 0.15].map((d) => ringAt(d, 0.005, 16)[j]), 0.005, scl(top, 0.5), CLOTH, { segs: 3 });
       }
       if (lod === 0) {
-        const col2 = kit === 'tee' ? scl(top, 0.85) : kit === 'vest' ? (Pl.lj || top) : scl(top, 0.8);
+        const col2 = kit === 'tee' ? scl(top, 0.85) : kit === 'vest' ? (o.lj || Pl.lj || top) : scl(top, 0.8);
         tube(g, Array.from({ length: 8 }, (_, k) => { const a = (k / 8) * TAU; return [nk[0] - 0.005 + 0.062 * Math.cos(a), nk[1] - 0.012 + 0.018 * Math.cos(a - 2.6), 0.07 * Math.sin(a)]; }), kit === 'tee' ? 0.012 : 0.02, col2, CLOTH, { segs: 4, closed: true });
       }
     }
@@ -495,7 +495,7 @@ export function flagStatic(style, poleH) {
   const col = [], mat = [];
   for (let iv = 0; iv < FLAG_NV; iv++) for (let iu = 0; iu < FLAG_NU; iu++) {
     const c = S.col((iu + 0.5) / FLAG_NU, (iv + 0.5) / FLAG_NV);
-    for (let k = 0; k < 6; k++) { col.push(...c); mat.push(...CLOTH); }
+    for (let k = 0; k < 6; k++) { col.push(...c); mat.push(CLOTH[0], CLOTH[1], CLOTH[2]); }
   }
   // the pole: a four-sided prism, below the hoist
   const pole = new SoupGeo();
