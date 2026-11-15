@@ -98,6 +98,7 @@ uniform float uFloat;
 uniform vec3 uFlash;
 uniform vec3 uRrs;           // water-leaving reflectance: the sea colour the hull reflects
 uniform float uLamp;         // boat lights: 0 in full sun, 1 in the dark
+uniform float uWetSpd;       // boats: speed / 36 m/s, how high the bow wave wets the hull (0 at rest)
 uniform vec3 uLivery;        // x: on, y: stripe style 0..3, z: race number 0..99
 uniform sampler2D uTexture;
 uniform float uHasTex;
@@ -269,12 +270,38 @@ void main() {
   vec3 emis = vec3(0.0);
   vec3 Nm = N;
   float sheen = 0.0;
+  float flake = 0.0;           // metallic flake in accent paint
+  vec3 flakeN = vec3(0.0);
   if (mid == 0 || mid == 1) {
     // gelcoat and paint: a diffuse base under a glossy clear coat with a faint orange peel
     if (mid == 1 && uLivery.x > 0.5 && vMat.y > 0.5 && abs(vObjN.z) > 0.35 && abs(vObj.z) > 0.25) albedo = livery(vCol, uTint, pf);
     float pk = fadeOut(pf, 70.0);
     Nm = normalize(N + (vec3(vnoise(vObj * 28.0), vnoise(vObj * 28.0 + 17.3), vnoise(vObj * 28.0 + 31.7)) - 0.5) * 0.03 * pk);
     ra = 0.42; rb = 0.07; wb = 1.0;
+    // metal flake in the accent paint: tiny mirrors at random tilts that sparkle in the sun's highlight
+    if (mid == 1) {
+      vec3 fc = floor(vObj * 520.0);
+      flake = fadeOut(pf, 520.0) * step(0.6, h13(fc)) * vMat.y;
+      flakeN = normalize(vec3(h13(fc + 1.7), h13(fc + 5.3), h13(fc + 9.1)) - 0.5);
+    }
+    // Wet hull (boats only, hull exterior: sides, bottom, transom). Spray and wash keep the topsides
+    // darker and glossier just above the waterline (y = 0 in model space), fading out over ~0.1 m above the reach of the bow wave,
+    // with drip streaks running up the band's edge where water has run down; heaviest aft where the
+    // wake and the prop wash reach. Driven by model height and one speed uniform, so it costs no texture.
+    if (uLivery.x > 0.5 && (On.z * vObj.z > 0.0 || On.y < -0.2 || On.x < -0.7)) {
+      float fgw = fadeOut(pf, 40.0);
+      float stern = mix(0.55, 1.0, smoothstep(0.5, -3.5, vObj.x));
+      // how high the water reaches: a thin line at rest, a bow wave that grows with speed squared
+      float spd = clamp(uWetSpd, 0.0, 1.3), fw = 3.8 - vObj.x;
+      float along = smoothstep(-0.2, 0.9, fw) * exp(-fw / 3.4) * (1.0 - smoothstep(6.0, 9.0, fw));
+      float hw = 0.04 + 0.08 * min(spd * 4.0, 1.0) + 0.5 * spd * spd * along + 0.1 * spd;
+      float streak = vnoise(vec3(vObj.x * 38.0 + vObj.z * 9.0, vObj.y * 1.6, 11.0)) * fgw + 0.45 * (1.0 - fgw);
+      float yy = vObj.y - 0.12 * smoothstep(0.5, 0.85, streak) * stern;   // drips: wet trails run up past the band's edge
+      float wet = (1.0 - smoothstep(hw, hw + 0.1, yy)) * mix(0.75, 1.0, stern);
+      wet = max(wet, step(0.0, -vObj.y) * 0.9 * (1.0 - smoothstep(0.0, 0.5, vObj.y + 0.5)));
+      albedo *= mix(1.0, 0.8, wet * 0.85);
+      ra = mix(ra, 0.2, wet * 0.6); rb = mix(rb, 0.03, wet);
+    }
   } else if (mid == 2) {
     // teak: planks along the boat with dark caulked seams and staggered butt joints
     float across, along;
@@ -296,19 +323,37 @@ void main() {
     albedo *= mix(1.0, 0.1, seam);
     ra = 0.55; rb = 0.22; wb = 0.6 * (1.0 - seam);
   } else if (mid == 3) {
-    // upholstery: matte, with piped panel seams and a soft quilted puff between them
+    // upholstery: matte, with piped panel seams, a row of stitches either side of each seam and a
+    // soft quilted puff between them. Glow 1 marks a plain woven fabric (clothing, webbing) and
+    // glow 2 skin: no panels, a finer texture (a boat's glow uniform is 0, so this reaches no light).
     vec2 uv2 = abs(On.y) > 0.55 ? vObj.xz : (abs(On.z) > abs(On.x) ? vObj.xy : vObj.zy);
-    const vec2 P = vec2(0.44, 0.36);
-    vec2 f = fract(uv2 / P);
-    vec2 dd = min(f, 1.0 - f) * P;
     float aa = max(pf * 1.2, 0.002);
-    float seam = 1.0 - smoothstep(0.003, 0.003 + aa, min(dd.x, dd.y));
-    float puff = smoothstep(0.0, 0.07, dd.x) * smoothstep(0.0, 0.07, dd.y);
-    float fg = fadeOut(pf, 140.0);
-    float grain = vnoise(vObj * 140.0) * fg + 0.5 * (1.0 - fg);
-    // (subtle: from the chase camera heavy seams read as a grid drawn on the cushions)
-    albedo *= (0.92 + 0.08 * puff) * (0.94 + 0.12 * grain) * mix(1.0, 0.86, seam);
-    ra = 0.85; sheen = 0.35;
+    if (vMat.z > 1.5) {
+      albedo *= 0.94 + 0.1 * vnoise(vObj * 90.0);
+      ra = 0.55; sheen = 0.5;
+    } else if (vMat.z > 0.5) {
+      float fg = fadeOut(pf, 220.0);
+      float weave = (0.5 + 0.5 * sin(vObj.x * 1100.0) * sin(vObj.y * 1100.0 + vObj.z * 700.0)) * fg + 0.5 * (1.0 - fg);
+      albedo *= 0.9 + 0.16 * weave;
+      ra = 0.85; sheen = 0.3;
+    } else {
+      const vec2 P = vec2(0.44, 0.36);
+      vec2 f = fract(uv2 / P);
+      vec2 dd = min(f, 1.0 - f) * P;
+      float seam = 1.0 - smoothstep(0.003, 0.003 + aa, min(dd.x, dd.y));
+      float puff = smoothstep(0.0, 0.07, dd.x) * smoothstep(0.0, 0.07, dd.y);
+      float fg = fadeOut(pf, 140.0);
+      float grain = vnoise(vObj * 140.0) * fg + 0.5 * (1.0 - fg);
+      // stitching: dashes 1.1 cm either side of a seam, 9 mm long, only where a pixel can resolve them
+      float sd = abs(min(dd.x, dd.y) - 0.011);
+      float along = dd.x < dd.y ? uv2.y : uv2.x;
+      float dash = step(0.5, fract(along / 0.018));
+      float stitch = (1.0 - smoothstep(0.0012, 0.0012 + aa, sd)) * dash * fadeOut(pf, 90.0);
+      // (subtle: from the chase camera heavy seams read as a grid drawn on the cushions)
+      albedo *= (0.92 + 0.08 * puff) * (0.94 + 0.12 * grain) * mix(1.0, 0.86, seam);
+      albedo = mix(albedo, albedo * 0.55, stitch * 0.7);
+      ra = 0.85; sheen = 0.35;
+    }
   } else if (mid == 4) {
     // tinted glass: nearly black, a strong clean reflection
     albedo = vCol * 0.08;
@@ -320,14 +365,21 @@ void main() {
     F0a = clamp(vCol * 0.95 + 0.03, 0.0, 1.0) * (0.88 + 0.24 * streak);
     albedo = vCol * 0.08;
     ra = 0.2 + 0.12 * streak;
+    // brushed finish: the grain scatters light across the brushing, so the highlight smears; mimic it with a rougher, streak-modulated lobe
+    Nm = normalize(N + (vec3(0.0, vnoise(vec3(vObj.x * 1.5, vObj.y * 320.0, vObj.z * 320.0)) - 0.5, vnoise(vec3(vObj.x * 1.5 + 9.0, vObj.y * 320.0, vObj.z * 320.0)) - 0.5)) * 0.07 * fg);
   } else if (mid == 6) {
-    // non-skid: a stipple of small raised dots; far away it averages to a slightly darker tone
+    // non-skid: raised diamonds with a stipple on top; far away it averages to a slightly darker tone
     vec2 uv2 = abs(On.y) > 0.55 ? vObj.xz : (abs(On.z) > abs(On.x) ? vObj.xy : vObj.zy);
-    const float C = 0.02;
+    const float C = 0.02, D = 0.03;
     vec2 g = uv2 / C, gi = floor(g), gf = fract(g) - 0.5;
     gf += (vec2(h11(gi.x * 7.0 + gi.y * 13.0), h11(gi.x * 3.0 - gi.y * 11.0 + 5.0)) - 0.5) * 0.3;
     float dotm = 1.0 - smoothstep(0.26, 0.4, length(gf));
-    albedo *= mix(0.86, mix(1.0, 0.72, dotm), fadeOut(pf, 1.0 / C));
+    // diamonds of D metres, rotated 45 degrees, each a low pyramid; the grooves between them are darker
+    vec2 dq = vec2(uv2.x + uv2.y, uv2.x - uv2.y) / (D * 1.4142);
+    vec2 df = fract(dq) - 0.5;
+    float pyr = 1.0 - max(abs(df.x), abs(df.y)) * 2.0;
+    float groove = 1.0 - smoothstep(0.0, 0.16, pyr);
+    albedo *= mix(0.84, mix(1.0, 0.74, dotm) * mix(1.0, 0.82, groove), fadeOut(pf, 1.0 / C));
     ra = 0.8;
   } else if (mid == 7) {
     albedo = vCol * 0.8; ra = 0.7;
@@ -374,6 +426,7 @@ void main() {
     sunSpec += wb * sunLight * ggx(nh, aB) * (F0b + (1.0 - F0b) * fh) * vis;
     kd *= 1.0 - wb * Fb.g;
   }
+  if (flake > 0.0) sunSpec += sunLight * albedo * flake * 2.2 * pow(max(dot(normalize(Nm + flakeN * 0.55), H), 0.0), 120.0);
   vec3 col = albedo * kd * Ed / M_PI + spec + sunSpec;
   // soft fabric catches light at grazing angles
   col += albedo * sheen * pow(1.0 - nv, 3.0) * (skyE * up * ao / M_PI);
@@ -452,15 +505,15 @@ export class MeshPass {
     this.prog.use(this.scene || {});
   }
   // float: 1 rides the waves at the model origin, 2 hangs a span of length `span` between two anchors (see the vertex shader);
-  // livery: { color, stripe, number } (boats); texture: base colour for MAT.TEXTURED surfaces;
+  // livery: { color, stripe, number } (boats); speed: the boat's speed in m/s (wet hull height); texture: base colour for MAT.TEXTURED surfaces;
   // ao: use the mesh's baked occlusion (default: when a livery is given, i.e. for boats)
-  draw(mesh, model, { tint = [1, 1, 1], glow = 0, alpha = 1, float = 0, span = 0, livery = null, texture = null, ao = !!livery } = {}) {
+  draw(mesh, model, { tint = [1, 1, 1], glow = 0, alpha = 1, float = 0, span = 0, livery = null, speed = 0, texture = null, ao = !!livery } = {}) {
     const gl = this.gl;
     const p = this.prog;
     if (ao && mesh.ao === undefined) this.bakeAo(mesh);
     p.use();
     p.set('uModel', model); p.set('uTint', livery ? livery.color : tint); p.set('uGlow', glow); p.set('uAlpha', alpha); p.set('uFloat', float); p.set('uSpan', span || 1);
-    p.set('uLamp', this.lamp);
+    p.set('uLamp', this.lamp); p.set('uWetSpd', speed / 36);
     p.set('uLivery', livery ? [1, livery.stripe, livery.number] : [0, 0, -1]);
     p.set('uHasTex', texture ? 1 : 0);
     if (texture) p.set('uTexture', texture);

@@ -59,6 +59,7 @@ export class Game {
     this.meshes = new MeshPass(gl);
     this.boatMesh = boatGeo().build(gl);
     this.driverMesh = driverGeo().build(gl);
+    this.driverArmsMesh = driverGeo('arms').build(gl);   // what the helm camera sees of the driver: sleeves and gloves on the wheel
     this.probe = new MultiProbe(gl);
     this.boat = new Boat();
     this.ghostBoat = new Boat();
@@ -232,7 +233,7 @@ export class Game {
       // the driver's eye, raised a hand so the view clears the top of the windscreen
       const { Z } = boat.axes(), e = BOAT_ANCHORS.eye, ex = e[0] + 0.1, ey = e[1] + 0.2, ez = e[2];
       c.pos = [0, 1, 2].map((i) => boat.pos[i] + X[i] * ex + Y[i] * ey + Z[i] * ez);
-      c.yaw = boat.yaw; c.pitch = boat.pitch * 0.6 - 0.05; c.roll = -boat.roll * 0.7;
+      c.yaw = boat.yaw; c.pitch = boat.pitch * 0.6 - 0.12; c.roll = -boat.roll * 0.7;
       this.camYaw = boat.yaw; this.camY = boat.pos[1];
     } else {
       const menu = this.state === 'menu';
@@ -288,9 +289,9 @@ export class Game {
     const mat = this.model;
     for (const b of this.renderBoats()) {
       if (b.ghost) continue;
-      m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery });
-      // the driver sits at the helm; from the helm camera your own driver would be in your face
-      if (b.pose === this.boat && this.camMode === 'helm' && this.state !== 'menu') continue;
+      m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery, speed: b.pose.speed });
+      // the driver sits at the helm; from the helm camera only the arms on the wheel are drawn (the head would be around the lens)
+      if (b.pose === this.boat && this.camMode === 'helm' && this.state !== 'menu') { m.draw(this.driverArmsMesh, attach(mat, BOAT_ANCHORS.helm), { tint: b.livery.color }); continue; }
       m.draw(this.driverMesh, attach(mat, BOAT_ANCHORS.helm), { tint: b.livery.color });
     }
     for (const s of this.systems) s.draw?.(scene, m);
