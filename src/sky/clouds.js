@@ -253,7 +253,7 @@ vec4 regime(vec2 xz, float h, out float base, out float top) {
 float deckRelief(vec4 wm, vec4 n) {
   // (the pouches follow the billowed channel of the shape noise: its plain cells are discs, and a deck of
   // discs lit from the side is a ceiling of soap bubbles)
-  return 20.0 + 240.0 * (1.0 - smoothstep(0.56, 0.7, wm.r)) + 130.0 * (1.0 - smoothstep(0.62, 0.9, n.r)) + 70.0 * (1.0 - n.b) + 35.0 * (1.0 - n.a);
+  return 20.0 + 240.0 * (1.0 - smoothstep(0.5, 0.64, wm.r)) + 130.0 * (1.0 - smoothstep(0.56, 0.86, n.r)) + 70.0 * (1.0 - n.b) + 35.0 * (1.0 - n.a);
 }
 float deckReliefAt(vec3 p) {
   vec4 wm = textureLod(uWeather, (p.xz + uWindOffset.xz) / 30000.0, lodFor(30000.0 / 512.0));
@@ -362,7 +362,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // vertical profile. Fair weather: cumulus towers with type-dependent tops.
   // Storm: a deck whose underside is relief (deckRelief). The lighting reads gLump (what hangs lowest has
   // the most cloud above it) and the slope of the relief towards the light.
-  float m1 = smoothstep(0.56, 0.7, wm.r), m2 = smoothstep(0.62, 0.9, n.r);
+  float m1 = smoothstep(0.5, 0.64, wm.r), m2 = smoothstep(0.56, 0.86, n.r);
   // (and whole regions of the deck, ten kilometres and more across, are heavier and darker than others)
   gLump = 0.6 * m1 + 0.4 * m2;
   gMass = smoothstep(0.3, 0.7, wm.b);
@@ -388,7 +388,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // per-cloud base height (flat bases that differ from cloud to cloud)
   baseFrac += (wm.b - 0.5) * 0.06 * (1.0 - dark);
   gTopF = tf * lobe; gBaseF = baseFrac;
-  float hg = smoothstep(baseFrac, baseFrac + mix(110.0, 150.0, dark) / H, hf) * (1.0 - smoothstep(tf * lobe * (1.0 - topW), tf * lobe, hf));
+  float hg = smoothstep(baseFrac, baseFrac + mix(110.0, 120.0, dark) / H, hf) * (1.0 - smoothstep(tf * lobe * (1.0 - topW), tf * lobe, hf));
   bool anvilSlab = dark > 0.5 && hf > 0.8;
   if (anvilSlab) hg = smoothstep(baseFrac, baseFrac + 0.05, hf) * (1.0 - smoothstep(0.95, 1.0, hf));
   float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
@@ -732,7 +732,9 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
         float slope = (deckReliefAt(p + vec3(lh.x, 0.0, lh.y) * 120.0) - relief) / 120.0;
         // (most of a storm's underside is dark: only a flank turned well towards the light is bright; and
         // the erosion's creases are darker again, the fine grain of the base)
-        float dv = mix(1.2, 0.6, smoothstep(0.05, 0.95, lump)) * mix(1.25, 0.6, mass) * mix(0.64, 1.7, smoothstep(0.0, 0.8, slope)) * (1.0 - 0.35 * min(crev, 1.0));
+        // (and most of it is dark for another reason: only the recesses between the masses and between the
+        // pouches, a fifth of the deck, are thin enough to be rifts of light)
+        float dv = mix(1.7, 0.5, smoothstep(0.1, 0.65, lump)) * mix(1.25, 0.6, mass) * mix(0.75, 1.4, smoothstep(0.0, 0.8, slope)) * (1.0 - 0.5 * min(crev, 1.0));
         dv = slabLit ? dv : mix(1.0, dv, 0.6 * (1.0 - smoothstep(0.25, 0.6, hfl)));
         sun *= dv; amb *= dv;
       }
@@ -1011,18 +1013,30 @@ export class Clouds {
     };
   }
 
-  render(skyU, u, cam) {
-    const gl = this.gl;
-    this.frame++;
-    const cu = this.uniforms(u);
-    // the cirrus sheet is drawn by the sky pass (full resolution, no history): hand it its inputs
-    // through the sky uniform set, which the caller spreads into that pass
+  // the cirrus sheet and the strip under a storm deck are drawn by the sky pass (full resolution, no
+  // history): hand it their inputs through the sky uniform set, which the caller spreads into that pass
+  skyInputs(skyU, u, cam) {
     const cirrus = (1 - smoothstep(0.55, 0.95, u.coverage)) * (1 - smoothstep(0.3, 0.7, u.dark)) * (0.3 + 0.3 * smoothstep(0.1, 0.45, u.coverage));
     skyU.uCirrus = [u.windOffset[0] * 2.2, u.windOffset[2] * 2.2, cirrus, 8500];
     skyU.uCirrusCam = cam.pos;
     skyU.uCirrusTex = this.cirrusTex;
     // the open strip along the horizon under a closed storm deck (see deckGap in sky.js)
     skyU.uGap = smoothstep(0.86, 0.94, u.coverage) * smoothstep(0.6, 0.85, u.dark);
+  }
+
+  // reflection probe clouds; blend: how much of the fresh march is taken (1 replaces the history)
+  renderEnv(skyU, u, cam, blend) {
+    const en = 1 - this.envCur;
+    const amb = { uAmbTop: u.ambTop || [1, 1, 1], uAmbBot: u.ambBot || [1, 1, 1] };
+    fullscreen(this.gl, this.pEnv, { ...skyU, ...this.uniforms(u), ...amb, uCamPos: cam.pos, uFrame: blend >= 1 ? 0 : this.frame + 2, uEnvBlend: blend, uHistory: this.envTex[this.envCur], uPixelAngle: (2 * Math.PI) / this.envTex[0].w, uDetailFoot: 25, uUpSteps: 2 }, this.envTargets[en]);
+    this.envCur = en;
+  }
+
+  render(skyU, u, cam) {
+    const gl = this.gl;
+    this.frame++;
+    const cu = this.uniforms(u);
+    this.skyInputs(skyU, u, cam);
     // cloud shadow map centred on the camera, snapped to texels to avoid crawling
     const texel = this.shadowSize / 256;
     const ox = Math.floor((cam.pos[0] - this.shadowSize / 2) / texel) * texel;
@@ -1043,11 +1057,7 @@ export class Clouds {
 
     const amb = { uAmbTop: u.ambTop || [1, 1, 1], uAmbBot: u.ambBot || [1, 1, 1] };
     // reflection probe clouds (amortised via history blend)
-    const en = 1 - this.envCur;
-    if (full || settling || this.frame % 2 === 1 || u.flash[3] > 0.01) {
-    fullscreen(gl, this.pEnv, { ...skyU, ...cu, ...amb, uCamPos: cam.pos, uFrame: this.reset ? 0 : this.frame, uEnvBlend: settling ? 0.6 : 0.25, uHistory: this.envTex[this.envCur], uPixelAngle: (2 * Math.PI) / this.envTex[0].w, uDetailFoot: 25, uUpSteps: 2 }, this.envTargets[en]);
-    this.envCur = en;
-    }
+    if (full || settling || this.frame % 2 === 1 || u.flash[3] > 0.01) this.renderEnv(skyU, u, cam, this.reset ? 1 : settling ? 0.6 : 0.25);
 
     const next = 1 - this.cur;
     const screenU = {
