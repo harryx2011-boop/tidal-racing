@@ -57,7 +57,7 @@ function makeShape(sh, i) {
   }
   return {
     i, e, n, bounds: [x0, z0, x1, z1],
-    relief: sh.relief ?? 0, cliff: sh.cliff ?? 0.3, plateau: sh.plateau ?? 6, seed: (sh.seed ?? i) * 31 + 7, cliffH: sh.cliffH ?? 22, warp: sh.warp ?? 1,
+    relief: sh.relief ?? 0, cliff: sh.cliff ?? 0.3, plateau: sh.plateau ?? 6, seed: (sh.seed ?? i) * 31 + 7, cliffH: sh.cliffH ?? 22, warp: sh.warp ?? 1, shelf: sh.shelf ?? 1,
   };
 }
 // signed distance from (px, pz) to the polygon: positive inside
@@ -85,7 +85,8 @@ function profile(sh, s, x, z) {
   if (s < 0) {
     const d = -s;
     // a beach shelves gently, then drops away; a cliff plunges at once
-    const beach = 0.045 * d + 14 * Math.pow(smooth(8, 130, d), 1.15) + 34 * smooth(140, 900, d) + 14 * smooth(900, 3000, d);
+    // (`shelf` scales the beach's depth: above 1 the water deepens quickly, a steep-to shore the racing line can hug)
+    const beach = sh.shelf * (0.045 * d + 14 * Math.pow(smooth(8, 130, d), 1.15)) + 34 * smooth(140, 900, d) + 14 * smooth(900, 3000, d);
     const rock = 16 * (1 - Math.exp(-d / 7)) + 0.06 * d + 30 * smooth(300, 1500, d);
     let h = -lerp(beach, Math.max(rock, beach * 0.9), c);
     // skerries and ledges off a rocky shore

@@ -7,14 +7,17 @@
 // slides off a beach instead of sticking. The depth is the still-water depth: waves die in shallows (see
 // waveAtt) so the sea there is flat anyway. boat.ground (0..1) says how hard it is aground.
 //
-// The solids. Marks (buoys, pylons, gantry towers) and scenery (lighthouse, breakwater, beacons, platform, anchored
-// boats) are circles { x, z, r } and, for the platform, a box { x, z, hx, hz, yaw }. The hull is three
+// The solids. Marks (buoys, pylons, gantry towers), scenery (lighthouse, breakwater, beacons, platform, anchored
+// boats) and the course's coast features (models/coast.js: piers, stacks, boulders, moored craft) are circles
+// { x, z, r } and, for the platform and the piers, a box { x, z, hx, hz, yaw }. The hull is three
 // circles along its axis. A contact moves the boat out along the normal and takes the closing speed off with
 // a little bounce. No damage.
 //
 // Cost per step: one distance test against every circle (about 100 on the busiest course: the marks, the
-// breakwater's chain, boats and beacons), a capsule test (three circle tests) only for those within reach
+// breakwater's chain, boats and beacons, plus up to 40 feature circles and a few piers), a capsule test (three circle tests) only for those within reach
 // of the hull, and seven bilinear reads of the height field. No allocation.
+import { featureColliders } from './models/coast.js';
+
 const DRAFT_CLEAR = 0.6;
 const PROBES = [[4.3, 0], [3.0, -0.8], [3.0, 0.8], [0, -1.2], [0, 1.2], [-3.2, -1.0], [-3.2, 1.0]];
 const CAP = [[3.0, 1.25], [0, 1.35], [-3.0, 1.25]];     // the hull as three circles: x along the axis, radius
@@ -29,6 +32,7 @@ export class Collisions {
     this.tests = 0;            // circle and box tests this step (for the report)
     this.hits = 0;
     this.lists = [];
+    this.featFor = null; this.feat = [];   // the course's feature solids, looked up once per course
   }
 
   step(boat, dt) {
@@ -38,6 +42,8 @@ export class Collisions {
     if (land && land.field) this.ground(boat, dt, land.field, cy, sy);
     const sy2 = g.systems;
     for (let i = 0; i < sy2.length; i++) if (sy2[i].colliders && sy2[i].colliders.length) this.solids(boat, sy2[i].colliders, cy, sy);
+    if (g.course !== this.featFor) { this.featFor = g.course; this.feat = g.course ? featureColliders(g.course.id) : []; }
+    if (this.feat.length) this.solids(boat, this.feat, cy, sy);
   }
 
   ground(boat, dt, field, cy, sy) {

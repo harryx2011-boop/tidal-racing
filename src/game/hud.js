@@ -3,6 +3,7 @@
 // every length is in logical pixels (1em inside #ui, a whole number of device pixels).
 import { COURSES, CONDITIONS, TIMES } from './courses.js';
 import { settings, SWATCHES, STRIPES, TIERS } from './settings.js';
+import { COASTS, rockSpots } from './models/coast.js';
 import { T, dither, unit, Bitmap, PAPER, INK, ACCENT } from './pixel.js';
 
 const DITHER = 'background-size: 4em 4em; background-attachment: fixed; image-rendering: pixelated;';
@@ -338,6 +339,15 @@ export class HUD {
         on = edge || ((px & 1) === 0 && (py & 1) === 0);
       } else if (h > -2.5) on = ((px + py) & 3) === 0 && (px & 1) === 0;
       if (on) x.fillRect(px, py, 1, 1);
+    }
+    // piers (a line from the root), stacks and boulders (a pixel each), in solid paper so they stand off the dither
+    const X = (wx) => ox + (wx - x0) * sc, Z = (wz) => oz + (wz - z0) * sc;
+    for (const f of (COASTS[id] && COASTS[id].features) || []) {
+      if (f.kind === 'pier') {
+        const n = Math.max(2, Math.ceil(f.len * sc));
+        for (let k = 0; k <= n; k++) x.fillRect(Math.round(X(f.x + Math.cos(f.yaw) * f.len * k / n)), Math.round(Z(f.z + Math.sin(f.yaw) * f.len * k / n)), 1, 1);
+      } else if (f.kind === 'stack') x.fillRect(Math.round(X(f.x)) - 1, Math.round(Z(f.z)) - 1, 2, 2);
+      else if (f.kind === 'rocks') for (const r of rockSpots(f)) x.fillRect(Math.round(X(r.x)), Math.round(Z(r.z)), 1, 1);
     }
     this.coast = { id, canvas: c };
     return c;
