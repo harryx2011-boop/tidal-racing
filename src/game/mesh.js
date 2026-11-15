@@ -149,8 +149,10 @@ void rubberSurface(inout vec3 albedo, inout float ra, inout vec3 Nm, vec3 N, vec
     float n1 = vnoise(q3 * 0.9 + 3.1), n2 = vnoise(q3 * 3.7 + 9.0);
     vec3 bed = id > 0.0 ? normalize(vec3(h11(id) - 0.5, 0.6, h11(id + 7.0) - 0.5)) * 9.0 : vec3(0.9, 7.0, 0.6);
     float strata = sin(dot(vObj, bed) + n1 * 9.0);
-    float crack = (1.0 - smoothstep(0.0, 0.03 + pf * 1.5, abs(n2 - 0.5))) * fadeOut(pf, 5.0);
-    albedo *= (0.8 + 0.4 * n2) * mix(1.0, 0.88 + 0.12 * strata, fadeOut(pf, 2.5)) * mix(1.0, 0.55, crack);
+    // (cracks are few: a hairline where one noise crosses its middle, and only where a second, broader one allows it)
+    float crack = (1.0 - smoothstep(0.004, 0.012 + pf * 0.5, abs(n2 - 0.5))) * smoothstep(0.52, 0.7, vnoise(q3 * 0.8 + 21.0)) * fadeOut(pf, 9.0);
+    float pit = vnoise(q3 * 19.0 + 2.0) * vnoise(q3 * 47.0);
+    albedo *= (0.78 + 0.44 * n2) * mix(1.0, 0.88 + 0.12 * strata, fadeOut(pf, 2.5)) * mix(1.0, 0.6, crack) * mix(1.0, 0.7 + 0.9 * pit, fadeOut(pf, 30.0));
   } else if (dv == 5) {
     // corrugated steel: trapezoid ribs across the run; the flanks tilt the normal
     const float per = 0.28;
