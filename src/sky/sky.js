@@ -6,16 +6,15 @@ import { SKY_LOOKUP_GLSL } from './atmosphere.js';
 // Shared by the sky pass and the reflection environment: the cirrus sheet is a pure function of
 // the view direction, so the sea and the boat reflect the same streaks the sky shows.
 const CIRRUS_GLSL = `
-uniform sampler2D uCirrusTex;  // r fibres, g fall-streak tufts, b ripples, a patches (built in clouds.js)
+uniform sampler2D uCirrusTex;  // r hairs, g sheaves and fall-streak tufts, b ripples, a patches (built in clouds.js)
 uniform vec4 uCirrus;        // xy: advection aloft (m), z: amount, w: altitude (m)
 uniform vec3 uCirrusCam;     // camera position (the env pass has no uCamPos of its own)
 float hgc(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
 // Cirrus: a thin sheet of ice crystals at ~8.5 km, above the haze and the cumulus. It is evaluated
 // per pixel from a fixed texture (no ray march, no history), so it is as sharp as the screen is and
-// costs three texture fetches. The tile is read at three scales: 56 km (the filaments and tufts one
-// sees as shapes), 15 km (the fine hairs inside them) and
-// 97 km (which part of the sky holds what). The sheet thickens towards the horizon (longer slant
-// path) and fades into the haze there.
+// costs three texture fetches. The tile is read at three scales: 56 km (the sheaves and tufts one
+// sees as shapes), 15 km (the fine hairs inside them) and 97 km (which part of the sky holds what).
+// The sheet thickens towards the horizon (longer slant path) and fades into the haze there.
 vec4 cirrusLayer(vec3 d) {
   float amount = uCirrus.z;
   const float RG = 6360000.0;
@@ -88,19 +87,21 @@ vec3 deckGap(vec3 d) {
 // curtain of rain was only a paler patch. Under the heart of a shower the light is dimmer (the cloud
 // that sheds it is the thickest) and the falling rain is combed into streaks that lean with the
 // wind: the sky's fogged colour is shaded by the cells that stand in the first kilometres of the
-// view, darkest low down where the path through them is longest.
+// view.
 vec3 rainShafts(vec3 col, vec3 d) {
   if (uRainCell.x <= 0.0 || d.y < -0.01) return col;
   vec2 dh = normalize(d.xz + vec2(1e-6, 0.0));
   float m = rainCell(uFogCam + dh * 1500.0) * 0.3 + rainCell(uFogCam + dh * 3500.0) * 0.4 + rainCell(uFogCam + dh * 7000.0) * 0.3;
   float cell = smoothstep(0.25, 1.1, m);
   // (2D noise read on the circle of view azimuths has no seam; the lean is a turn that grows with elevation)
-  // (and the whole pattern drifts round with the showers: their drift across the view, at some 6 km)
-  float a = d.y * 0.3 + dot(uRainCell.yz, vec2(-dh.y, dh.x)) / 6000.0, ca = cos(a), sa = sin(a);
+  // (and the whole pattern turns slowly with the showers' drift: all of it alike, or it would shear)
+  float a = d.y * 0.3 + (uRainCell.y * 0.8 + uRainCell.z * 0.6) / 9000.0, ca = cos(a), sa = sin(a);
   vec2 ds = vec2(ca * dh.x - sa * dh.y, sa * dh.x + ca * dh.y);
   float streak = fogNoise2(ds * 37.0 + 3.1) * 0.45 + fogNoise2(vec2(ds.x + ds.y, ds.y - ds.x) * 71.0 + 7.7) * 0.33 + fogNoise2(ds * 211.0 + 1.3) * 0.22;
-  float w = (1.0 - smoothstep(0.08, 0.38, d.y)) * clamp(uRainCell.x / 0.7e-3, 0.0, 1.0);
-  return col * mix(1.0, mix(1.12, 0.68, cell) * (1.0 + 0.2 * (streak - 0.5) * (0.25 + cell)), w);
+  // (nothing at the horizon itself: the land and the sea there carry the fog's even light, and a hill
+  // must not stand paler than the rain behind it)
+  float w = smoothstep(0.0, 0.09, d.y) * (1.0 - smoothstep(0.1, 0.4, d.y)) * clamp(uRainCell.x / 0.7e-3, 0.0, 1.0);
+  return col * mix(1.0, mix(1.1, 0.78, cell) * (1.0 + 0.2 * (streak - 0.5) * (0.25 + cell)), w);
 }
 `;
 

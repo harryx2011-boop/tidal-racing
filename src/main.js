@@ -67,6 +67,7 @@ export class App {
     this.sky = new Sky(gl);
     this.clouds = new Clouds(gl);
     this.windOffset = [Number(params.get('cx') || 0), 0, Number(params.get('cz') || 0)];
+    this.windBase = [this.windOffset[0], this.windOffset[2]];
     this.post = new Post(gl);
     this.prof = new Profiler(gl, params.has('profile'));
     if (params.has('profile2')) this.ocean.prof = this.prof;
@@ -234,6 +235,17 @@ export class App {
     // clouds advect with the wind aloft (~1.6x surface wind), detail evolves slowly
     const wd0 = (S.windDir * Math.PI) / 180;
     const aloft = 4 + S.wind * 1.6;
+    // A race sets the clock (and snaps the weather). From there the sky is a function of sea time, the
+    // same on every client, as the waves are; between such jumps the drift is integrated, so that a
+    // change of weather bends it instead of sliding the whole sky.
+    if (this.cloudT === undefined || Math.abs(t - dt - this.cloudT) > 1e-6) {
+      const t0 = t - dt;
+      this.windOffset[0] = this.windBase[0] + Math.cos(wd0) * aloft * t0;
+      this.windOffset[2] = this.windBase[1] + Math.sin(wd0) * aloft * t0;
+      this.windOffset[1] = t0 * (3 + S.wind * 0.6);
+      this.clouds.reset = true;
+    }
+    this.cloudT = t;
     this.windOffset[0] += Math.cos(wd0) * aloft * dt;
     this.windOffset[2] += Math.sin(wd0) * aloft * dt;
     this.windOffset[1] += dt * (3 + S.wind * 0.6);
