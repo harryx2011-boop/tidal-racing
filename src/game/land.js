@@ -122,6 +122,7 @@ uniform vec4 uQuayA[2];               // a quay's apron: the middle of its water
 uniform vec4 uQuayB[2];               // half its width, its depth inland, how far it flares, how deep it is paved (x = 0: none)
 uniform sampler2D uObjH;              // the heights of what stands on the ground, seen from above (coastal.js)
 uniform vec4 uObjRect;                // its rectangle: x0, z0, 1 / width, 1 / depth (z = 0: none)
+uniform float uObjTexel;              // metres a texel
 uniform float uTreeFar;               // beyond this the trees are not drawn and the woods are painted on the ground
 uniform vec4 uLampP[${LAMPS}];        // the lamp posts nearest the camera: position, strength
 uniform float uLampOn;                // 0 by day .. 1 in the dark
@@ -176,7 +177,7 @@ float terrainShadow(vec2 p, float h0, vec3 L, float dist) {
 // What stands on the ground (buildings, quay furniture, trees) from its top-down height map: x, how much of
 // the sun gets past it (a march toward the sun, the penumbra widening with distance); y, how much of the sky
 // (a ring of taps: ground at the foot of a wall or under an eave is darker).
-float objH(vec2 q) { return textureLod(uObjH, (q - uObjRect.xy) * uObjRect.zw, 0.0).r; }
+float objH(vec2 q, float lod) { return textureLod(uObjH, (q - uObjRect.xy) * uObjRect.zw, lod).r; }
 vec2 objShade(vec2 p, float h0, vec3 L) {
   vec2 uv = (p - uObjRect.xy) * uObjRect.zw;
   if (uObjRect.z <= 0.0 || min(uv.x, uv.y) < 0.0 || max(uv.x, uv.y) > 1.0) return vec2(1.0);
@@ -186,16 +187,18 @@ vec2 objShade(vec2 p, float h0, vec3 L) {
     float slope = L.y / max(length(L.xz), 1e-3), t = 0.3;
     for (int i = 0; i < 14; i++) {
       float rayH = h0 + 0.1 + t * slope;
-      vis = min(vis, clamp((rayH - objH(p + dir * t)) / (0.06 * t + 0.15) + 0.5, 0.0, 1.0));
+      // (the further the thing that casts it, the wider the sun's disc smears its edge: a coarser level of the map)
+      float lod = clamp(log2(max(t * 0.1 / uObjTexel, 1.0)), 0.0, 4.0);
+      vis = min(vis, clamp((rayH - objH(p + dir * t, lod)) / (0.1 * t + 0.15) + 0.5, 0.0, 1.0));
       t *= 1.5;
     }
   }
   float occ = 0.0;
   for (int i = 0; i < 8; i++) {
     float a = float(i) * 0.7854 + 0.3, r = (i & 1) == 0 ? 0.8 : 2.0;
-    occ += clamp((objH(p + vec2(cos(a), sin(a)) * r) - h0 - 0.15) / (r * 1.6), 0.0, 1.0);
+    occ += clamp((objH(p + vec2(cos(a), sin(a)) * r, 1.0) - h0 - 0.15) / (r * 1.6), 0.0, 1.0);
   }
-  float under = smoothstep(0.4, 1.2, objH(p) - h0);
+  float under = smoothstep(0.4, 1.2, objH(p, 1.0) - h0);
   return vec2(vis, (1.0 - 0.6 * occ / 8.0) * (1.0 - 0.35 * under));
 }
 
@@ -223,10 +226,13 @@ vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, out float crev, out
   float fo2 = 1.0 - smoothstep(0.08, 0.3, fp);            // joints, laminations
   float fo0 = 1.0 - smoothstep(0.3, 0.8, fp * 0.16);      // the great beds
   float face = smoothstep(0.15, 0.4, 1.0 - Ng.y);
-  vec2 tdir = normalize(vec2(-Ng.z, Ng.x) + vec2(1e-4, 0.0));   // level, along the face
-  float al = dot(P.xz, tdir);
+  // level, along the face: one of the two axes, whichever the face lies nearer (a direction taken from the normal
+  // itself would swing the pattern metres for every degree the normal wanders)
+  vec2 tdir = abs(Ng.x) > abs(Ng.z) ? vec2(0.0, 1.0) : vec2(1.0, 0.0);
+  float al = dot(P.xz, tdir) + (abs(Ng.x) > abs(Ng.z) ? 37.0 : 0.0);
   float wv = vn(P.xz * 0.045 + 3.0);
-  float s = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 2.2 * wv + 0.25 * n2;
+  // (the beds wander a little in space, so their lines do not follow the mesh's own facets too faithfully)
+  float s = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 2.2 * wv + 0.25 * n2 + 0.9 * (vn3(P * 0.19 + 11.0) - 0.5) + 0.35 * (vn3(P * 0.6 + 5.0) - 0.5) * fo1;
   // great beds of uneven thickness (3 to 9 m), each stepping back from the one below: these carry the ledges
   float s0 = s * 0.3 + 0.9 * vn(vec2(s * 0.23, 7.0));
   float B0 = floor(s0), bf0 = s0 - B0;
@@ -370,18 +376,18 @@ void main() {
   float fgate = fieldGate(h, Ng.y) * fieldMask(p) * (1.0 - wood);
   vec4 fl = fieldAt(p);
   float fid = fl.y;
-  vec3 fcol = fid < 0.5 ? mix(vec3(0.055, 0.105, 0.028), vec3(0.1, 0.135, 0.04), fid * 2.0)
-            : fid < 0.68 ? vec3(0.2, 0.17, 0.075)
-            : fid < 0.8 ? vec3(0.105, 0.072, 0.048)
-            : vec3(0.04, 0.08, 0.03);
+  vec3 fcol = fid < 0.5 ? mix(vec3(0.05, 0.105, 0.025), vec3(0.115, 0.165, 0.045), fid * 2.0)
+            : fid < 0.68 ? vec3(0.25, 0.21, 0.09)
+            : fid < 0.8 ? vec3(0.12, 0.08, 0.05)
+            : vec3(0.035, 0.075, 0.028);
   // (mowing lines and furrows along the strip, two metres apart)
   fcol *= 1.0 + (fid < 0.5 ? 0.06 : 0.16) * sin(fl.w * 3.14159) * (1.0 - smoothstep(0.25, 0.8, fp));
   fcol *= (0.85 + 0.5 * n1) * (0.92 + 0.25 * n2);
-  grass = mix(grass, fcol, fgate * 0.85);
+  grass = mix(grass, fcol, fgate * 0.95);
   float stone = smoothstep(55.0, 80.0, h + 30.0 * n3);
-  float bw = mix(1.3, 0.5, stone), bwe = max(bw, fp * 0.55);
+  float bw = mix(1.7, 0.6, stone), bwe = max(bw, fp * 0.55);
   float hedge = (1.0 - smoothstep(bwe, bwe + max(fp, 0.3), fl.x)) * sqrt(bw / bwe) * fgate;
-  grass = mix(grass, mix(vec3(0.024, 0.045, 0.018), vec3(0.17, 0.165, 0.15), stone) * (0.8 + 0.6 * n1), hedge * 0.9);
+  grass = mix(grass, mix(vec3(0.018, 0.035, 0.014), vec3(0.17, 0.165, 0.15), stone) * (0.8 + 0.6 * n1), hedge * 0.92);
 
   // ---- steep banks: bare earth, terracettes, scree under the rock ----
   float steep = smoothstep(0.1, 0.19, sl + 0.05 * n2) * (1.0 - rock);
@@ -436,10 +442,10 @@ void main() {
   float weed = 1.0 - smoothstep(0.1, 0.7, zn);
   float barn = smoothstep(0.45, 0.8, zn) * (1.0 - smoothstep(1.1, 1.6, zn)) * (0.35 + 0.65 * vnf(p + 9.0, 3.1, fp));
   float tar = smoothstep(1.0, 1.5, zn) * (1.0 - smoothstep(2.2, 3.4, zn));
-  float xan = smoothstep(2.4, 3.2, zn) * (1.0 - smoothstep(5.0, 9.0, zn)) * mix(0.3, smoothstep(0.5, 0.64, vn3(P3 * 0.55 + 3.0) * 0.6 + vn3(P3 * 2.1) * 0.4), lich);
+  float xan = smoothstep(2.4, 3.2, zn) * (1.0 - smoothstep(4.5, 7.5, zn)) * mix(0.25, smoothstep(0.5, 0.64, vn3(P3 * 0.55 + 3.0) * 0.6 + vn3(P3 * 2.1) * 0.4), lich);
   float grey = smoothstep(3.5, 6.0, zn) * mix(0.3, smoothstep(0.5, 0.64, vn3(P3 * 0.8 + 17.0)), lich);
   albedo = mix(albedo, vec3(0.31, 0.3, 0.24), grey * 0.4 * hard);
-  albedo = mix(albedo, vec3(0.4, 0.26, 0.045), xan * 0.6 * hard);
+  albedo = mix(albedo, vec3(0.38, 0.27, 0.07), xan * 0.42 * hard);
   albedo = mix(albedo, vec3(0.03, 0.03, 0.03), tar * 0.75 * hard);
   albedo = mix(albedo, vec3(0.3, 0.285, 0.24), barn * 0.6 * hard);
   albedo = mix(albedo, mix(vec3(0.028, 0.03, 0.014), vec3(0.085, 0.07, 0.022), vnf(p + 5.0, 2.3, fp)), weed * 0.9 * hard);
@@ -586,7 +592,7 @@ export class Land {
     this.ground = [];
     this.cover = {
       quayA: new Float32Array(8), quayB: new Float32Array(8),      // quay aprons (see the shader)
-      objTex: null, objRect: new Float32Array(4),                  // top-down heights of what stands on the ground
+      objTex: null, objRect: new Float32Array(4), objTexel: 1,     // top-down heights of what stands on the ground
       treeFar: 1e9,                                                // the trees' range; the woods are painted beyond it
       lampP: new Float32Array(LAMPS * 4), lampOn: 0,               // lamp posts lighting the ground
     };
@@ -724,7 +730,7 @@ export class Land {
       p.set('uHN', G.near); p.set('uHF', G.far);
       p.set('uRectN', this.rectN); p.set('uRectF', this.rectF);
       p.set('uQuayA', C.quayA); p.set('uQuayB', C.quayB);
-      p.set('uObjH', C.objTex || this.blank); p.set('uObjRect', C.objRect);
+      p.set('uObjH', C.objTex || this.blank); p.set('uObjRect', C.objRect); p.set('uObjTexel', C.objTexel);
       p.set('uTreeFar', C.treeFar);
       p.set('uLampP', C.lampP); p.set('uLampOn', C.lampOn);
     };

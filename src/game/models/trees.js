@@ -27,7 +27,7 @@ export const SPECIES = ['oak', 'birch', 'pine', 'spruce', 'thorn', 'bush'];
 const KIND = {
   oak: { h: [8, 14], leaf: [0.07, 0.115, 0.03], bark: [0.085, 0.07, 0.055] },
   birch: { h: [8, 13], leaf: [0.105, 0.15, 0.04], bark: [0.42, 0.4, 0.36] },
-  pine: { h: [10, 17], leaf: [0.035, 0.07, 0.04], bark: [0.2, 0.1, 0.06] },
+  pine: { h: [10, 17], leaf: [0.035, 0.07, 0.04], bark: [0.15, 0.095, 0.065] },
   spruce: { h: [9, 17], leaf: [0.028, 0.058, 0.03], bark: [0.08, 0.06, 0.045] },
   thorn: { h: [3.2, 5.6], leaf: [0.06, 0.095, 0.03], bark: [0.07, 0.06, 0.05] },
   bush: { h: [1.1, 2.4], leaf: [0.05, 0.085, 0.028], bark: [0.07, 0.06, 0.05] },
@@ -43,7 +43,7 @@ function puff(g, c, rx, ry, rz, lod, seed, col) {
   if (!n) return;
   sheet(g, n + 1, m + 1, (i, j, out) => {
     const a = (i / n - 0.5) * Math.PI, th = ((j % m) / m) * TAU, ca = Math.cos(a), sa = Math.sin(a), cx = Math.cos(th), cz = Math.sin(th);
-    const k = i === 0 || i === n ? 1 : 0.72 + 0.56 * fb(cx * ca * 1.7 + seed, sa * 1.7, cz * ca * 1.7 + seed * 0.3);
+    const k = i === 0 || i === n ? 0.9 : 0.55 + 0.9 * fb(cx * ca * 2.3 + seed, sa * 2.3, cz * ca * 2.3 + seed * 0.3);
     out[0] = c[0] + rx * ca * cx * k; out[1] = c[1] + ry * sa * (sa < 0 ? 0.7 : 1) * k; out[2] = c[2] + rz * ca * cz * k;
   }, col, LEAF, { wrap: true });
 }
@@ -69,25 +69,28 @@ export function treeGeo(kind, lod = 0, seed = 1) {
   if (kind === 'oak' || kind === 'birch') {
     const oak = kind === 'oak', cy = oak ? 0.63 : 0.66, ry = oak ? 0.36 : 0.34, rx = oak ? 0.4 : 0.24, tb = oak ? 0.3 : 0.4;
     trunk([[0, -0.03, 0], [0.01, tb * 0.5, 0.01], [0.0, tb, 0], [0.02, cy, 0.01]], oak ? 0.05 : 0.028, oak ? 0.022 : 0.012);
-    const n = lod === 0 ? (oak ? 11 : 9) : lod === 1 ? 6 : 3;
+    // puffs spread through the head on a spiral, smaller toward the outside and the top, so the outline is broken
+    // and there are gaps into the dark inside
+    const n = lod === 0 ? (oak ? 19 : 15) : lod === 1 ? 8 : 3;
     for (let k = 0; k < n; k++) {
-      // puffs spread over the head: a ring low and wide, a ring higher, one on top
-      const ring = k === n - 1 ? 2 : k % 2, a = (k / n) * TAU * 1.9 + R() * 0.7, d = ring === 2 ? 0 : ring ? 0.42 : 0.72, y = cy + ry * (ring === 2 ? 0.55 : ring ? 0.25 : -0.3) + (R() - 0.5) * 0.06;
-      const c = [Math.cos(a) * rx * d, y, Math.sin(a) * rx * d], pr = (oak ? 0.21 : 0.15) * (0.85 + 0.4 * R()) * (lod === 2 ? 1.5 : lod === 1 ? 1.2 : 1);
-      puff(g, c, pr * 1.15, pr * (oak ? 0.8 : 1.0), pr * 1.15, lod, seed + k * 3.7, tone(0.8 + 0.45 * R()));
-      if (lod === 0 && ring !== 2) trunk([[0, tb * (0.8 + 0.3 * R()), 0], [c[0] * 0.5, lerp(tb, c[1], 0.6), c[2] * 0.5], [c[0] * 0.9, c[1] - pr * 0.3, c[2] * 0.9]], oak ? 0.022 : 0.012, 0.006);
+      const u = (k + 0.5) / n, yy = 1 - 2 * u, rr = Math.sqrt(Math.max(1 - yy * yy, 0)), a = k * 2.39996 + R() * 0.5, d = 0.62 + 0.3 * R();
+      const c = [Math.cos(a) * rr * rx * d, cy + yy * ry * 0.8 * (yy < 0 ? 0.6 : 1) + (R() - 0.5) * 0.05, Math.sin(a) * rr * rx * d];
+      const pr = (oak ? 0.165 : 0.115) * (0.75 + 0.6 * R()) * (lod === 2 ? 2.0 : lod === 1 ? 1.45 : 1);
+      puff(g, c, pr * 1.2, pr * (oak ? 0.82 : 1.05), pr * 1.2, lod, seed + k * 3.7, tone(0.75 + 0.5 * R()));
+      if (lod === 0 && k % 2 === 0 && yy < 0.6) trunk([[0, tb * (0.75 + 0.35 * R()), 0], [c[0] * 0.45, lerp(tb, c[1], 0.55), c[2] * 0.45], [c[0] * 0.9, c[1] - pr * 0.3, c[2] * 0.9]], oak ? 0.02 : 0.011, 0.005);
     }
     crown = [0, cy, 0, rx * 1.15, ry * 1.1, rx * 1.15];
   } else if (kind === 'pine') {
     trunk([[0, -0.03, 0], [0.015, 0.3, 0.0], [0.0, 0.62, 0.01], [0.02, 0.9, 0.0]], 0.035, 0.012);
-    const n = lod === 0 ? 7 : lod === 1 ? 5 : 3;
+    // pads of needles on the ends of a few boughs, flat-topped, the crown open between them
+    const n = lod === 0 ? 11 : lod === 1 ? 6 : 3;
     for (let k = 0; k < n; k++) {
-      const t = k / (n - 1), a = k * 2.4 + R(), d = k === n - 1 ? 0 : 0.16 * (1 - t * 0.5) * (0.6 + 0.8 * R()), y = lerp(0.62, 0.95, t);
-      const c = [Math.cos(a) * d, y, Math.sin(a) * d], pr = 0.2 * (1 - 0.35 * t) * (0.8 + 0.4 * R()) * (lod === 2 ? 1.3 : 1);
-      puff(g, c, pr, pr * 0.34, pr, lod, seed + k * 5.1, tone(0.8 + 0.4 * R()));
-      if (lod === 0 && d > 0) trunk([[0.01, y - 0.06, 0], [c[0] * 0.6, y - 0.03, c[2] * 0.6], [c[0], y - 0.01, c[2]]], 0.012, 0.005);
+      const t = k / (n - 1), a = k * 2.4 + R(), d = k === n - 1 ? 0 : 0.2 * (1 - t * 0.55) * (0.5 + 0.9 * R()), y = lerp(0.58, 0.95, t) + (R() - 0.5) * 0.04;
+      const c = [Math.cos(a) * d, y, Math.sin(a) * d], pr = 0.15 * (1 - 0.3 * t) * (0.75 + 0.5 * R()) * (lod === 2 ? 1.7 : lod === 1 ? 1.3 : 1);
+      puff(g, c, pr, pr * 0.46, pr, lod, seed + k * 5.1, tone(0.75 + 0.5 * R()));
+      if (lod === 0 && d > 0) trunk([[0.01, y - 0.09, 0], [c[0] * 0.6, y - 0.05, c[2] * 0.6], [c[0], y - 0.01, c[2]]], 0.012, 0.005);
     }
-    crown = [0, 0.8, 0, 0.3, 0.2, 0.3];
+    crown = [0, 0.78, 0, 0.3, 0.22, 0.3];
   } else if (kind === 'spruce') {
     trunk([[0, -0.03, 0], [0, 0.5, 0], [0, 0.97, 0]], 0.028, 0.004);
     // tiers of skirts, each drooping at its edge, smaller toward the tip

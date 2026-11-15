@@ -26,7 +26,7 @@ import { openBoatGeo } from './smallcraft.js';
 
 const PAVED = [GROUND.PAVED, 0, 0, 0], CONC = [GROUND.CONCRETE, 0, 0, 0];
 const ASHLAR = mat(MAT.RUBBER, 0, 0, DV.ASHLAR + DV.ALONG), CORR = mat(MAT.RUBBER, 0, 0, DV.CORRUGATED + DV.ALONG);
-const GRANITE = [0.3, 0.29, 0.275], COPING = [0.38, 0.37, 0.35], TIMBER = [0.19, 0.14, 0.095], DECK = [0.33, 0.3, 0.26], STEEL = [0.45, 0.47, 0.48], BLACK = [0.035, 0.035, 0.04];
+const GRANITE = [0.44, 0.42, 0.39], COPING = [0.38, 0.37, 0.35], TIMBER = [0.19, 0.14, 0.095], DECK = [0.33, 0.3, 0.26], STEEL = [0.45, 0.47, 0.48], BLACK = [0.035, 0.035, 0.04];
 export const WARM = [1, 0.74, 0.42];
 const NAMES = { circuit: 'BREAKWATER QUAY', sprint: 'LONG REACH HARBOUR', oval: 'SPEEDWAY QUAY' };
 
@@ -82,11 +82,16 @@ export function planPier(field, f, quays) {
   const quay = quays.find((q) => q.inside(f.x, f.z, 2));
   const yp = quay ? quay.yq + 0.03 : clamp(hAt(0) + 0.2, 2.9, 3.4);
   // where the deck leaves the ground, and how far back the boardwalk runs to meet it
-  let tOut = 0;
-  for (let t = 0; t <= f.len; t += 1) if (hAt(t) < yp - 0.6) { tOut = t; break; }
-  let t0 = tOut;
-  if (!quay) { for (let t = tOut; t >= tOut - 22; t -= 1) { t0 = t; if (hAt(t) > yp - 0.12) break; } }
-  else t0 = tOut - 1.5;
+  let tOut = 0, t0 = 0;
+  if (quay) {
+    // off a quay: the deck starts at the quay's edge (the pier's own line may lie at an angle to it)
+    for (let t = 0; t <= f.len; t += 0.5) { const L = quay.local(f.x + cx * t, f.z + cz * t); if (L[1] < -quay.wo + 0.3) { tOut = t; break; } }
+    t0 = tOut - 0.8;
+  } else {
+    for (let t = 0; t <= f.len; t += 1) if (hAt(t) < yp - 0.6) { tOut = t; break; }
+    t0 = tOut;
+    for (let t = tOut; t >= tOut - 22; t -= 1) { t0 = t; if (hAt(t) > yp - 0.12) break; }
+  }
   return { kind: 'pier', f, x: f.x, z: f.z, yaw: f.yaw, cx, cz, len: f.len, w: f.w, yp, tOut, t0, hAt, quay, W: (t, s) => [f.x + cx * t - cz * s, f.z + cz * t + cx * s] };
 }
 
@@ -290,8 +295,8 @@ export function quayGeo(q, lod = 0, extras = {}) {
   for (let zin = q.side[0]; zin > 0.01; zin -= 3) path.push([sideX(-1, zin), -zin, -1]);
   path.push([-(hw + wo), wo, 0]); path.push([hw + wo, wo, 0]);
   for (let zin = 3; zin <= q.side[1] + 0.01; zin += 3) path.push([sideX(1, zin), -zin, 1]);
-  const ys = lod === 2 ? [-3.2, 0, yq - 0.28] : [-3.2, -1.2, -0.2, 0.35, 0.9, 1.6, (yq - 0.28 + 1.6) / 2, yq - 0.28];
-  const st = both(mottle(q.x, 0.14, 0.6), stain(q.z, { weedTop: 0.5, tide: 0.95, wet: 1.5, salt: 0.1 }), (P, N, C, i) => {
+  const ys = lod === 2 ? [-3.2, 0.6, 1.4, yq - 0.28] : [-3.2, -1.2, -0.2, 0.3, 0.7, 1.05, 1.4, 1.8, (yq - 0.28 + 1.8) / 2, yq - 0.28];
+  const st = both(mottle(q.x, 0.16, 0.6), stain(q.z, { weedTop: 0.85, tide: 1.35, wet: 2.0, salt: 0.12 }), (P, N, C, i) => {
     // run-off streaks down from the coping, and green slime in the damp
     const a = P[i] * 1.3 + P[i + 2] * 0.9, k = smooth(0.55, 0.8, vn(a * 1.4, 0.5, q.x)) * smooth(-0.2, yq, P[i + 1]) * 0.3;
     C[i] *= 1 - k; C[i + 1] *= 1 - k * 0.8; C[i + 2] *= 1 - k;
@@ -336,6 +341,11 @@ export function quayGeo(q, lod = 0, extras = {}) {
       for (const s of [-1, 1]) tube(g, [[X + s * 0.21, yq, zf + 0.14], [X + s * 0.21, yq + 0.9, zf + 0.1], [X + s * 0.21, yq + 1.0, zf - 0.2], [X + s * 0.21, yq + 0.02, zf - 0.55]], 0.022, [0.75, 0.6, 0.05], MET, { segs: 4 });
     }
     for (let X = -hw + 8; X <= hw - 8; X += 12) { hoop(g, [X, yq - 0.75, zf + 0.06], [1, 0, 0], 0.12, 0.022, [0.22, 0.12, 0.07], MET, 10, 4); box(g, [X, yq - 0.6, zf + 0.02], 0.08, 0.08, 0.02, [0.22, 0.12, 0.07], MET); }
+  }
+  if (lod < 2) {
+    // berth numbers painted on the wall under the coping, white, weathered
+    let nb = 1;
+    for (let X = -hw + 19; X <= hw - 12; X += 30, nb++) text(g, String(nb), [X, yq - 1.35, zf + 0.045 + (yq - 1.35 < yq ? 0.05 : 0)], [1, 0, 0], [0, 1, 0], 0.7, [0.62, 0.62, 0.58], RUB, { centre: true, weight: 0.2, off: 0.02 });
   }
   for (let X = -hw + 7; X <= hw - 7; X += 15) { if (lod < 2) bollard(g, [X, yq + 0.02, -0.75], 1.7, [0.05, 0.05, 0.055], lod); if (lod === 0 && hash1(Math.round(X), 2) < 0.5) coil(g, [X + 0.9, yq + 0.02, -1.1], 0.3 + 0.1 * hash1(Math.round(X), 1)); }
   // ---- lamp posts, benches, bins, life rings, the name board ----

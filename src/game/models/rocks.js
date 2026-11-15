@@ -15,10 +15,10 @@ import { GROUND } from './cover.js';
 
 const ROCK = [GROUND.ROCK, 0, 0, 0];
 export const STYLES = {
-  boulder: { top: [0.7, 1.15], cuts: 5, cut: [0.72, 1.0], pw: 2.6, sq: 0.6 },
-  skerry: { top: [0.3, 0.55], cuts: 4, cut: [0.8, 1.05], pw: 3.2, sq: 0.75 },
-  fin: { top: [1.3, 1.9], cuts: 6, cut: [0.6, 0.9], pw: 1.8, sq: 0.5 },
-  block: { top: [0.6, 1.0], cuts: 9, cut: [0.55, 0.8], pw: 4.0, sq: 0.8 },
+  boulder: { top: [0.7, 1.15], cuts: 8, cut: [0.5, 0.82], pw: 2.6, sq: 0.6, dip: 0.12 },
+  skerry: { top: [0.3, 0.55], cuts: 6, cut: [0.55, 0.9], pw: 3.2, sq: 0.75, dip: 0.3 },
+  fin: { top: [1.3, 1.9], cuts: 8, cut: [0.45, 0.8], pw: 1.8, sq: 0.5, dip: 0.2 },
+  block: { top: [0.6, 1.0], cuts: 11, cut: [0.45, 0.72], pw: 4.0, sq: 0.8, dip: 0.1 },
 };
 const ROWS = [14, 8, 5], COLS = [20, 11, 7];
 
@@ -41,22 +41,24 @@ export function rockProto(seed, lod = 0, style = 'boulder', tint = 'sea') {
     let y, rad;
     if (v < 0.28) { const t = v / 0.28; y = lerp(-1.6, 0, t); rad = lerp(1.32, 1.0, t * t); }
     else { const t = (v - 0.28) / 0.72; y = Math.pow(t, 0.85); rad = Math.pow(Math.max(1 - Math.pow(t, S.pw), 0), S.sq); }
-    let r = rad * (1 + la * Math.cos(th * ln + l0)) * (0.82 + 0.36 * fb(c * 1.4 + seed * 3.1, y * 1.7, s * 1.4));
+    let r = rad * (1 + la * Math.cos(th * ln + l0)) * (0.72 + 0.56 * fb(c * 1.4 + seed * 3.1, y * 1.7, s * 1.4)) * (0.92 + 0.16 * vn(c * 4.1 + seed, y * 4.1, s * 4.1));
     // unit-space point; the planes cut it into faces
     let x = c * r, z = s * r, yy = y;
-    if (y > 0) for (const q of cuts) { const e = x * q[0] + yy * q[1] + z * q[2] - q[3]; if (e > 0) { x -= q[0] * e; yy -= q[1] * e * 0.6; z -= q[2] * e; } }
+    if (y > 0) for (const q of cuts) { const e = x * q[0] + yy * q[1] + z * q[2] - q[3]; if (e > 0) { x -= q[0] * e; yy -= q[1] * e * 0.7; z -= q[2] * e; } }
+    // the beds dip: the whole lump is sheared along its long axis, so its top is a tilted slab
+    if (y > 0) yy = Math.max(yy + S.dip * (x * ce + z * se) * Math.min(yy * 3, 1), 0.02);
     // squeeze across one axis, lean
     const xa = x * ce + z * se, za = (-x * se + z * ce) * ell;
     x = xa * ce - za * se; z = xa * se + za * ce;
     const h = Math.max(yy, 0) * top;
     out[0] = x + Math.cos(la2) * lean * h; out[1] = yy > 0 ? h : yy; out[2] = z + Math.sin(la2) * lean * h;
-  }, [1, 1, 1], ROCK, { wrap: true, flat: 0.55 });
+  }, [1, 1, 1], ROCK, { wrap: true, flat: 0.8 });
   // tone from face to face and patch to patch; birds whiten the crowns of rocks that stand in the sea
   paint(g, 0, (P, N, C, i) => {
     let k = 0.8 + 0.4 * fb(P[i] * 2.3 + seed, P[i + 1] * 2.3, P[i + 2] * 2.3);
     let w = 0;
-    if (tint === 'sea') w = smooth(0.45, 0.8, N[i + 1]) * smooth(0.45 * top, 0.8 * top, P[i + 1]) * smooth(0.35, 0.6, vn(P[i] * 3.1 + seed, P[i + 1] * 2, P[i + 2] * 3.1));
-    k *= 1 + 1.5 * w;
+    if (tint === 'sea') w = smooth(0.55, 0.85, N[i + 1]) * smooth(0.5 * top, 0.85 * top, P[i + 1]) * smooth(0.5, 0.68, vn(P[i] * 3.1 + seed, P[i + 1] * 2, P[i + 2] * 3.1));
+    k *= 1 + 1.1 * w;
     C[i] = k; C[i + 1] = k; C[i + 2] = k * (1 - 0.04 * w);
   });
   g.top = top;
@@ -179,14 +181,14 @@ export function placeRocks(field, segs, reach = 420, step = 7) {
     let foot = 0;
     if (g > 0.05) { const ux = sm.gx / g, uz = sm.gz / g; const a = field.heightAt(x + ux * 8, z + uz * 8) - h; foot = a / 8; }
     let kind = null, p = 0;
-    if (g > 0.75) { kind = 'outcrop'; p = 0.5; }
-    else if (g > 0.3 && h < 6 && foot > 0.5) { kind = 'foot'; p = 0.85; }
+    if (h < 3.5 && (g > 0.45 || foot > 0.6)) { kind = 'foot'; p = 0.85; }
+    else if (g > 0.75) { kind = 'outcrop'; p = 0.7; }
     else if (g > 0.28 && foot > 0.7) { kind = 'scree'; p = 0.35; }
     else if (h < 2.2 && g > 0.22) { kind = 'shore'; p = 0.4; }
     if (!kind || q > p) continue;
     if (!near(x, z)) continue;
     const r2 = hash1(i * 19 + 7, j * 23 + 8), r3 = hash1(i * 29 + 9, j * 31 + 10);
-    const s = kind === 'outcrop' ? 1.6 + 2.6 * r2 * r2 : kind === 'foot' ? 0.7 + 2.2 * r2 * r2 : 0.5 + 1.3 * r2 * r2;
+    const s = kind === 'outcrop' ? 1.8 + 3.6 * r2 * r2 : kind === 'foot' ? 0.8 + 2.4 * r2 * r2 : 0.5 + 1.3 * r2 * r2;
     out.push({ x, y: h - s * (kind === 'outcrop' ? 0.45 : 0.25), z, s, sy: kind === 'outcrop' ? 0.9 + 1.2 * r3 : 0.6 + 0.6 * r3, yaw: r3 * 39.1, kind, id: Math.floor(r2 * 997) });
   }
   return out;

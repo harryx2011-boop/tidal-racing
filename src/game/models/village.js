@@ -24,7 +24,9 @@ const STONES = [[0.34, 0.31, 0.27], [0.4, 0.36, 0.3], [0.28, 0.27, 0.26]];
 const SLATES = [[0.13, 0.14, 0.16], [0.1, 0.105, 0.12], [0.16, 0.15, 0.15], [0.14, 0.16, 0.15]];
 const TILES = [0.3, 0.12, 0.07], RUSTRED = [0.32, 0.12, 0.07], TAR = [0.03, 0.03, 0.035];
 const DOORS = [[0.06, 0.12, 0.3], [0.4, 0.05, 0.04], [0.05, 0.22, 0.12], [0.5, 0.42, 0.1], [0.08, 0.08, 0.09], [0.12, 0.3, 0.36], [0.28, 0.16, 0.08]];
-const WHITE = [0.78, 0.78, 0.75], GLOW = [0.4, 0.29, 0.15], GLASS = [0.1, 0.12, 0.14];
+// (a lit pane is emissive: by day it shows a fifth of what a white card would, a dark amber room; in the dark the
+// mesh pass raises it seventeen-fold)
+const WHITE = [0.78, 0.78, 0.75], GLOW = [0.1, 0.07, 0.035], GLASS = [0.1, 0.12, 0.14];
 export const WARM = [1, 0.72, 0.4];
 
 // ---- parts ----
@@ -41,7 +43,7 @@ function windowOn(g, F, u, v, w, h, o) {
   const lod = o.lod, lit = o.lit, u0 = u - w / 2, u1 = u + w / 2, v1 = v + h, trim = o.trim || WHITE;
   // (a lit window is a lamp at every level of detail: the glows do not change as the building does)
   if (lit && o.lamps) o.lamps.push({ p: F.P(u, v + h / 2, 0.15), col: WARM, kind: 'window', size: 0.9 });
-  if (lod === 2) { if (w * h > 0.9) rect(g, F, u0, u1, v, v1, 0.03, lit ? scl(GLOW, 0.5) : [0.03, 0.035, 0.04], lit ? PANE : RUB); return; }
+  if (lod === 2) { if (w * h > 0.9) rect(g, F, u0, u1, v, v1, 0.03, lit ? GLOW : [0.03, 0.035, 0.04], lit ? PANE : RUB); return; }
   if (lod === 1) { rect(g, F, u0 - 0.06, u1 + 0.06, v - 0.06, v1 + 0.06, 0.03, trim, RUB); rect(g, F, u0, u1, v, v1, 0.045, lit ? GLOW : GLASS, lit ? PANE : GLS); return; }
   rect(g, F, u0, u1, v, v1, 0.014, lit ? GLOW : GLASS, lit ? PANE : GLS);
   // frame, glazing bars, sill, lintel
@@ -423,11 +425,11 @@ export function buildingGeo(g, b, lod, groundAt, lamps) {
 }
 
 // ---- where the buildings stand: a pure function of the course ----
-// Returns [{ type, seed, x, y, z, yaw, group }]: the harbour's row behind each quay (office, pub, net lofts, market,
+// Returns [{ type, seed, x, y, z, yaw, group, r }]: the harbour's row behind each quay (office, pub, net lofts, market,
 // terraces), the village on its ground (houses facing the sea, a chapel on its highest spot), a boathouse by each
 // slipway, and farms on the farmed hills within `reach` of the line. Nothing stands in water, on a quay's working
-// strip or on another's plot.
-export function placeBuildings(field, def, quays, slips, segs, courseSeed, reach = 1500) {
+// strip, across a pier or on another's plot.
+export function placeBuildings(field, def, quays, piers, slips, segs, courseSeed, reach = 1500) {
   const out = [], sm = { h: 0, gx: 0, gz: 0 };
   const clash = (x, z, r) => out.some((b) => Math.hypot(b.x - x, b.z - z) < r + b.r);
   const flatY = (x, z, yaw, hx, hz, lim = 2.2) => {
@@ -444,6 +446,12 @@ export function placeBuildings(field, def, quays, slips, segs, courseSeed, reach
     let y = flatY(x, z, yaw, F[0] * 0.8, F[1] * 0.6, lim);
     if (y === null) return false;
     y = Math.max(y, minY);
+    // not across a pier (its root may lie well inland, on a quay)
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    for (const p of piers) for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0], [0, 1], [0, -1], [1, 0], [-1, 0]]) {
+      const dx = x + c * u * F[0] - s * v * F[1] - p.x, dz = z + s * u * F[0] + c * v * F[1] - p.z, t = dx * p.cx + dz * p.cz, w = -dx * p.cz + dz * p.cx;
+      if (t > -4 && t < p.len + 2 && Math.abs(w) < p.w / 2 + 2.5) return false;
+    }
     const r = Math.max(F[0], F[1]);
     if (clash(x, z, r * 0.9)) return false;
     out.push({ type, seed, x, y, z, yaw, group, r });

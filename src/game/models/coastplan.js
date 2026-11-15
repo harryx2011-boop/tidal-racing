@@ -26,7 +26,7 @@ export function planCoast(course) {
   const quays = feats.filter((f) => f.kind === 'harbour').map((f) => planQuay(field, def, f, course.id));
   const piers = feats.filter((f) => f.kind === 'pier').map((f) => planPier(field, f, quays));
   const slips = quays.map((q) => findSlip(field, q)).filter(Boolean);
-  const buildings = placeBuildings(field, def, quays, slips, segs, seed);
+  const buildings = placeBuildings(field, def, quays, piers, slips, segs, seed);
   const t1 = now();
   const rocks = placeRocks(field, segs);
   const t2 = now();

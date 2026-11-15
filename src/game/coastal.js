@@ -123,11 +123,14 @@ void main() {
     float n2 = mix(0.5, vnoise(vWorld * 9.0), 1.0 - smoothstep(0.03, 0.1, fp));
     float cut = vnoise(vWorld * 5.0) * 0.6 + vnoise(vWorld * 13.0) * 0.4;
     // a ragged outline: leaves against the sky, not the edge of a balloon (only where a pixel can show it)
-    float rim = 1.0 - abs(dot(N, V));
-    if (fp < 0.16 && cut < rim * rim * 0.95 - 0.1) discard;
-    float gap = mix(1.0, smoothstep(0.25, 0.5, cut), 1.0 - smoothstep(0.05, 0.16, fp));
-    albedo *= (0.68 + 0.64 * n1) * (0.7 + 0.6 * n2);
-    shade *= 0.55 + 0.45 * gap;
+    // (the rim is the lump's own, from the surface as drawn: toward its edge more and more of it is sky)
+    vec3 Ng = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+    float rim = 1.0 - abs(dot(Ng, V));
+    float near = 1.0 - smoothstep(0.08, 0.22, fp);
+    if (cut < (0.16 + rim * sqrt(rim) * 0.95) * near) discard;
+    float gap = mix(1.0, smoothstep(0.3, 0.6, cut), near);
+    albedo *= (0.68 + 0.64 * n1) * (0.66 + 0.68 * n2);
+    shade *= (0.5 + 0.5 * gap) * (gl_FrontFacing ? 1.0 : 0.6);
   } else {
     albedo *= 0.7 + 0.6 * vnoise(vWorld * vec3(11.0, 2.5, 11.0));
   }
@@ -187,7 +190,7 @@ void main() {
   float d = length(toCam);
   // (a little toward the eye, so the lantern's own glass does not cut the glow in half)
   vec3 P = iPos.xyz + toCam / d * 0.3;
-  float gain = kind < 0.5 ? 0.05 + dark * 2.6 : kind < 1.5 ? dark * dark * 0.8 : 0.14 + dark * 4.0;
+  float gain = kind < 0.5 ? 0.05 + dark * 3.2 : kind < 1.5 ? dark * dark * 1.3 : 0.14 + dark * 4.0;
   float size = iPos.w * (kind < 0.5 ? 0.45 + 0.55 * dark : kind < 1.5 ? 0.8 : 0.7 + dark);
   float far = kind < 0.5 ? 2600.0 : kind < 1.5 ? 900.0 : 5000.0;
   gain *= 1.0 - smoothstep(far * 0.7, far, d);
@@ -261,7 +264,7 @@ export class Coastal {
     land.ground = G.ground;
     C.quayA.fill(0); C.quayB.fill(0);
     G.P.quays.slice(0, 2).forEach((q, i) => { C.quayA.set([q.x, q.z, q.ox, q.oz], i * 4); C.quayB.set([q.hw, q.depth, q.flare, q.paved], i * 4); });
-    C.objTex = G.objTex; C.objRect.set(G.objRect);
+    C.objTex = G.objTex; C.objRect.set(G.objRect); C.objTexel = G.objSize ? G.objSize[2] : 1;
     this.queue.length = 0;
   }
 
@@ -427,13 +430,15 @@ export class Coastal {
     const w = x1 - x0, d = z1 - z0, texel = Math.max(0.3, Math.max(w, d) / 2048), tw = Math.ceil(w / texel), th = Math.ceil(d / texel);
     for (const it of casters) if (!it.lods[1]) this.build(G, it, 1);
     const fbo = gl.getParameter(gl.FRAMEBUFFER_BINDING), vp = gl.getParameter(gl.VIEWPORT), depthOn = gl.isEnabled(gl.DEPTH_TEST), depthFn = gl.getParameter(gl.DEPTH_FUNC), blend = gl.isEnabled(gl.BLEND);
-    const tex = new Texture(gl, { w: tw, h: th, format: 'r16f', filter: 'linear' });
+    const tex = new Texture(gl, { w: tw, h: th, format: 'r16f', filter: 'linear', mips: true });
     // (making it left it bound on the active unit: a sampler of the programs below may point there, and a texture
     // cannot be read while it is drawn to)
     gl.bindTexture(gl.TEXTURE_2D, null);
     const target = new Target(gl, [tex], { depth: true });
     target.bind();
-    gl.clearColor(-100, 0, 0, 1); gl.depthMask(true); gl.clearDepth(1);
+    // (empty ground reads a little under the sea: low enough never to shade, near enough that the coarser levels of
+    // the map, which average it with what stands beside it, still soften an edge and do not erase it)
+    gl.clearColor(-6, 0, 0, 1); gl.depthMask(true); gl.clearDepth(1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.disable(gl.BLEND); gl.disable(gl.CULL_FACE);
     const top = this.top, mat = this.mat;
@@ -463,6 +468,8 @@ export class Coastal {
     gl.depthFunc(depthFn);
     gl.clearColor(0, 0, 0, 0);
     target.dispose();
+    tex.genMips();
+    gl.bindTexture(gl.TEXTURE_2D, null);
     G.objTex = tex;
     G.objRect.set([x0, z0, top[2], top[3]]);
     G.objSize = [tw, th, texel];
