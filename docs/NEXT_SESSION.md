@@ -28,8 +28,9 @@ Read this first. It records what was decided, what exists, and what to build nex
 
 ## What exists
 
-Milestones 1 and 2 (solo time trial) and the visual upgrade in `docs/BRIEF_VISUAL_UPGRADE.md`.
-That brief's contracts (boat space, vertex format, material ids, `BOAT_ANCHORS`,
+Milestones 1 and 2 (solo time trial), the visual upgrade in `docs/BRIEF_VISUAL_UPGRADE.md` and
+the picture-and-world upgrade in `docs/BRIEF_WORLD.md` (all eight streams, G to N, are merged).
+The first brief's contracts (boat space, vertex format, material ids, `BOAT_ANCHORS`,
 `game.renderBoats()`, the systems hooks, `app.fx`) still hold; read it before touching visuals.
 
 - `src/main.js`: the engine's frame, quality tiers, the frame loop and governor wiring.
@@ -37,8 +38,9 @@ That brief's contracts (boat space, vertex format, material ids, `BOAT_ANCHORS`,
 - `src/game/boat.js`: physics at a fixed 120 Hz. `step(dt, input, sea, drive)`.
 - `src/game/probe.js`: sea height and slope under up to 8 points per frame, read back late.
 - `src/game/courses.js`: three courses, gate and lap logic, grid slots, seeded conditions.
-- `src/game/models/`: the boat (25,000 triangles, with `BOAT_ANCHORS`), a stand-in seated driver,
-  the buoy. `src/game/geo.js` is the geometry builder.
+- `src/game/models/`: the boat (37,500 triangles, with `BOAT_ANCHORS`), the driver (5,900, plus an
+  arms-only mesh for the helm camera), marks, structures, vessels, wildlife, per-course coast
+  definitions and village houses. `src/game/geo.js` is the geometry builder.
 - `src/game/mesh.js`: the lit mesh pass. Procedural materials by material id, livery stripes and
   race number, see-through glass, shadow and ambient-occlusion sampling.
 - `src/game/shadow.js`, `src/game/lights.js`: the boats' sun shadow map; nav and cockpit glows.
@@ -46,11 +48,31 @@ That brief's contracts (boat space, vertex format, material ids, `BOAT_ANCHORS`,
   physics feels it through `seaOffset`), and the per-boat uniforms for `src/ocean/water.js`
   (sea hidden inside the hull, foam line, bow wash, shadow on the water, underwater glow).
 - `src/game/boatspray.js`: spray particles.
+- `src/game/marks.js`: navigation buoys on the gates, the start/finish gantry on floats, inflatable
+  pylons at sharp corners, lantern glows.
+- `src/game/scenery.js`: a seeded layout per course (lighthouse, breakwater, beacons, platform,
+  committee boat, spectators, a cargo ship) with levels of detail, culling and `colliders`.
+- `src/game/landfield.js`, `src/game/land.js`, `src/game/models/coast.js`: each course's land as
+  a height field baked once from polygons (`land.heightAt(x, z)`, negative under water), drawn
+  as chunks at four levels of detail plus far hills. `src/ocean/water.js` reads the same field:
+  waves die in the shallows (`waveAtt`, shared with the physics through the `sea` closure),
+  shallow water takes the bottom's colour, surf and foam run along the shore.
+  `node tools/check-land.mjs` checks every gate, leg and scenery item for water under it; run it
+  after moving a course or a coast.
+- `src/game/collide.js`: grounding against the height field and push-out from marks and scenery,
+  once per physics step.
+- `src/game/wildlife.js`: seabird flocks, perched birds and rafts that react to boats, dolphin
+  pods, fish, flotsam, people and flags. Placement is a pure function of the course and sea time.
 - `src/game/hud.js`, `src/game/pixel.js`: the pixel-art interface. Text is a `<px-t>` element
   drawing bitmap fonts; shades are dither patterns; lengths are logical pixels (`em`).
 - `src/game/settings.js`, `src/perf.js`: saved settings; the governor (gives up spray, water
   shadow, boat shadows, then resolution) and the F3 overlay.
-- `src/sky/clouds.js`, `src/sky/sky.js`: sharper cloud history, reshaped cumulus, a cirrus layer.
+- `src/sky/clouds.js`, `src/sky/sky.js`: sharper cloud history, reshaped cumulus, a smooth storm
+  deck, broken cloud in rough weather, warm low-sun tint, a cirrus layer (also in reflections).
+- Frame order in `src/main.js`: sky, then the opaque meshes (`game.draw`), then the sea, then
+  windscreens and the ghost (`game.drawBlended`), then rain, spray and glows. The sea is the
+  dearest shader, so it is drawn after everything that can hide it. The sky tables are rebuilt
+  only when the sun, haze or camera height changes.
 
 Facts worth knowing:
 
@@ -97,9 +119,23 @@ Facts worth knowing:
   1080p. The first real run should open the F3 overlay and copy its readout: that is the first
   measurement of frame time, of whether the medium tier is right, and of the governor's
   thresholds. Handling constants are at the top of `src/game/boat.js`.
-- Clouds: improved and checked in calm conditions only. The storm deck is unchanged and still
-  speckled at low resolution; the breeze and rough looks, the warm low-sun tint and the silver
-  lining were not checked in stills. Cirrus is not in the reflection environment.
+  The overlay now times the meshes apart from the sea and lists draw calls and triangles per
+  world system. Optimise from that readout, not from guesses: nothing here has been measured.
+  Untried candidates: one instanced draw for the lamp glows (scenery and marks draw one quad
+  each), one draw per level of detail for the terrain chunks (60 to 150 draws a frame), a
+  smaller vertex format, and rebuilding the reflection environment every other frame.
+- Best times and ghosts from before the land was added are ignored (the key is `tidal.best2.`).
+- Land: no trees (scrub is shading only); terrain shadows do not fall on the sea; the shore foam
+  line is only as sharp as the sea mesh far from the camera; land is 100 m or more from every
+  racing line, so the coast is scenery more than an obstacle. Motion shimmer on terrain is
+  unchecked (stills only).
+- Scenery: breakwater armour stones are plain blocks; people are blocky; the lighthouse beam is
+  short, faint and off in storms because side-on it read as a pale band along the far shore.
+- Wildlife: in the chase view birds are specks unless a flock is close; the flock scatter, landing
+  on perches and take-off from boats were checked by number, not in stills.
+- Clouds: the storm deck is smooth but flat underneath, and distant horizon clouds are unchanged.
+- Water: the far wake is a pale veil beyond about 40 m; crossing wakes are untested.
+- Boat: outboard cowls carry a blank white badge; the driver's gloves look like mittens up close.
 - Wake physics: the CPU and GPU wake fields agree numerically, but no second boat has ridden a
   wake yet. The wake uses the nearest path segment, so a boat crossing its own loop is approximate.
 - True night is untuned (lights, glow); races run in daylight conditions.

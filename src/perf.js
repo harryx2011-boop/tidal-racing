@@ -191,6 +191,13 @@ export class PerfOverlay {
         L.push(`gpu total ${f1(this.gpuTotal())} ms`);
       } else L.push('gpu ms  waiting for timer results...');
     } else L.push('gpu timers unavailable (no EXT_disjoint_timer_query_webgl2)');
+    // what the world systems drew last frame (draw calls and triangles), where they keep count
+    const sys = a.game?.systems;
+    if (sys) {
+      const parts = [];
+      for (const s of sys) { const q = s.stats, n = q && (q.drawn ?? q.draws); if (n !== undefined) parts.push(`${s.constructor.name.toLowerCase()} ${n}${q.tris ? `/${Math.round((q.tris + (q.birdTris || 0)) / 1000)}k` : ''}`); }
+      if (parts.length) L.push('draws/tris  ' + parts.join('  '));
+    }
     return L;
   }
 

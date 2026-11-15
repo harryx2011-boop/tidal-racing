@@ -305,7 +305,9 @@ export class App {
     };
     Object.assign(this.waterUniforms, this.game?.waterUniforms());
     // opaque meshes first, so the sea (the dearest shader) is not shaded under hulls, land and scenery
+    P.section('meshes');
     this.game?.draw(this.waterUniforms);
+    P.section('water');
     this.water.draw(this.waterUniforms);
     this.game?.drawBlended(this.waterUniforms);
 
