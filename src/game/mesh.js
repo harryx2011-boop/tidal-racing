@@ -16,7 +16,8 @@ layout(location = 4) in vec2 aUV;
 uniform mat4 uModel;
 uniform mat4 uViewProj;
 uniform vec3 uCamPos;
-uniform float uFloat;        // 1: ride the waves at the model origin (buoys); 0: the model matrix is the pose
+uniform float uFloat;        // 1: ride the waves at the model origin (buoys); 2: a span between two anchors; 0: the model matrix is the pose
+uniform float uSpan;         // float mode 2: the span's length along the model's x axis
 uniform sampler2D uDisp[3];
 uniform float uSize[4];
 uniform float uTexel[4];
@@ -34,10 +35,17 @@ vec3 dispAt(vec2 xz) {
   D += textureLod(uDisp[2], xz / uSize[2], max(1.0 - log2(uTexel[2]), 0.0)).xyz;
   return D;
 }
+// the direction the sea surface stands up at a point (what a floating thing leans toward)
+vec3 seaUp(vec2 a) {
+  const float e = 1.5;
+  float hx = dispAt(a + vec2(e, 0.0)).y - dispAt(a - vec2(e, 0.0)).y;
+  float hz = dispAt(a + vec2(0.0, e)).y - dispAt(a - vec2(0.0, e)).y;
+  return normalize(vec3(-hx / (2.0 * e) * 0.6, 1.0, -hz / (2.0 * e) * 0.6));
+}
 void main() {
   vec3 P = (uModel * vec4(aPos, 1.0)).xyz;
   vec3 N = mat3(uModel) * aN;
-  if (uFloat > 0.5) {
+  if (uFloat > 0.5 && uFloat < 1.5) {
     vec2 a = uModel[3].xz;
     vec3 D = dispAt(a);
     const float e = 1.5;
@@ -47,6 +55,21 @@ void main() {
     vec3 X = normalize(cross(up, vec3(0.0, 0.0, 1.0)));
     vec3 Z = cross(X, up);
     vec3 l = P - uModel[3].xyz;
+    P = vec3(a.x, uModel[3].y, a.y) + D + l.x * X + l.y * up + l.z * Z;
+    N = N.x * X + N.y * up + N.z * Z;
+  } else if (uFloat > 1.5) {
+    // a span (a truss, a line of flags) hung between two floating towers: the model's origin is
+    // the first anchor and its x axis, uSpan long, leads to the second. Each point takes the
+    // heave and lean of the sea at its place along the span, blended linearly between the ends,
+    // so both ends stay on their towers and nothing in between tears.
+    vec2 A = uModel[3].xz, B = A + uModel[0].xz * uSpan;
+    float t = clamp(aPos.x / uSpan, 0.0, 1.0);
+    vec2 a = mix(A, B, t);
+    vec3 D = mix(dispAt(A), dispAt(B), t);
+    vec3 up = normalize(mix(seaUp(A), seaUp(B), t));
+    vec3 X = normalize(cross(up, vec3(0.0, 0.0, 1.0)));
+    vec3 Z = cross(X, up);
+    vec3 l = P - vec3(a.x, uModel[3].y, a.y);
     P = vec3(a.x, uModel[3].y, a.y) + D + l.x * X + l.y * up + l.z * Z;
     N = N.x * X + N.y * up + N.z * Z;
   }
@@ -427,14 +450,15 @@ export class MeshPass {
     // creating the texture bound it on whatever unit was active: put the scene's textures back
     this.prog.use(this.scene || {});
   }
+  // float: 1 rides the waves at the model origin, 2 hangs a span of length `span` between two anchors (see the vertex shader);
   // livery: { color, stripe, number } (boats); texture: base colour for MAT.TEXTURED surfaces;
   // ao: use the mesh's baked occlusion (default: when a livery is given, i.e. for boats)
-  draw(mesh, model, { tint = [1, 1, 1], glow = 0, alpha = 1, float = 0, livery = null, texture = null, ao = !!livery } = {}) {
+  draw(mesh, model, { tint = [1, 1, 1], glow = 0, alpha = 1, float = 0, span = 0, livery = null, texture = null, ao = !!livery } = {}) {
     const gl = this.gl;
     const p = this.prog;
     if (ao && mesh.ao === undefined) this.bakeAo(mesh);
     p.use();
-    p.set('uModel', model); p.set('uTint', livery ? livery.color : tint); p.set('uGlow', glow); p.set('uAlpha', alpha); p.set('uFloat', float);
+    p.set('uModel', model); p.set('uTint', livery ? livery.color : tint); p.set('uGlow', glow); p.set('uAlpha', alpha); p.set('uFloat', float); p.set('uSpan', span || 1);
     p.set('uLamp', this.lamp);
     p.set('uLivery', livery ? [1, livery.stripe, livery.number] : [0, 0, -1]);
     p.set('uHasTex', texture ? 1 : 0);

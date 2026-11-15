@@ -2,6 +2,9 @@
 // boats pass between them in order.
 const unit = (x, z) => { const l = Math.hypot(x, z) || 1; return [x / l, z / l]; };
 
+// turns sharper than this (radians, about 52 degrees) put a pylon on the inside of the corner
+const PYLON_TURN = 0.9;
+
 function build({ id, name, blurb, laps, width, loop, pts }) {
   const n = pts.length;
   const gates = pts.map((c, i) => {
@@ -10,7 +13,14 @@ function build({ id, name, blurb, laps, width, loop, pts }) {
     const dir = unit(b[0] - a[0], b[1] - a[1]);
     const nrm = [-dir[1], dir[0]]; // to starboard of the direction of travel
     const hw = width / 2;
-    return { c, dir, nrm, hw, port: [c[0] - nrm[0] * hw, c[1] - nrm[1] * hw], stbd: [c[0] + nrm[0] * hw, c[1] + nrm[1] * hw] };
+    // The turn at this gate: the angle between the legs that meet here, and which side the course
+    // bends toward (+1 starboard, -1 port). The mark on the inside of a sharp corner is a turn pylon.
+    const d1 = unit(c[0] - a[0], c[1] - a[1]), d2 = unit(b[0] - c[0], b[1] - c[1]);
+    const end = !loop && (i === 0 || i === n - 1);   // a point-to-point course has no corner at its ends
+    const turn = end ? 0 : Math.acos(Math.min(Math.max(d1[0] * d2[0] + d1[1] * d2[1], -1), 1));
+    const bend = d1[0] * d2[1] - d1[1] * d2[0] >= 0 ? 1 : -1;
+    const pylon = i > 0 && turn > PYLON_TURN ? bend : 0;   // 0: none, -1: the port mark, +1: the starboard mark
+    return { c, dir, nrm, hw, number: i, turn, bend, pylon, port: [c[0] - nrm[0] * hw, c[1] - nrm[1] * hw], stbd: [c[0] + nrm[0] * hw, c[1] + nrm[1] * hw] };
   });
   let length = 0;
   for (let i = 0; i < (loop ? n : n - 1); i++) { const a = pts[i], b = pts[(i + 1) % n]; length += Math.hypot(b[0] - a[0], b[1] - a[1]); }

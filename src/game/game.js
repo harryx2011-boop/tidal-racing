@@ -4,7 +4,6 @@ import { clamp, smoothstep } from '../math.js';
 import { MeshPass } from './mesh.js';
 import { boatGeo, BOAT_ANCHORS } from './models/boat.js';
 import { driverGeo } from './models/driver.js';
-import { buoyGeo } from './models/buoy.js';
 import { MultiProbe } from './probe.js';
 import { Boat } from './boat.js';
 import { Input } from './input.js';
@@ -15,13 +14,13 @@ import { Lights } from './lights.js';
 import { settings } from './settings.js';
 import { Wake } from './wake.js';
 import { BoatSpray } from './boatspray.js';
+import { Marks } from './marks.js';
 
 const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
 const SEA_T0 = 60;             // every race starts at the same sea time: identical waves, fair ghosts
 const GHOST_HZ = 10;
 const GHOST_LIVERY = { color: [0.6, 0.8, 1], stripe: 0, number: 0 };
-const PORT = [0.9, 0.06, 0.04], STBD = [0.05, 0.75, 0.16];
 // move a model matrix's origin to a point given in the model's own space (in place)
 function attach(m, p) {
   for (let i = 0; i < 3; i++) m[12 + i] += m[i] * p[0] + m[4 + i] * p[1] + m[8 + i] * p[2];
@@ -58,7 +57,6 @@ export class Game {
     const gl = app.gl;
     this.meshes = new MeshPass(gl);
     this.boatMesh = boatGeo().build(gl);
-    this.buoyMesh = buoyGeo().build(gl);
     this.driverMesh = driverGeo().build(gl);
     this.probe = new MultiProbe(gl);
     this.boat = new Boat();
@@ -74,6 +72,7 @@ export class Game {
     this.systems.push(new Lights(this));
     this.systems.push(new Wake(this));
     this.systems.push(new BoatSpray(this));
+    this.systems.push(new Marks(this));
     this.state = 'menu';        // menu | countdown | racing | finished
     this.paused = false;
     this.camMode = 'chase';
@@ -275,19 +274,9 @@ export class Game {
 
   // inside the main HDR pass, depth test on, after the water
   draw(scene) {
-    const m = this.meshes, t = this.app.time;
+    const m = this.meshes;
     m.begin(scene);
-    const cam = this.app.cam.pos, gates = this.course.gates;
-    const nextI = this.progress.done ? -1 : this.progress.next % gates.length;
     const mat = this.model;
-    gates.forEach((g, i) => {
-      if (Math.hypot(g.c[0] - cam[0], g.c[1] - cam[2]) > 5000) return;
-      const glow = i === nextI ? 1.0 + 0.4 * Math.sin(t * 6) : 0.25;
-      for (const [p, tint] of [[g.port, PORT], [g.stbd, STBD]]) {
-        mat.set([1.5, 0, 0, 0, 0, 1.5, 0, 0, 0, 0, 1.5, 0, p[0], 0, p[1], 1]);
-        m.draw(this.buoyMesh, mat, { tint, glow, float: 1 });
-      }
-    });
     for (const b of this.renderBoats()) {
       if (b.ghost) continue;
       m.draw(this.boatMesh, b.pose.matrix(mat), { tint: b.livery.color, livery: b.livery });
