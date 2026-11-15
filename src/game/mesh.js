@@ -435,6 +435,8 @@ void main() {
   col += albedo * vMat.z * uGlow * (amb * 3.0 + 2e-4);
   // lamps: a little lit in daylight, much brighter than their surroundings when it is dark
   float lampE = uFloat > 0.5 ? amb * 3.0 + 2e-4 : amb * (0.6 + 12.0 * uLamp * uLamp) + 4e-4 * uLamp * uLamp;
+  // (instrument faces and screens, glow 0..1, are dimmed displays and not lamps: they stay readable in the dark without flaring)
+  if (uFloat < 0.5 && vMat.z > 0.0 && vMat.z < 0.95) lampE = amb * (0.6 + 2.2 * uLamp * uLamp) + 1e-4 * uLamp * uLamp;
   col += emis * lampE;
   // glass lets a good part of what is behind it through (a premultiplied blend), more at a steep view
   float aG = (uGlassMode > 1.5) ? 0.5 + 0.5 * Fa.g : 1.0;

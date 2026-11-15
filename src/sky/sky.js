@@ -3,7 +3,59 @@
 import { Program, Texture, Target, fullscreen, bindEmpty, FULLSCREEN_VS } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from './atmosphere.js';
 
-const SKY_FS = SKY_LOOKUP_GLSL + `
+// Shared by the sky pass and the reflection environment: the cirrus sheet is a pure function of
+// the view direction, so the sea and the boat reflect the same streaks the sky shows.
+const CIRRUS_GLSL = `
+uniform sampler3D uCirrusShape;
+uniform sampler2D uCirrusWeather;
+uniform vec4 uCirrus;        // xy: advection aloft (m), z: amount, w: altitude (m)
+uniform vec3 uCirrusCam;     // camera position (the env pass has no uCamPos of its own)
+float hgc(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
+// Cirrus: a thin sheet of ice crystals at ~8.5 km, above the haze and the cumulus. It is evaluated
+// per pixel from fixed noise (no ray march, no history), so it is as sharp as the screen is and
+// costs three texture fetches. Streaks are stretched along the jet (anisotropic noise, warped), the
+// sheet thickens towards the horizon (longer slant path) and fades into the haze there.
+vec4 cirrusLayer(vec3 d) {
+  float amount = uCirrus.z;
+  if (amount < 0.01 || d.y < 0.004) return vec4(0.0, 0.0, 0.0, 1.0);
+  const float RG = 6360000.0;
+  float R = RG + uCirrus.w;
+  vec3 o = vec3(0.0, RG + uCirrusCam.y, 0.0);
+  float b = dot(o, d);
+  float t = -b + sqrt(max(b * b - (dot(o, o) - R * R), 0.0));
+  vec2 xz = uCirrusCam.xz + d.xz * t + uCirrus.xy;
+  vec2 ax = vec2(0.9, 0.44);
+  vec2 q = vec2(dot(xz, ax), dot(xz, vec2(-ax.y, ax.x)));
+  vec4 wm = texture(uCirrusWeather, xz / 120000.0 + 0.31);
+  vec3 wp = texture(uCirrusShape, vec3(q.x / 30000.0, q.y / 11000.0, 0.15)).rgb;
+  vec2 qw = q + (wp.rg - 0.5) * vec2(5000.0, 2200.0);
+  float f1 = texture(uCirrusShape, vec3(qw.x / 20000.0, qw.y / 2800.0, 0.55)).r;
+  float f2 = texture(uCirrusShape, vec3(qw.x / 6500.0, qw.y / 800.0, 0.83)).b;
+  // (a thin sheet is patchy: with little amount only the thickest part of the weather map holds cirrus,
+  // so a calm sky keeps real gaps instead of a veil)
+  float th = mix(0.8, 0.5, clamp(amount, 0.0, 1.0));
+  float cover = smoothstep(th, th + 0.3, wm.b * 0.7 + wm.r * 0.3 + (wp.b - 0.5) * 0.6);
+  float dens = smoothstep(0.56, 1.0, f1 * 0.6 + f2 * 0.4) * cover;
+  float slant = clamp(0.35 / max(d.y, 0.02), 1.0, 3.0);
+  float tau = amount * 0.7 * dens * slant * smoothstep(0.004, 0.05, d.y);
+  float Tc = exp(-tau);
+  float cosT = dot(d, uSunDir);
+  vec3 sunE = sunTransmittanceAt(uCirrus.w * 0.001, uSunDir.y);
+  // ice crystals: a diffraction peak forward and a broad, nearly isotropic remainder
+  float ph = mix(0.0796, hgc(cosT, 0.6), 0.2);
+  vec3 L = (1.0 - Tc) * (sunE * ph * 2.4 + skyIrradiance() / 3.14159 * 0.5);
+  float distKm = t * 0.001;
+  vec3 aL, aT;
+  aerial(d, min(distKm, uAerialMax), aL, aT);
+  float sEl = d.y * distKm / 2.0;
+  float fsl = sEl > 1e-3 ? (1.0 - exp(-sEl)) / sEl : 1.0;
+  vec3 aT2 = pow(max(aT, vec3(1e-4)), vec3(fsl));
+  aL *= (1.0 - aT2) / max(1.0 - aT, vec3(1e-4));
+  return vec4(L * aT2, Tc);
+}
+`;
+
+const SKY_FS = SKY_LOOKUP_GLSL + CIRRUS_GLSL + `
 in vec2 vUv;
 out vec4 o;
 uniform mat4 uInvViewProj;
@@ -15,9 +67,6 @@ uniform float uSunVis;
 uniform float uIsMoon;
 uniform float uPixelAngle;
 uniform float uTime;
-uniform sampler3D uCirrusShape;
-uniform sampler2D uCirrusWeather;
-uniform vec4 uCirrus;        // xy: advection aloft (m), z: amount, w: altitude (m)
 const float SUN_COS = 0.99998917; // cos(0.2666 deg)
 float mhash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float mnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -42,45 +91,46 @@ vec4 cloudBicubic(vec2 uv, vec2 size) {
   vec4 c = texelFetch(uClouds, clamp(ip + ivec2(0, 1), ivec2(0), mx), 0), d = texelFetch(uClouds, clamp(ip + ivec2(1, 1), ivec2(0), mx), 0);
   return clamp(r, min(min(a, b), min(c, d)), max(max(a, b), max(c, d)));
 }
-float hgc(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
-// Cirrus: a thin sheet of ice crystals at ~8.5 km, above the haze and the cumulus. It is evaluated
-// per pixel from fixed noise (no ray march, no history), so it is as sharp as the screen is and
-// costs three texture fetches. Streaks are stretched along the jet (anisotropic noise, warped), the
-// sheet thickens towards the horizon (longer slant path) and fades into the haze there.
-vec4 cirrusLayer(vec3 d) {
-  float amount = uCirrus.z;
-  if (amount < 0.01 || d.y < 0.004) return vec4(0.0, 0.0, 0.0, 1.0);
-  const float RG = 6360000.0;
-  float R = RG + uCirrus.w;
-  vec3 o = vec3(0.0, RG + uCamPos.y, 0.0);
-  float b = dot(o, d);
-  float t = -b + sqrt(max(b * b - (dot(o, o) - R * R), 0.0));
-  vec2 xz = uCamPos.xz + d.xz * t + uCirrus.xy;
-  vec2 ax = vec2(0.9, 0.44);
-  vec2 q = vec2(dot(xz, ax), dot(xz, vec2(-ax.y, ax.x)));
-  vec4 wm = texture(uCirrusWeather, xz / 120000.0 + 0.31);
-  vec3 wp = texture(uCirrusShape, vec3(q.x / 30000.0, q.y / 11000.0, 0.15)).rgb;
-  vec2 qw = q + (wp.rg - 0.5) * vec2(5000.0, 2200.0);
-  float f1 = texture(uCirrusShape, vec3(qw.x / 20000.0, qw.y / 2800.0, 0.55)).r;
-  float f2 = texture(uCirrusShape, vec3(qw.x / 6500.0, qw.y / 800.0, 0.83)).b;
-  float cover = smoothstep(0.56, 0.9, wm.b * 0.7 + wm.r * 0.3 + (wp.b - 0.5) * 0.6);
-  float dens = smoothstep(0.56, 1.0, f1 * 0.6 + f2 * 0.4) * cover;
-  float slant = clamp(0.35 / max(d.y, 0.02), 1.0, 3.0);
-  float tau = amount * 0.7 * dens * slant * smoothstep(0.004, 0.05, d.y);
-  float Tc = exp(-tau);
-  float cosT = dot(d, uSunDir);
-  vec3 sunE = sunTransmittanceAt(uCirrus.w * 0.001, uSunDir.y);
-  // ice crystals: a diffraction peak forward and a broad, nearly isotropic remainder
-  float ph = mix(0.0796, hgc(cosT, 0.6), 0.2);
-  vec3 L = (1.0 - Tc) * (sunE * ph * 2.4 + skyIrradiance() / 3.14159 * 0.5);
-  float distKm = t * 0.001;
-  vec3 aL, aT;
-  aerial(d, min(distKm, uAerialMax), aL, aT);
-  float sEl = d.y * distKm / 2.0;
-  float fsl = sEl > 1e-3 ? (1.0 - exp(-sEl)) / sEl : 1.0;
-  vec3 aT2 = pow(max(aT, vec3(1e-4)), vec3(fsl));
-  aL *= (1.0 - aT2) / max(1.0 - aT, vec3(1e-4));
-  return vec4(L * aT2, Tc);
+// Crepuscular rays, as atmosphere.js's shafts() but with the cloud-shadow map read through its mip
+// chain, at the level whose texel matches the spacing of the samples along the ray. The samples are
+// jittered per pixel; read from the full-resolution map each pixel catches a different edge of a
+// cloud's shadow and the haze around a low sun prints as grain. Filtered at the sample spacing the
+// jitter averages out inside the filter (that is what the integral over a pixel's footprint is).
+vec3 shaftsLod(vec3 ro, vec3 dir, float dist) {
+  if (uShaft.z <= 0.0 || uSunDir.y < 0.02) return vec3(0.0);
+  float tMax = dist;
+  if (dir.y > 0.0) tMax = min(tMax, (uShaft.y - ro.y) / max(dir.y, 1e-3));
+  tMax = min(tMax, 12000.0);
+  if (tMax <= 0.0) return vec3(0.0);
+  const int N = 28;
+  float vis = 0.0, wsum = 0.0;
+  float texelM = 1.0 / max(uShaftRect.z * float(textureSize(uShaftShadow, 0).x), 1e-9);
+  for (int i = 0; i < N; i++) {
+    float f = (float(i) + fract(uShaft.w + fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453))) / float(N);
+    float t = tMax * f * f;
+    vec3 p = ro + dir * t;
+    vec2 xz0 = p.xz - uSunDir.xz * (max(p.y, 0.0) / uSunDir.y);
+    vec2 suv = (xz0 - uShaftRect.xy) * uShaftRect.zw;
+    float inR = smoothstep(0.0, 0.04, min(min(suv.x, suv.y), min(1.0 - suv.x, 1.0 - suv.y)));
+    float spacing = 2.0 * tMax * f / float(N);
+    float v = mix(uHazeSun, textureLod(uShaftShadow, suv, log2(max(spacing / texelM, 1.0))).r, inR);
+    float w = 2.0 * f;
+    vis += v * w;
+    wsum += w;
+  }
+  vis /= max(wsum, 1e-4);
+  float c = dot(dir, uSunDir);
+  float g = 0.76;
+  float ph = (1.0 - g * g) / (4.0 * 3.14159 * pow(1.0 + g * g - 2.0 * g * c, 1.5));
+  float trans = exp(-uShaft.x * tMax);
+  return sunIlluminance() * uShaft.x * ph * (1.0 - trans) / max(uShaft.x, 1e-9) * (vis - uHazeSun) * uShaft.z;
+}
+vec3 withShaftsLod(vec3 col, vec3 ro, vec3 dir, float dist) {
+  vec3 sh = shaftsLod(ro, dir, dist);
+  float ds = dot(sh, vec3(0.2126, 0.7152, 0.0722));
+  if (ds >= 0.0) return col + sh;
+  float y = max(dot(col, vec3(0.2126, 0.7152, 0.0722)), 1e-7);
+  return col * max(1.0 + ds / y, 0.2);
 }
 void main() {
   vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
@@ -126,11 +176,11 @@ void main() {
   } else {
     col = applyFog(col, d, 1e9);
   }
-  col = withShafts(col, uCamPos, d, 1e9);
+  col = withShaftsLod(col, uCamPos, d, 1e9);
   o = vec4(col, 1.0);
 }`;
 
-const ENV_FS = SKY_LOOKUP_GLSL + `
+const ENV_FS = SKY_LOOKUP_GLSL + CIRRUS_GLSL + `
 in vec2 vUv;
 layout(location = 0) out vec4 o;
 layout(location = 1) out vec4 oDeck;   // the same without rain and mist: the light entering them
@@ -148,6 +198,8 @@ void main() {
   vec3 d = vec3(cos(phi) * sin(theta), cos(theta), sin(phi) * sin(theta));
   d = normalize(d + vec3(0.0, 0.002, 0.0));
   vec3 col = skyRadiance(d);
+  vec4 ci = cirrusLayer(d);
+  col = col * mix(1.0, ci.a, 0.2) + ci.rgb;
   // a soft sun (pre-blurred); the sharp glint is handled analytically by the BRDF
   if (uCloudsOn > 0.5) {
     vec4 cl = texture(uCloudsEnv, vec2(vUv.x, min(vUp, 0.5 - 0.6 / float(textureSize(uCloudsEnv, 0).y))));

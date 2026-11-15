@@ -108,7 +108,8 @@ export class Lights {
         const k = 0.15 / d;
         const pos = [w[0] + dx * k, w[1] + dy * k, w[2] + dz * k];
         // at least a few pixels across, so a distant boat still shows its lights
-        const sy = Math.max(size * (0.3 + 0.5 * this.level) / (d * tanHalf), 6 / app.h);
+        // (capped: from the helm the bow lights are a few metres from the lens and would fill the view)
+        const sy = Math.min(Math.max(size * (0.3 + 0.5 * this.level) / (d * tanHalf), 6 / app.h), 0.035);
         this.prog.set('uPos', pos);
         this.prog.set("uHalf", [sy / aspect, sy]);
         this.prog.set('uColor', col || b.livery.color);
