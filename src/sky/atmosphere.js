@@ -264,10 +264,17 @@ export class Atmosphere {
       fullscreen(gl, this.pTrans, med, this.tTrans);
       fullscreen(gl, this.pMS, { ...med, uTransmittance: this.transmittance, uGroundAlbedo: 0.06 }, this.tMS);
     }
-    const common = { ...med, uTransmittance: this.transmittance, uMultiScatter: this.multiScatter, uSun: sunDir, uCamH: camHeightM / 1000 };
+    this.uniforms = med;
+    // The sky-view and aerial tables depend only on the sun, the haze and the camera's height. In a race
+    // the sun stands still and the camera stays within a few metres of the sea, so they are rebuilt
+    // only when one of those has really moved (height in 4 m steps: far below what the tables resolve).
+    const hq = Math.round(camHeightM / 4) * 4;
+    const sk = key + '|' + hq + '|' + sunDir[0].toFixed(4) + '|' + sunDir[1].toFixed(4) + '|' + sunDir[2].toFixed(4);
+    if (sk === this.skyKey) return;
+    this.skyKey = sk;
+    const common = { ...med, uTransmittance: this.transmittance, uMultiScatter: this.multiScatter, uSun: sunDir, uCamH: Math.max(hq, 1) / 1000 };
     fullscreen(gl, this.pSky, common, this.tSky);
     fullscreen(gl, this.pAerial, { ...common, uMaxDist: this.maxDist }, this.tAerial);
-    this.uniforms = med;
   }
 }
 
