@@ -1,4 +1,5 @@
-import { Geo, MAT, add, sub, norm, cross } from '../geo.js';
+import { MAT, add, sub, norm, cross } from '../geo.js';
+import { Geo, TAU, RUB, MET, GEL, LIT, CLOTH, mat, tube as ktube, rod as krod, lathe, box, quad as kquad, blob, hoop, chain, text, lifering, mark, paint, mixIn, stain, faded, both, vn as kvn, fb as kfb } from './kit.js';
 
 // Course marks other than the lateral buoys: the start/finish gantry (a tower on a pontoon at each
 // end of the gate and what spans between them) and the inflatable turn pylon. Model space: y up,
@@ -13,17 +14,8 @@ export const lerp = (a, b, t) => a + (b - a) * t;
 export const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
 export const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 export const mixc = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
-const h3 = (x, y, z) => { let n = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return n - Math.floor(n); };
-// smooth value noise in 0..1
-export function noise3(x, y, z) {
-  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
-  let fx = x - ix, fy = y - iy, fz = z - iz;
-  fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); fz = fz * fz * (3 - 2 * fz);
-  const L = (a, b, t) => a + (b - a) * t;
-  return L(L(L(h3(ix, iy, iz), h3(ix + 1, iy, iz), fx), L(h3(ix, iy + 1, iz), h3(ix + 1, iy + 1, iz), fx), fy),
-    L(L(h3(ix, iy, iz + 1), h3(ix + 1, iy, iz + 1), fx), L(h3(ix, iy + 1, iz + 1), h3(ix + 1, iy + 1, iz + 1), fx), fy), fz);
-}
-export const fbm = (x, y, z) => noise3(x, y, z) * 0.55 + noise3(x * 2.1 + 5.2, y * 2.1 + 1.3, z * 2.1 + 9.1) * 0.3 + noise3(x * 4.3 + 2.7, y * 4.3 + 7.7, z * 4.3 + 3.1) * 0.15;
+// smooth value noise in 0..1 and three octaves of it (the kit's: an integer hash, no trigonometry)
+export const noise3 = kvn, fbm = kfb;
 
 // Surface of revolution about the y axis from a profile [[r, y], ...] traversed so the outside is
 // on the right (up the side, then inward across the top). Normals come from the profile; a point
@@ -97,13 +89,13 @@ function rrect(hx, hz, r, nc = 4, ns = 5) {
 }
 
 // per-vertex recolouring after a model is built (weathering is baked into vertex colours)
-export function recolour(g, fn) {
-  const nv = g.p.length / 3;
-  for (let i = 0; i < nv; i++) {
-    const mid = g.m[i * 3];
+export function recolour(g, fn, from = 0) {
+  const P = g.P || g.p, N = g.N || g.n, C = g.C || g.c, M = g.M || g.m, nv = g.nv ?? g.p.length / 3;
+  for (let i = from; i < nv; i++) {
+    const mid = M[i * 3];
     if (mid === MAT.LIGHT || mid === MAT.TEXTURED || mid === MAT.GLASS) continue;
-    const c = fn([g.p[i * 3], g.p[i * 3 + 1], g.p[i * 3 + 2]], [g.n[i * 3], g.n[i * 3 + 1], g.n[i * 3 + 2]], [g.c[i * 3], g.c[i * 3 + 1], g.c[i * 3 + 2]], mid);
-    g.c[i * 3] = c[0]; g.c[i * 3 + 1] = c[1]; g.c[i * 3 + 2] = c[2];
+    const c = fn([P[i * 3], P[i * 3 + 1], P[i * 3 + 2]], [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]], [C[i * 3], C[i * 3 + 1], C[i * 3 + 2]], mid);
+    C[i * 3] = c[0]; C[i * 3 + 1] = c[1]; C[i * 3 + 2] = c[2];
   }
 }
 const lumOf = (c) => c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722;
@@ -187,69 +179,101 @@ export function radarReflector(g, c, r, col, segs = 14) {
 // these. The truss or the flag line attaches at TOWER.attach, on the face toward the other tower.
 export const TOWER = { height: 10.2, attach: 9.0, pontoon: [3.4, 3.8], radius: 2.6 };
 
-export function towerGeo(side) {
-  const g = new Geo();
-  const port = side === 'port';
+// lod 0 near; 1 middle (no diagonals' twins, plain plates, thicker bars); 2 far (legs, frames, pontoon, top mark)
+export function towerGeo(side, lod = 0) {
+  const g = new Geo(lod ? 2048 : 16384);
+  const port = side === 'port', near = lod === 0, far = lod === 2, TH = far ? 2.2 : lod ? 1.5 : 1;
   const body = port ? PORT : STBD, lens = port ? LENS_PORT : LENS_STBD;
   const inw = port ? 1 : -1;
   const steel = [0.5, 0.52, 0.55], dark = [0.07, 0.075, 0.08];
   const [px, pz] = TOWER.pontoon;
   // pontoon: a rounded-rectangle hull, flared above the waterline, with a non-skid deck
   const levels = [[-0.75, 0.74, 0.8], [-0.4, 0.92, 0.95], [-0.05, 1.0, 1.0], [0.3, 1.0, 1.0], [0.52, 0.98, 0.98]];
-  const rings = levels.map(([y, fx, fz]) => rrect((px / 2) * fx, (pz / 2) * fz, 0.55, 4, 5).map(([x, z]) => [x, y, z]));
+  const rc = far ? 1 : lod ? 2 : 4, rs = far ? 1 : lod ? 2 : 5;
+  const rings = levels.map(([y, fx, fz]) => rrect((px / 2) * fx, (pz / 2) * fz, 0.55, rc, rs).map(([x, z]) => [x, y, z]));
   g.loft(rings, body, [MAT.RUBBER, 0, 0], { ref: (i) => [0, levels[i][0], 0] });
   // deck with a rolled edge
-  const deck = rrect(px / 2 * 0.98 - 0.06, pz / 2 * 0.98 - 0.06, 0.5, 4, 5).map(([x, z]) => [x, 0.54, z]);
+  const deck = rrect(px / 2 * 0.98 - 0.06, pz / 2 * 0.98 - 0.06, 0.5, rc, rs).map(([x, z]) => [x, 0.54, z]);
   g.fan(deck, [0, 0.54, 0], [0, 1, 0], [0.32, 0.33, 0.34], [MAT.NONSKID, 0, 0]);
-  g.tube(rrect(px / 2 * 0.98, pz / 2 * 0.98, 0.55, 4, 5).map(([x, z]) => [x, 0.53, z]), 0.05, steel, [MAT.METAL, 0, 0], { segs: 6, closed: true });
+  if (!far) g.tube(rrect(px / 2 * 0.98, pz / 2 * 0.98, 0.55, rc, rs).map(([x, z]) => [x, 0.53, z]), 0.05, steel, [MAT.METAL, 0, 0], { segs: near ? 6 : 3, closed: true });
   // fender: a heavy rubber half-round at the waterline, and a yellow collision strip above it
-  g.tube(rrect(px / 2 * 1.0 + 0.04, pz / 2 * 1.0 + 0.04, 0.58, 4, 5).map(([x, z]) => [x, 0.0, z]), 0.11, dark, [MAT.RUBBER, 0, 0], { segs: 8, closed: true });
+  g.tube(rrect(px / 2 * 1.0 + 0.04, pz / 2 * 1.0 + 0.04, 0.58, rc, rs).map(([x, z]) => [x, 0.0, z]), 0.11, dark, [MAT.RUBBER, 0, 0], { segs: near ? 8 : 4, closed: true });
   // bollards and a locker on the deck
-  for (const [x, z] of [[1.3, 1.5], [1.3, -1.5], [-1.3, 1.5], [-1.3, -1.5]]) revolve(g, [[0.12, 0.54], [0.1, 0.62], [0.1, 0.62], [0.13, 0.72], [0.07, 0.74]].map(([r, y]) => [r, y]), steel, [MAT.METAL, 0, 0], 8);
+  if (near) for (const [x, z] of [[1.3, 1.5], [1.3, -1.5], [-1.3, 1.5], [-1.3, -1.5]]) lathe(g, [[0.12, 0.54], [0.1, 0.62], [0.1, 0.62], [0.13, 0.72], [0.07, 0.74]], steel, MET, { segs: 8, at: [x, 0, z] });
   // tower: four tapering legs, braced
   const y0 = 0.58, yT = TOWER.height, hb = 0.85, ht = 0.5, bays = 5;
   const hw = (y) => lerp(hb, ht, (y - y0) / (yT - y0));
   const corner = (y, k) => { const w = hw(y); return [[w, y, w], [-w, y, w], [-w, y, -w], [w, y, -w]][k]; };
-  for (let k = 0; k < 4; k++) rod(g, corner(y0, k), corner(yT, k), 0.06, steel, [MAT.METAL, 0, 0], 6);
+  for (let k = 0; k < 4; k++) rod(g, corner(y0, k), corner(yT, k), 0.06 * TH, steel, [MAT.METAL, 0, 0], near ? 6 : 3);
   for (let b = 0; b <= bays; b++) {
     const y = y0 + ((yT - y0) * b) / bays;
-    for (let k = 0; k < 4; k++) rod(g, corner(y, k), corner(y, (k + 1) % 4), 0.04, steel, [MAT.METAL, 0, 0], 5);
+    for (let k = 0; k < 4; k++) rod(g, corner(y, k), corner(y, (k + 1) % 4), 0.04 * TH, steel, [MAT.METAL, 0, 0], near ? 5 : 3);
   }
-  for (let b = 0; b < bays; b++) {
+  if (!far) for (let b = 0; b < bays; b++) {
     const ya = y0 + ((yT - y0) * b) / bays, yb = y0 + ((yT - y0) * (b + 1)) / bays;
     for (let k = 0; k < 4; k++) {
-      rod(g, corner(ya, k), corner(yb, (k + 1) % 4), 0.027, steel, [MAT.METAL, 0, 0], 4);
-      rod(g, corner(ya, (k + 1) % 4), corner(yb, k), 0.027, steel, [MAT.METAL, 0, 0], 4);
+      rod(g, corner(ya, k), corner(yb, (k + 1) % 4), 0.027 * TH, steel, [MAT.METAL, 0, 0], near ? 4 : 3);
+      if (near) rod(g, corner(ya, (k + 1) % 4), corner(yb, k), 0.027, steel, [MAT.METAL, 0, 0], 4);
     }
   }
   // a ladder up the outside face, away from the gate
   const lz = -inw * (hw(y0) + 0.22);
-  rod(g, [-0.22, y0, lz], [-0.22 * 0.6, yT - 0.2, -inw * (hw(yT) + 0.22)], 0.025, steel, [MAT.METAL, 0, 0], 4);
-  rod(g, [0.22, y0, lz], [0.22 * 0.6, yT - 0.2, -inw * (hw(yT) + 0.22)], 0.025, steel, [MAT.METAL, 0, 0], 4);
-  for (let y = y0 + 0.4; y < yT - 0.3; y += 0.4) {
+  if (near) rod(g, [-0.22, y0, lz], [-0.22 * 0.6, yT - 0.2, -inw * (hw(yT) + 0.22)], 0.025, steel, [MAT.METAL, 0, 0], 4);
+  if (near) rod(g, [0.22, y0, lz], [0.22 * 0.6, yT - 0.2, -inw * (hw(yT) + 0.22)], 0.025, steel, [MAT.METAL, 0, 0], 4);
+  if (near) for (let y = y0 + 0.4; y < yT - 0.3; y += 0.4) {
     const t = (y - y0) / (yT - y0), zz = lerp(lz, -inw * (hw(yT) + 0.22), t), w = lerp(0.22, 0.13, t);
     rod(g, [-w, y, zz], [w, y, zz], 0.014, steel, [MAT.METAL, 0, 0], 3);
   }
   // number plates ("S/F") on the four faces, low, where a boat passes
   const yp = y0 + 2.3;
   for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    const n = [nx, 0, nz], right = [nz, 0, -nx];
-    plate(g, [nx * (hw(yp) + 0.06), yp, nz * (hw(yp) + 0.06)], n, right, 1.2, 0.78);
+    const n = [nx, 0, nz], right = [nz, 0, -nx], c = [nx * (hw(yp) + 0.06), yp, nz * (hw(yp) + 0.06)];
+    if (near) plate(g, c, n, right, 1.2, 0.78);
+    else kquad(g, [c[0] - right[0] * 0.6, yp - 0.39, c[2] - right[2] * 0.6], [c[0] + right[0] * 0.6, yp - 0.39, c[2] + right[2] * 0.6], [c[0] + right[0] * 0.6, yp + 0.39, c[2] + right[2] * 0.6], [c[0] - right[0] * 0.6, yp + 0.39, c[2] - right[2] * 0.6], [0.75, 0.75, 0.72], RUB);
   }
   // top platform with rail posts, the span's end brackets and the lantern
   const hp = hw(yT) + 0.2;
   g.box(-hp, hp, yT - 0.02, yT + 0.04, -hp, hp, [0.2, 0.2, 0.21], [MAT.METAL, 0, 0]);
-  for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) rod(g, [sx * hp, yT + 0.04, sz * hp], [sx * hp, yT + 0.6, sz * hp], 0.022, steel, [MAT.METAL, 0, 0], 4);
-  for (const y of [yT + 0.35, yT + 0.6]) for (let k = 0; k < 4; k++) {
+  if (near) for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) rod(g, [sx * hp, yT + 0.04, sz * hp], [sx * hp, yT + 0.6, sz * hp], 0.022, steel, [MAT.METAL, 0, 0], 4);
+  if (near) for (const y of [yT + 0.35, yT + 0.6]) for (let k = 0; k < 4; k++) {
     const a = [[hp, hp], [-hp, hp], [-hp, -hp], [hp, -hp]][k], b = [[hp, hp], [-hp, hp], [-hp, -hp], [hp, -hp]][(k + 1) % 4];
     rod(g, [a[0], y, a[1]], [b[0], y, b[1]], 0.016, steel, [MAT.METAL, 0, 0], 3);
   }
   // topmark ahead of the lantern: a painted drum, in the side's colour
-  revolve(g, [[0, yT + 0.04], [0.34, yT + 0.04], [0.34, yT + 0.04], [0.34, yT + 0.7], [0.34, yT + 0.7], [0, yT + 0.7]], body, [MAT.GELCOAT, 0, 0.1], 20);
-  const top = lantern(g, yT + 0.7, lens, { r: 0.24, h: 0.6 });
+  revolve(g, [[0, yT + 0.04], [0.34, yT + 0.04], [0.34, yT + 0.04], [0.34, yT + 0.7], [0.34, yT + 0.7], [0, yT + 0.7]], body, [MAT.GELCOAT, 0, 0.1], near ? 20 : 8);
+  const top = lantern(g, yT + 0.7, lens, { r: 0.24, h: 0.6, lod: near ? 0 : 1 });
   g.lamp = yT + 0.7 + 0.2 + 0.3;
   rod(g, [0, top, 0], [0, top + 0.4, 0], 0.02, steel, [MAT.METAL, 0, 0], 4);
-  radarReflector(g, [0, top + 0.58, 0], 0.3, steel);
+  radarReflector(g, [0, top + 0.58, 0], 0.3, steel, near ? 14 : 6);
+  if (!far) {
+    // stays from the head of the tower to the pontoon's corners
+    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) krod(g, [sx * hw(yT) * 0.9, yT - 0.1, sz * hw(yT) * 0.9], [sx * (px / 2 - 0.2), 0.56, sz * (pz / 2 - 0.2)], near ? 0.012 : 0.025, [0.35, 0.36, 0.38], MET, 3);
+    // sponsors' banners laced to the two faces the fleet passes: blocks of colour, the name reading up the tower
+    const BN = [[[0.03, 0.08, 0.3], [0.8, 0.8, 0.76], 'TIDAL RACING'], [[0.7, 0.25, 0.02], [0.05, 0.05, 0.06], 'OPEN WATER']];
+    [1, -1].forEach((sx, bi) => {
+      const [bg, ink, word] = BN[(bi + (port ? 0 : 1)) % 2], ya = y0 + 3.6, yb = yT - 0.5, P = (y, z) => [sx * (hw(y) + 0.09), y, z * hw(y) * 0.92];
+      kquad(g, P(ya + 0.5, -1), P(ya + 0.5, 1), P(yb - 0.5, 1), P(yb - 0.5, -1), bg, CLOTH);
+      kquad(g, P(ya, -1), P(ya, 1), P(ya + 0.5, 1), P(ya + 0.5, -1), ink, CLOTH); kquad(g, P(yb - 0.5, -1), P(yb - 0.5, 1), P(yb, 1), P(yb, -1), ink, CLOTH);
+      if (near) {
+        const mid = (ya + yb) / 2, sl = (hw(yb) - hw(ya)) / (yb - ya);
+        text(g, word, [sx * (hw(mid) + 0.1), mid, sx * 0.19], [sx * sl, 1, 0], [0, 0, sx], 0.38, ink, CLOTH, { off: 0.006, weight: 0.2, centre: true });
+        for (const y of [ya, (ya + yb) / 2, yb]) for (const z of [-1, 1]) krod(g, P(y, z), [sx * hw(y), y, z * hw(y)], 0.008, [0.1, 0.1, 0.1], RUB, 3);
+      }
+    });
+  }
+  if (near) {
+    // what the timekeepers leave on the pontoon: a generator, its fuel, cable up the tower; a rail, a life ring; horns at the top
+    box(g, [-0.95, 0.82, inw * 1.1], 0.42, 0.28, 0.3, [0.55, 0.42, 0.05], RUB); box(g, [-0.95, 1.13, inw * 1.1], 0.36, 0.03, 0.24, dark, RUB);
+    for (const z of [-0.2, 0.2]) krod(g, [-1.25, 0.56, inw * 1.1 + z], [-0.65, 0.56, inw * 1.1 + z], 0.03, dark, RUB, 4);
+    box(g, [-1.2, 0.74, inw * 0.5], 0.09, 0.2, 0.16, [0.5, 0.06, 0.04], RUB);
+    ktube(g, [[-0.6, 0.75, inw * 1.0], [-0.5, 0.6, inw * 0.75], corner(y0 + 0.3, port ? 1 : 2), corner(yT - 0.6, port ? 1 : 2)], 0.014, dark, RUB, { segs: 4 });
+    for (const sx of [-1, 1]) { const pts = [[sx * (px / 2 - 0.12), 0.56, -pz / 2 + 0.5], [sx * (px / 2 - 0.12), 0.56, pz / 2 - 0.5]]; for (const p of pts) krod(g, p, [p[0], 1.5, p[2]], 0.022, steel, MET, 4); for (const y of [1.05, 1.5]) krod(g, [pts[0][0], y, pts[0][2]], [pts[1][0], y, pts[1][2]], 0.018, steel, MET, 4); }
+    lifering(g, [-(px / 2 - 0.1), 1.1, 0], [-1, 0, 0], 0.27);
+    for (const s of [-1, 1]) ktube(g, [[s * 0.3, yT - 0.5, inw * hw(yT - 0.5)], [s * 0.5, yT - 0.6, inw * (hw(yT - 0.5) + 0.42)]], [0.05, 0.17], [0.6, 0.6, 0.58], GEL, { segs: 8 });
+    // old tyres down the sides, a mooring chain off each seaward corner
+    for (const sx of [-1, 1]) for (const z of [-1.1, 0, 1.1]) hoop(g, [sx * (px / 2 + 0.12), 0.25, z], [sx, 0, 0], 0.24, 0.09, [0.025, 0.025, 0.027], RUB, 10, 5);
+    for (const sx of [-1, 1]) { chain(g, [sx * (px / 2 - 0.25), 0.5, -inw * (pz / 2 - 0.1)], [sx * (px / 2 + 0.7), -0.3, -inw * (pz / 2 + 1.6)], [0.22, 0.2, 0.18], MET, { link: 0.14, r: 0.018 }); krod(g, [sx * (px / 2 + 0.7), -0.3, -inw * (pz / 2 + 1.6)], [sx * (px / 2 + 2.2), -3, -inw * (pz / 2 + 4)], 0.03, [0.1, 0.1, 0.1], RUB, 3); }
+  }
   // the span's end bracket: a plate on the gate side at the attach height
   g.box(-0.1, 0.1, TOWER.attach - 0.7, TOWER.attach + 0.45, inw * (hw(TOWER.attach) - 0.02), inw * (hw(TOWER.attach) + 0.18), [0.15, 0.15, 0.16], [MAT.METAL, 0, 0]);
 
@@ -307,6 +331,18 @@ export function trussGeo(L) {
     const x = x0 + (x1 - x0) * f;
     g.box(x - 0.18, x + 0.18, yt + 0.08, yt + 0.24, -0.1, 0.1, [0.12, 0.12, 0.13], [MAT.METAL, 0, 0]);
     g.box(x - 0.14, x + 0.14, yt + 0.02, yt + 0.09, -0.07, 0.07, [1, 0.95, 0.85], [MAT.LIGHT, 0, 1]);
+  }
+  const tr0 = g.nv;
+  // the starting lights: five red lamps in a row under the middle of the span, shown to both sides; a race clock beside them
+  {
+    const xm = (x0 + x1) / 2, yl = yb - 0.45;
+    box(g, [xm, yl, 0], 1.75, 0.2, 0.09, [0.03, 0.03, 0.035], RUB);
+    for (let k = 0; k < 5; k++) for (const s of [-1, 1]) kquad(g, [xm - 1.36 + k * 0.68 - 0.13, yl - 0.13, s * 0.093], [xm - 1.36 + k * 0.68 + 0.13, yl - 0.13, s * 0.093], [xm - 1.36 + k * 0.68 + 0.13, yl + 0.13, s * 0.093], [xm - 1.36 + k * 0.68 - 0.13, yl + 0.13, s * 0.093], [0.9, 0.06, 0.04], LIT);
+    for (const x of [xm - 1.5, xm + 1.5]) krod(g, [x, yb, 0], [x, yl + 0.2, 0], 0.025, alu, MET, 4);
+    box(g, [xm + 3.2, yl, 0], 0.75, 0.24, 0.07, [0.03, 0.03, 0.035], RUB);
+    for (const s of [-1, 1]) text(g, '00.00', [xm + 3.2, yl - 0.15, s * 0.072], [s, 0, 0], [0, 1, 0], 0.3, [0.95, 0.6, 0.1], LIT, { off: 0.003, weight: 0.2, centre: true });
+    krod(g, [xm + 3.2, yb, 0], [xm + 3.2, yl + 0.24, 0], 0.025, alu, MET, 4);
+    for (const x of [x0 + 1.2, x1 - 1.2]) for (const s of [-1, 1]) ktube(g, [[x, yb - 0.1, s * 0.1], [x, yb - 0.25, s * 0.5]], [0.05, 0.17], [0.6, 0.6, 0.58], GEL, { segs: 8 });
   }
   recolour(g, (p, nn, c) => {
     const m = fbm(p[0] * 0.6, p[1] * 3, p[2] * 3);
@@ -372,14 +408,15 @@ export function flagLineGeo(L) {
 // ---- inflatable turn pylon ---------------------------------------------------------------
 export const PYLON = { height: 7.6, radius: 2.5, cell: 1.15, y0: 0.55, cells: 5 };
 
-export function pylonGeo(side) {
-  const g = new Geo();
-  const port = side === 'port';
+// lod 0 near; 1 middle; 2 far (the column and its bands of colour)
+export function pylonGeo(side, lod = 0) {
+  const g = new Geo(lod ? 4096 : 32768);
+  const port = side === 'port', near = lod === 0, far = lod === 2;
   const body = port ? [0.78, 0.07, 0.05] : [0.06, 0.52, 0.16];
   const white = [0.8, 0.8, 0.77];
   const lens = port ? LENS_PORT : LENS_STBD;
   const { y0, cell, cells } = PYLON;
-  const seg = 64;
+  const seg = far ? 12 : lod ? 24 : 64;
   // radius of the column before the cells puff out
   const r0 = (y) => lerp(1.3, 0.72, clamp((y - y0) / (cell * cells), 0, 1));
   const puff = (y) => { const f = ((y - y0) / cell) % 1; const q = Math.sin(Math.PI * clamp(f, 0, 1)); return 1 + 0.15 * Math.pow(q, 0.7); };
@@ -388,7 +425,7 @@ export function pylonGeo(side) {
   // the column: stacked inflated cells with sewn seams between them
   const prof = [];
   const top = y0 + cell * cells;
-  for (let y = y0; y <= top + 1e-6; y += cell / 12) prof.push([r0(y) * puff(Math.min(y, top - 1e-4)), y]);
+  for (let y = y0; y <= top + 1e-6; y += cell / (far ? 4 : lod ? 6 : 12)) prof.push([r0(y) * puff(Math.min(y, top - 1e-4)), y]);
   prof.push([r0(top) * 0.97, top + 0.05]);
   // domed cap
   for (let k = 1; k <= 6; k++) { const a = (k / 6) * Math.PI / 2; prof.push([r0(top) * 0.97 * Math.cos(a) + 0.0001, top + 0.05 + 0.42 * Math.sin(a)]); }
@@ -396,20 +433,38 @@ export function pylonGeo(side) {
   // a neck and the strobe on top
   const yc = top + 0.47;
   revolve(g, [[0.2, yc - 0.06], [0.2, yc + 0.1], [0.12, yc + 0.15]], [0.3, 0.3, 0.32], [MAT.METAL, 0, 0], 12);
-  lantern(g, yc + 0.14, lens, { r: 0.17, h: 0.36 });
+  lantern(g, yc + 0.14, lens, { r: 0.17, h: 0.36, lod: near ? 0 : 1 });
   g.lamp = yc + 0.14 + 0.2 + 0.18;
   // number panels: curved patches that follow the cell, four of them round the column
   const cellN = 1;
   const ya = y0 + cell * (cellN + 0.14), yb = y0 + cell * (cellN + 0.86);
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < (far ? 0 : 4); k++) {
     const a0 = (k * Math.PI) / 2;
     const half = 0.72;
     const fn = (u, v) => {
       const a = a0 - (u - 0.5) * half * 2, y = lerp(ya, yb, 1 - v);
-      const rr = r0(y) * puff(y) + 0.012;
+      const rr = r0(y) * puff(y) + (near ? 0.012 : 0.1);
       return [Math.cos(a) * rr, y, Math.sin(a) * rr];
     };
-    texSheet(g, fn, 8, 4, [1, 1, 1], [MAT.TEXTURED, 0, 0], [Math.cos(a0), 0, Math.sin(a0)]);
+    texSheet(g, fn, near ? 8 : 4, near ? 4 : 2, [1, 1, 1], [MAT.TEXTURED, 0, 0], [Math.cos(a0), 0, Math.sin(a0)]);
+  }
+  const fit0 = g.nv, surfR = (y) => r0(y) * puff(Math.min(y, top - 1e-4));
+  if (near) {
+    // welded seams up the column between the number panels, webbing handles, a valve
+    for (let k = 0; k < 4; k++) { const a = (k + 0.5) * (Math.PI / 2); ktube(g, prof.filter((q, i) => i % 3 === 0 && q[1] <= top).map(([r, y]) => [Math.cos(a) * (r + 0.004), y, Math.sin(a) * (r + 0.004)]), 0.016, [0.3, 0.3, 0.3], RUB, { segs: 3 }); }
+    for (const cn of [2, 4]) for (let k = 0; k < 4; k++) { const a = (k + 0.5) * (Math.PI / 2) + 0.35, y = y0 + cell * (cn + 0.5), r = surfR(y), P = (dy2, o) => [Math.cos(a) * (r + o), y + dy2, Math.sin(a) * (r + o)]; ktube(g, [P(-0.16, 0.005), P(-0.09, 0.07), P(0.09, 0.07), P(0.16, 0.005)], 0.014, [0.04, 0.04, 0.045], CLOTH, { segs: 4 }); for (const d of [-0.18, 0.18]) box(g, P(d, 0.008), 0.012, 0.05, 0.05, [0.04, 0.04, 0.045], RUB, { yaw: a }); }
+    lathe(g, [[0.035, 0], [0.035, 0.03], [0.02, 0.04], [0, 0.04]], [0.05, 0.05, 0.05], RUB, { segs: 8, axis: 'x', at: [surfR(y0 + cell * 0.5) - 0.005, y0 + cell * 0.5, 0.3] });
+    // the makers' name round a white cell
+    const word = 'TIDAL RACING', yw = y0 + cell * 3.38, rw = surfR(yw + 0.12) + 0.01;
+    for (const a0 of [0.35, 0.35 + Math.PI]) [...word].forEach((ch, k) => { const a = a0 - (k - word.length / 2) * (0.21 / rw); text(g, ch, [Math.cos(a) * rw, yw, Math.sin(a) * rw], [Math.sin(a), 0, -Math.cos(a)], [0, 1, 0], 0.24, body, RUB, { off: 0.004, weight: 0.2 }); });
+  }
+  if (!far) {
+    // tie-downs from patches half way up to the ballast ring, which is weighted with water bags and moored
+    for (let k = 0; k < 4; k++) { const a = k * (Math.PI / 2) + 0.78, yh = y0 + cell * 3, r = surfR(yh - 0.02); krod(g, [Math.cos(a) * r, yh, Math.sin(a) * r], [Math.cos(a) * 2.28, 0.42, Math.sin(a) * 2.28], near ? 0.012 : 0.03, [0.6, 0.55, 0.42], CLOTH, 3); if (near) { box(g, [Math.cos(a) * (r + 0.01), yh, Math.sin(a) * (r + 0.01)], 0.012, 0.09, 0.09, [0.04, 0.04, 0.045], RUB, { yaw: a }); hoop(g, [Math.cos(a) * 2.28, 0.44, Math.sin(a) * 2.28], [-Math.sin(a), 0, Math.cos(a)], 0.05, 0.012, [0.5, 0.52, 0.55], MET, 8, 3); } }
+    const nb = near ? 10 : 6;
+    for (let k = 0; k < nb; k++) { const a = (k / nb) * TAU; blob(g, [Math.cos(a) * 2.2, -0.12, Math.sin(a) * 2.2], 0.5, 0.3, 0.5, [0.05, 0.05, 0.055], RUB, { n: near ? 4 : 2, segs: near ? 8 : 5 }); }
+    if (near) { chain(g, [2.3, 0.2, 0.4], [3.0, -0.3, 0.9], [0.22, 0.2, 0.18], MET, { link: 0.12, r: 0.015 }); krod(g, [3.0, -0.3, 0.9], [4.5, -3, 2], 0.025, [0.1, 0.1, 0.1], RUB, 3); }
+    paint(g, fit0, stain(4.4, { weedTop: 0.25, tide: 0.35, wet: 0.5 }));
   }
   // paint the cells by height: alternating colour and white, dark in the seams
   recolour(g, (p, n, c, mid) => {

@@ -10,11 +10,12 @@
 // the container ship its sidelights; windows glow at dusk, the platform's flare burns all day. They
 // are scaled by the darkness level game.meshes.lamp, as marks.js does.
 //
-// Cost (triangles): lighthouse 3.8k near / 0.6k far, breakwater 12k near in eight chunks (1.5k
-// each) / 0.8k far, beacon 0.8k / 0.2k, platform 3.6k / 0.5k, yacht 2.3k / 0.6k, cruiser 2.4k / 0.7k,
-// RIB 1.0k / 0.3k, committee boat 2.7k / 0.6k, container ship 3.3k (far only). One draw per
-// object; objects behind the camera, beyond their cut-off (2.6 km for small boats, 12 km for the
-// rest) or outside the view are skipped; glows are one quad each. No per-frame allocation.
+// Cost (triangles, near / middle / far level; the distances at which they change are in LOD below):
+// lighthouse 22k / 5k / 0.6k, breakwater 29k / 4k / 0.13k a chunk (eight chunks of 56 m), beacon 3.4k / 1k /
+// 0.3k, platform 19k / 4k / 0.8k, yacht 8.5k / 1.7k / 0.3k, cruiser 7k / 1.8k / 0.5k, RIB 5k / 1.1k / 0.3k,
+// committee boat 10k / 2.8k / 0.4k, container ship 56k / 12k / 1.7k. One draw per object; objects
+// behind the camera, beyond their cut-off (2.6 km for small boats, 12 km for the rest) or outside
+// the view are skipped; glows are one quad each. No per-frame allocation.
 import { lighthouseGeo, breakwaterChunks, smoothPath, beaconGeo, platformGeo, LIGHTHOUSE, BEACON, PLATFORM, BREAKWATER, rng } from './models/structures.js';
 import { yachtGeo, cruiserGeo, ribGeo, committeeGeo, cargoGeo, YACHT, CRUISER, RIB, COMMITTEE, CARGO } from './models/vessels.js';
 import { Texture, Target, Program, makeMesh, bindEmpty, fullscreen, FULLSCREEN_VS } from '../gl.js';
@@ -31,6 +32,11 @@ const KINDS = {
   rib: { make: ribGeo, radius: 5, nearD: 160, cull: 2000 },
   committee: { make: committeeGeo, radius: 10, nearD: 280, cull: 3000 },
 };
+// where each kind steps down a level of detail: [near to middle, middle to far] (m from the camera)
+// (what is laid on a surface at a level must stand prouder of it than the depth buffer's step at that level's far end:
+// 24 bits from 0.2 m resolve about 1 cm at 180 m, 3 cm at 320 m, 6 cm at 450 m)
+const LOD = { yacht: [75, 330], cruiser: [75, 330], rib: [55, 250], committee: [95, 420], lighthouse: [220, 1300], beacon: [120, 520], platform: [320, 1900], cargo: [450, 2300], breakwater: [150, 430] };
+const levelAt = (kind, d) => { const L = LOD[kind]; return d < L[0] ? 0 : d < L[1] ? 1 : 2; };
 
 // ---- layout: plain data, a pure function of the course ---------------------------------
 const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return h >>> 0; };
@@ -326,14 +332,12 @@ export class Scenery {
     this.ready = null;
   }
 
-  // a model at both levels of detail (one level when `single`: the container ship is only ever far)
-  model(key, make, texKey, single = false) {
+  // a model at its three levels of detail; the lamps and the float length are the near level's
+  model(key, make, texKey) {
     let m = this.models.get(key);
     if (m) return m;
-    const gl = this.gl;
-    const a = make(0), b = single ? a : make(1);
-    const A = { mesh: a.g.build(gl), tris: a.g.p.length / 9 };
-    m = { near: A, far: single ? A : { mesh: b.g.build(gl), tris: b.g.p.length / 9 }, lamps: a.lamps, foot: a.foot || 0, tex: texKey ? this.tex[texKey] : null };
+    const gl = this.gl, built = [0, 1, 2].map((l) => make(l));
+    m = { lods: built.map((b) => ({ mesh: b.g.build(gl), tris: b.g.nv / 3 })), lamps: built[0].lamps, foot: built[0].foot || 0, tex: texKey ? this.tex[texKey] : null };
     this.models.set(key, m);
     return m;
   }
@@ -345,8 +349,8 @@ export class Scenery {
     for (const it of this.items) {
       if (it.chunks) {
         if (it.near) continue;
-        const near = breakwaterChunks(it.path, it.side, 0, it.seed), far = breakwaterChunks(it.path, it.side, 1, it.seed);
-        it.parts = near.map((c, i) => ({ x: c.x, z: c.z, cx: c.cx, cz: c.cz, r: c.r, near: { mesh: c.g.build(gl), tris: c.g.p.length / 9 }, far: { mesh: far[i].g.build(gl), tris: far[i].g.p.length / 9 }, lamps: c.lamps }));
+        const lv = [0, 1, 2].map((l) => breakwaterChunks(it.path, it.side, l, it.seed));
+        it.parts = lv[0].map((c, i) => ({ x: c.x, z: c.z, cx: c.cx, cz: c.cz, r: c.r, lods: lv.map((L) => ({ mesh: L[i].g.build(gl), tris: L[i].g.nv / 3 })), lamps: c.lamps }));
         it.near = true;
         for (const c of it.parts) c.owner = { x: c.x, z: c.z, yaw: 0, phase: 1.7, float: 0 };
         continue;
@@ -357,7 +361,7 @@ export class Scenery {
         case 'lighthouse': m = this.model('lighthouse', (l) => lighthouseGeo(l, 3)); break;
         case 'beacon': m = this.model(it.key, (l) => beaconGeo(it.style, l, 1)); break;
         case 'platform': m = this.model('platform', (l) => platformGeo(l, 2)); break;
-        case 'cargo': m = this.model('cargo', () => cargoGeo(1), null, true); break;
+        case 'cargo': m = this.model('cargo', (l) => cargoGeo(1, l)); break;
         default: m = this.model(it.key, (l) => KINDS[it.kind].make(l, seed), it.kind === 'committee' ? 'sign' : null);
       }
       it.m = m; it.foot = m.foot;
@@ -420,7 +424,7 @@ export class Scenery {
           if (!this.visible(c.cx, 3, c.cz, c.r, 8000)) continue;
           const d = Math.hypot(c.cx - cam[0], c.cz - cam[2]);
           rotY(mat, 0, c.x, c.z);
-          this.put(m, d < 360 ? c.near : c.far, null, 0, 0);
+          this.put(m, c.lods[levelAt('breakwater', d - c.r + 20)], null, 0, 0);
         }
         continue;
       }
@@ -429,7 +433,7 @@ export class Scenery {
       const d = Math.hypot(it.x - cam[0], it.z - cam[2]);
       it.shown = true; it.d = d;
       rotY(mat, it.yaw + (it.sw || 0), it.x, it.z);
-      this.put(m, d < it.nearD ? it.m.near : it.m.far, it.m.tex, it.float || 0, it.float ? it.foot : 0);
+      this.put(m, it.m.lods[levelAt(it.kind, d)], it.m.tex, it.float || 0, it.float ? it.foot : 0);
     }
     if (this.foot) { m.prog.use(); m.prog.set('uFoot', 0); this.foot = 0; }
   }

@@ -13,7 +13,8 @@
 //           perched at full level: ~46k triangles), flapping and gliding in the vertex shader. Riding
 //           birds read the wave textures at 15 taps a vertex; the rest read none.
 //   mesh    a draw each for: the dolphins in view (206 tris), fish (51), flotsam within 300 m (kelp 216,
-//           log 136, crate 72, pot marker 93), crews on the boats within 550 m (156 per person), flags within
+//           log 550, crate 300, pot marker 400), crews on the boats within 550 m (1,600 a person within 45 m,
+//           450 to 160 m, 60 beyond; the arms that wave are a second small draw), flags within
 //           450 m (about 170 each). Typically fewer than 30 draws and 6k triangles.
 //   fx      one instanced draw of at most 320 splash particles (billboards and rings).
 // Everything scales with app.fx.spray (0 draws and simulates nothing), is culled by distance and by
@@ -22,6 +23,7 @@
 import { Program } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { smoothPath, rng } from './models/structures.js';
+import { crewOf } from './models/vessels.js';
 import {
   birdBuffers, dolphinGeo, fishGeo, kelpGeo, logGeo, crateGeo, potFloatGeo, crewGeo, WAVE_FRAMES,
   flagCloth, flagStatic, FLAG_CLOTH_VERTS,
@@ -586,18 +588,13 @@ export class Wildlife {
   layoutPeople(R) {
     const sc = this.scenery, L = sc && sc.layout;
     if (!sc) return;
-    const crew = (host, people, foot = 0, fixed = null) => this.crews.push({ host, people, foot, fixed, variants: null, waving: people.some((p) => p.pose === 1) });
+    const crew = (host, people, foot = 0, fixed = null) => this.crews.push({ host, people, foot, fixed, lods: [], waving: people.some((p) => p.pose === 1 || p.pose === 'wave') });
     for (const it of sc.items) {
       if (!it.float || it.kind === 'cargo') continue;
       const h = ih(this.seed, Math.round(it.x * 3 + it.z * 7));
-      let people = null;
-      if (it.kind === 'committee') people = [
-        { x: -4.3, y: 1.47, z: 0.85, yaw: -0.5, pal: 0, skin: 0 }, { x: -3.3, y: 1.47, z: -0.95, yaw: 0.4, pal: 0, skin: 1, pose: 1, side: -1 },
-        { x: -5.4, y: 1.47, z: 0.1, yaw: 0, pal: 1, skin: 2 }, { x: 1.3, y: 3.84, z: 0.95, yaw: 1.2, pal: 2, skin: 3, pose: 1, side: 1 }, { x: -0.3, y: 3.84, z: -0.9, yaw: -0.8, pal: 4, skin: 0 }];
-      else if (it.kind === 'yacht' && h < 0.75) people = [{ x: -4.4, y: 0.47, z: 0.0, yaw: 0, pal: 2, skin: 0, pose: 2 }, { x: -3.2, y: 0.47, z: 0.7, yaw: 0.9, pal: 5, skin: 3, pose: h < 0.35 ? 1 : 0, side: 1 }];
-      else if (it.kind === 'cruiser' && h < 0.8) people = [{ x: -5.3, y: 1.3, z: 0.55, yaw: 2.8, pal: 3, skin: 1, pose: 1, side: -1 }, { x: -0.15, y: 3.55, z: 0.95, yaw: 0, pal: 4, skin: 0 }, { x: -4.6, y: 1.3, z: -0.7, yaw: 1.2, pal: 1, skin: 2 }];
-      else if (it.kind === 'rib' && h < 0.7) people = [{ x: -1.9, y: 0.3, z: 0.0, yaw: 0, pal: 0, skin: 1, pose: 2 }];
-      if (people) crew(it, people, 0);
+      // (who is aboard, and where they stand or sit, belongs to each vessel's model)
+      const people = crewOf(it.kind, h, it.seed || 1);
+      if (people && people.length) crew(it, people, 0);
     }
     // on the breakwater: a few figures on the road deck, one waving, in hi-vis
     if (L && L.breakwater) {
@@ -606,7 +603,7 @@ export class Wildlife {
       for (let i = 1; i < rows.length - 1 && people.length < 5; i++) {
         if (ih(this.seed, i * 17 + 3) < 0.4) continue;
         const p = rows[i], nx = -p.tz * bw.side, nz = p.tx * bw.side, a = 0.3 + 1.4 * ih(this.seed, i * 5);
-        people.push({ x: p.x - nx * a, y: 3.78, z: p.z - nz * a, yaw: Math.atan2(nz, nx) + (ih(this.seed, i) - 0.5), pal: 0, skin: i & 3, pose: people.length === 1 ? 1 : 0, side: 1 });
+        people.push({ x: p.x - nx * a, y: 3.76, z: p.z - nz * a, yaw: Math.atan2(nz, nx) + (ih(this.seed, i) - 0.5), pal: [0, 6, 4, 1, 7][people.length % 5], skin: i & 3, pose: ['hips', 'wave', 'camera', 'stand', 'point'][people.length % 5], side: i & 1 ? 1 : -1 });
       }
       if (people.length) {
         const o = people[0];
@@ -1020,10 +1017,10 @@ export class Wildlife {
     const m = { dolphin: dolphinGeo(), fish: fishGeo() };
     this.meshes = {};
     for (const k in m) this.meshes[k] = { mesh: m[k].build(gl), tris: m[k].p.length / 9 };
-    this.meshes.kelp = [1, 2, 3].map((s) => { const g = kelpGeo(s); return { mesh: g.build(gl), tris: g.p.length / 9 }; });
-    this.meshes.log = [1, 2, 3].map((s) => { const g = logGeo(s); return { mesh: g.build(gl), tris: g.p.length / 9 }; });
-    this.meshes.crate = [1, 2, 3].map((s) => { const g = crateGeo(s); return { mesh: g.build(gl), tris: g.p.length / 9 }; });
-    this.meshes.pot = [0, 1, 2, 3].map((s) => { const g = potFloatGeo(s); return { mesh: g.build(gl), tris: g.p.length / 9 }; });
+    this.meshes.kelp = [1, 2, 3].map((s) => { const g = kelpGeo(s); return { mesh: g.build(gl), tris: g.nv / 3 }; });
+    this.meshes.log = [1, 2, 3].map((s) => { const g = logGeo(s); return { mesh: g.build(gl), tris: g.nv / 3 }; });
+    this.meshes.crate = [1, 2, 3].map((s) => { const g = crateGeo(s); return { mesh: g.build(gl), tris: g.nv / 3 }; });
+    this.meshes.pot = [0, 1, 2, 3].map((s) => { const g = potFloatGeo(s); return { mesh: g.build(gl), tris: g.nv / 3 }; });
   }
 
   // a flag's mesh: the pole (static) and the cloth (rewritten each frame it is drawn)
@@ -1043,11 +1040,14 @@ export class Wildlife {
     f.lod = { mesh: f.mesh, tris: total / 3 };
   }
 
-  crewMeshes(c) {
-    if (c.variants) return;
-    const nv = c.waving ? WAVE_FRAMES : 1;
-    c.variants = [];
-    for (let v = 0; v < nv; v++) { const g = crewGeo(c.people, v); c.variants.push({ mesh: g.build(this.gl), tris: g.p.length / 9 }); }
+  // a crew at one level of detail: the bodies once, and the arms that wave as a small mesh per frame of the wave
+  // (far off the arm is simply up)
+  crewMeshes(c, lod) {
+    if (c.lods[lod]) return c.lods[lod];
+    const build = (g) => ({ mesh: g.build(this.gl), tris: g.nv / 3 });
+    const L = { body: build(crewGeo(c.people, 0, { lod, part: 'body' })), wave: [] };
+    if (c.waving) for (let v = 0; v < (lod < 2 ? WAVE_FRAMES : 1); v++) L.wave.push(build(crewGeo(c.people, v, { lod, part: 'wave' })));
+    return (c.lods[lod] = L);
   }
 
   put(m, lod, float, foot) {
@@ -1085,14 +1085,20 @@ export class Wildlife {
       if (h) {
         if (!h.shown || h.d > 550) continue;
         rotY(mat, h.yaw + (h.sw || 0), h.x, 0, h.z);
-        this.crewMeshes(c);
-        this.put(m, c.variants[(wave + Math.floor(h.phase * 3)) % c.variants.length], 1, h.foot || 0);
+        const L = this.crewMeshes(c, h.d < 45 ? 0 : h.d < 160 ? 1 : 2);
+        this.put(m, L.body, 1, h.foot || 0);
+        if (L.wave.length) this.put(m, L.wave[(wave + Math.floor(h.phase * 3)) % L.wave.length], 1, h.foot || 0);
       } else {
         const f = c.fixed;
-        if (!this.visible(f.x, 4, f.z, 40, 550)) continue;
+        if (!this.visible(f.x, 4, f.z, 450, 900)) continue;
+        // (people strung along a breakwater share a mesh: its level is that of whoever is nearest)
+        let d = 1e9;
+        for (const q of c.people) d = Math.min(d, Math.hypot(f.x + q.x - cam[0], f.z + q.z - cam[2]));
+        if (d > 550) continue;
         rotY(mat, 0, f.x, 0, f.z);
-        this.crewMeshes(c);
-        this.put(m, c.variants[wave % c.variants.length], 0, 0);
+        const L = this.crewMeshes(c, d < 45 ? 0 : d < 160 ? 1 : 2);
+        this.put(m, L.body, 0, 0);
+        if (L.wave.length) this.put(m, L.wave[wave % L.wave.length], 0, 0);
       }
     }
     // flags
