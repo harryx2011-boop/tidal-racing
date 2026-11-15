@@ -33,7 +33,9 @@ const KINDS = {
   committee: { make: committeeGeo, radius: 10, nearD: 280, cull: 3000 },
 };
 // where each kind steps down a level of detail: [near to middle, middle to far] (m from the camera)
-const LOD = { yacht: [75, 330], cruiser: [75, 330], rib: [55, 250], committee: [95, 420], lighthouse: [260, 1300], beacon: [120, 520], platform: [450, 1900], cargo: [650, 2300], breakwater: [150, 430] };
+// (what is laid on a surface at a level must stand prouder of it than the depth buffer's step at that level's far end:
+// 24 bits from 0.2 m resolve about 1 cm at 180 m, 3 cm at 320 m, 6 cm at 450 m)
+const LOD = { yacht: [75, 330], cruiser: [75, 330], rib: [55, 250], committee: [95, 420], lighthouse: [220, 1300], beacon: [120, 520], platform: [320, 1900], cargo: [450, 2300], breakwater: [150, 430] };
 const levelAt = (kind, d) => { const L = LOD[kind]; return d < L[0] ? 0 : d < L[1] ? 1 : 2; };
 
 // ---- layout: plain data, a pure function of the course ---------------------------------

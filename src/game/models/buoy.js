@@ -142,7 +142,7 @@ export function buoyGeo(side = 'port', { seed = 1, lod = 0 } = {}) {
       tube(g, fr0, 0.014, [0.7, 0.72, 0.75], MET, { segs: 4, closed: true });
       for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) { const a0 = lerp(-W, W, i / 6) + 0.01, a1 = lerp(-W, W, (i + 1) / 6) - 0.01, b0 = lerp(-D, D, j / 4) + 0.01, b1 = lerp(-D, D, (j + 1) / 4) - 0.01; quad(g, P(a0, b0, 0.006), P(a1, b0, 0.006), P(a1, b1, 0.006), P(a0, b1, 0.006), [0.07, 0.1, 0.3], GLS); }
       for (const sx of [-1, 1]) { rod(g, P(sx * W * 0.8, -D), [sx * hw(yT - 0.35), yT - 0.35, s * hw(yT - 0.35)], 0.016, steel, MET, 4); rod(g, P(sx * W * 0.8, D * 0.9), [sx * hw(yT - 0.1), yT - 0.1, s * hw(yT - 0.1)], 0.016, steel, MET, 4); }
-    } else quad(g, P(-W + 0.02, -D + 0.02, 0.01), P(W - 0.02, -D + 0.02, 0.01), P(W - 0.02, D - 0.02, 0.01), P(-W + 0.02, D - 0.02, 0.01), [0.07, 0.1, 0.3], GLS);
+    } else quad(g, P(-W + 0.02, -D + 0.02, 0.04), P(W - 0.02, -D + 0.02, 0.04), P(W - 0.02, D - 0.02, 0.04), P(-W + 0.02, D - 0.02, 0.04), [0.07, 0.1, 0.3], GLS);
   }
   void xf; void frame;
   return g;

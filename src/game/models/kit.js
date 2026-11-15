@@ -454,8 +454,9 @@ export function xf(g, from, F, sv) {
     N[i] = F[0] * nx + F[3] * ny + F[6] * nz; N[i + 1] = F[1] * nx + F[4] * ny + F[7] * nz; N[i + 2] = F[2] * nx + F[5] * ny + F[8] * nz;
   }
 }
-// append a placed copy of a prototype; mul: multiply its colours; sv: stretch along its own axes first
-export function stamp(g, proto, F, mul, sv) {
+// append a placed copy of a prototype; mul: multiply its colours; sv: stretch along its own axes first; id: a number
+// of its own for the copy, written to uv.y (the rock surface gives each stone its own grain by it)
+export function stamp(g, proto, F, mul, sv, id) {
   const P = proto.P, N = proto.N, C = proto.C, M = proto.M, U = proto.U, n = proto.nv;
   const s = F[12], sx = (sv ? sv[0] : 1) * s, sy = (sv ? sv[1] : 1) * s, sz = (sv ? sv[2] : 1) * s;
   const ix = sv ? 1 / sv[0] : 1, iy = sv ? 1 / sv[1] : 1, iz = sv ? 1 / sv[2] : 1;
@@ -472,6 +473,7 @@ export function stamp(g, proto, F, mul, sv) {
   }
   g.M.set(M.subarray(0, n * 3), o);
   g.U.set(U.subarray(0, n * 2), g.nv * 2);
+  if (id !== undefined) { const gu = g.U; for (let k = g.nv * 2 + 1, e = (g.nv + n) * 2; k < e; k += 2) gu[k] = id; }
   g.nv += n;
 }
 export const tris = (g) => g.nv / 3;
@@ -705,7 +707,7 @@ export function stoneProto(seed, level = 0, m = STONE, cuts = 7) {
     const l = Math.hypot(nx, ny, nz); if (l < 1e-9) continue;
     nx /= l; ny /= l; nz /= l;
     // face normals, a little rounded toward the vertex direction so the corners are not razor sharp
-    [A, B, Cc].forEach((p, k) => { const pl = Math.hypot(p[0], p[1], p[2]) || 1; let x = nx * 0.8 + (p[0] / pl) * 0.2, y = ny * 0.8 + (p[1] / pl) * 0.2, z = nz * 0.8 + (p[2] / pl) * 0.2; const ll = Math.hypot(x, y, z); SP[k * 3] = p[0]; SP[k * 3 + 1] = p[1]; SP[k * 3 + 2] = p[2]; SN[k * 3] = x / ll; SN[k * 3 + 1] = y / ll; SN[k * 3 + 2] = z / ll; });
+    [A, B, Cc].forEach((p, k) => { const pl = Math.hypot(p[0], p[1], p[2]) || 1; let x = nx * 0.62 + (p[0] / pl) * 0.38, y = ny * 0.62 + (p[1] / pl) * 0.38, z = nz * 0.62 + (p[2] / pl) * 0.38; const ll = Math.hypot(x, y, z); SP[k * 3] = p[0]; SP[k * 3 + 1] = p[1]; SP[k * 3 + 2] = p[2]; SN[k * 3] = x / ll; SN[k * 3 + 1] = y / ll; SN[k * 3 + 2] = z / ll; });
     tint(3, col);
     // a face's own tone: strata and fresh breaks
     const tone = 0.82 + 0.36 * R();

@@ -57,21 +57,23 @@ function derrick(g, cx, cz, y0, y1, w0, w1, bays, col, rr, lod) {
 // a window let into a wall: a stone or painted surround, glass, glazing bars, a sill. c: centre on the wall, n: outward (unit, level)
 function wallWindow(g, c, n, w, h, lod, { frame: fc = [0.6, 0.6, 0.56], sill = true, lit = false } = {}) {
   const t = [-n[2], 0, n[0]], P = (a, b, o) => [c[0] + t[0] * a + n[0] * o, c[1] + b, c[2] + t[2] * a + n[2] * o];
-  quad(g, P(-w / 2, -h / 2, 0.03), P(w / 2, -h / 2, 0.03), P(w / 2, h / 2, 0.03), P(-w / 2, h / 2, 0.03), lit ? [0.9, 0.7, 0.35] : GLASS, lit ? LIT : GLS);
+  const o = lod ? 0.1 : 0.05;
+  quad(g, P(-w / 2, -h / 2, o), P(w / 2, -h / 2, o), P(w / 2, h / 2, o), P(-w / 2, h / 2, o), lit ? [0.9, 0.7, 0.35] : GLASS, lit ? LIT : GLS);
   if (lod) return;
-  tube(g, [P(-w / 2, -h / 2, 0.04), P(w / 2, -h / 2, 0.04), P(w / 2, h / 2, 0.04), P(-w / 2, h / 2, 0.04)], 0.035, fc, RUB, { segs: 4, closed: true });
-  rod(g, P(0, -h / 2, 0.045), P(0, h / 2, 0.045), 0.015, fc, RUB, 3); rod(g, P(-w / 2, 0, 0.045), P(w / 2, 0, 0.045), 0.015, fc, RUB, 3);
+  tube(g, [P(-w / 2, -h / 2, 0.06), P(w / 2, -h / 2, 0.06), P(w / 2, h / 2, 0.06), P(-w / 2, h / 2, 0.06)], 0.035, fc, RUB, { segs: 4, closed: true });
+  rod(g, P(0, -h / 2, 0.07), P(0, h / 2, 0.07), 0.015, fc, RUB, 3); rod(g, P(-w / 2, 0, 0.07), P(w / 2, 0, 0.07), 0.015, fc, RUB, 3);
   if (sill) box(g, P(0, -h / 2 - 0.06, 0.07), w / 2 + 0.08, 0.04, 0.09, scl(fc, 0.9), RUB, { yaw: Math.atan2(n[2], n[0]) + Math.PI / 2 });
 }
 // a plank door in a frame, with strap hinges and a ring handle
 function wallDoor(g, c, n, w, h, col, lod) {
   const t = [-n[2], 0, n[0]], P = (a, b, o) => [c[0] + t[0] * a + n[0] * o, c[1] + b, c[2] + t[2] * a + n[2] * o];
-  quad(g, P(-w / 2, 0, 0.03), P(w / 2, 0, 0.03), P(w / 2, h, 0.03), P(-w / 2, h, 0.03), col, RUB);
+  const o = lod ? 0.1 : 0.05;
+  quad(g, P(-w / 2, 0, o), P(w / 2, 0, o), P(w / 2, h, o), P(-w / 2, h, o), col, RUB);
   if (lod) return;
-  tube(g, [P(-w / 2, 0, 0.04), P(-w / 2, h, 0.04), P(w / 2, h, 0.04), P(w / 2, 0, 0.04)], 0.05, [0.5, 0.5, 0.47], RUB, { segs: 4 });
-  for (const k of [-0.25, 0, 0.25]) rod(g, P(w * k, 0.02, 0.036), P(w * k, h - 0.02, 0.036), 0.008, scl(col, 0.5), RUB, 3);
-  for (const y of [h * 0.22, h * 0.78]) rod(g, P(-w / 2 + 0.03, y, 0.045), P(w * 0.3, y, 0.045), 0.018, DARK, RUB, 3);
-  hoop(g, P(w * 0.32, h * 0.5, 0.06), n, 0.05, 0.01, DARK, RUB, 8, 3);
+  tube(g, [P(-w / 2, 0, 0.06), P(-w / 2, h, 0.06), P(w / 2, h, 0.06), P(w / 2, 0, 0.06)], 0.05, [0.5, 0.5, 0.47], RUB, { segs: 4 });
+  for (const k of [-0.25, 0, 0.25]) rod(g, P(w * k, 0.02, 0.056), P(w * k, h - 0.02, 0.056), 0.008, scl(col, 0.5), RUB, 3);
+  for (const y of [h * 0.22, h * 0.78]) rod(g, P(-w / 2 + 0.03, y, 0.065), P(w * 0.3, y, 0.065), 0.018, DARK, RUB, 3);
+  hoop(g, P(w * 0.32, h * 0.5, 0.08), n, 0.05, 0.01, DARK, RUB, 8, 3);
 }
 
 // =========================================================================================
@@ -135,7 +137,7 @@ export function lighthouseGeo(lod = 0, seed = 3) {
       const a = R() * TAU, r = (0.6 + 0.5 * R()) * 22, x = Math.cos(a) * r, z = Math.sin(a) * r, y = hgt(x, z), s = 0.9 + 3.2 * R() * R();
       if (x > 10 && Math.abs(z) < 4.5) continue;
       const v = 0.07 + 0.07 * R();
-      stamp(g, protos[k % 5], frame([x, y + s * 0.18, z], R() * TAU, R() * 0.5, R() * 0.5, s), [v * 1.05, v, v * 0.92], [1.2, 0.75, 1]);
+      stamp(g, protos[k % 5], frame([x, y + s * 0.18, z], R() * TAU, R() * 0.5, R() * 0.5, s), [v * 1.05, v, v * 0.92], [1.2, 0.75, 1], 1 + k);
     }
     paint(g, s0, stain(seed + 1, { weedTop: 1.0, tide: 1.25, wet: 1.9, salt: 0.1 }));
   }
@@ -313,7 +315,7 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
   const near = lod === 0, far = lod === 2;
   const rows = smoothPath(path, far ? 14 : near ? 1.6 : 4);
   const chunks = [];
-  if (!STONES) STONES = [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((k) => stoneProto(100 + k, 0, GRAIN, 6 + (k % 3))), [0, 1, 2, 3, 4, 5].map((k) => stoneProto(100 + k, 1, GRAIN, 5))];
+  if (!STONES) STONES = [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((k) => stoneProto(100 + k, 0, STONE, 6 + (k % 3))), [0, 1, 2, 3, 4, 5].map((k) => stoneProto(100 + k, 1, STONE, 5))];
   const nSea = (p) => [-p.tz * side, p.tx * side];       // to the sea
   // the point at arc length s along the path, offset a across (negative toward the sea)
   const total = rows[rows.length - 1].s;
@@ -351,14 +353,14 @@ export function breakwaterChunks(path, side, lod, seed = 5) {
         if (s < s0 || s >= s1) return;
         const aa = a + (h2 - 0.5) * size * 0.45, sc = size * (0.82 + 0.5 * h3), q = Q(Math.min(s, total), aa, moundY(aa) - (a > 0 ? 0.75 : 0.5) + sc * 0.3);
         const v = 0.085 + 0.1 * h2 * h2 + 0.03 * h1;
-        stamp(g, protos[Math.floor(h3 * 997) % protos.length], frame(q, h1 * TAU, (h2 - 0.5) * 0.9, (h3 - 0.5) * 0.9, sc), [v * 1.05, v, v * 0.93], [1.25, 0.72, 1.0]);
+        stamp(g, protos[Math.floor(h3 * 997) % protos.length], frame(q, h1 * TAU, (h2 - 0.5) * 0.9, (h3 - 0.5) * 0.9, sc), [v * (1.0 + 0.12 * h1), v, v * (0.96 - 0.1 * h3)], [1.25, 0.72, 1.0], 1 + Math.floor(h1 * 251));
       });
       if (isHead) {
         // the round head: rings of stone about the end
         const e = rowAt(total), c = [e.x - ox, e.z - oz];
         for (let ring = 0; ring < (near ? 7 : 4); ring++) {
           const rr = BREAKWATER.headR - 7.6 + ring * (near ? 1.75 : 3), size = near ? 2.2 : 3.2, n = Math.round((TAU * rr) / (size * 0.85)), y = lerp(3.5, -1.8, ring / (near ? 6 : 3));
-          for (let k = 0; k < n; k++) { const h1 = hash1(k * 13 + ring, seed + 9), h2 = hash1(k, ring * 7 + seed), a = ((k + 0.5 * (ring & 1)) / n) * TAU, sc = size * (0.8 + 0.5 * h2), v = 0.085 + 0.1 * h2 * h2 + 0.03 * h1; stamp(g, protos[(k + ring) % protos.length], frame([c[0] + Math.cos(a) * rr, y - 0.5 + sc * 0.3, c[1] + Math.sin(a) * rr], h1 * TAU, (h2 - 0.5) * 0.8, (h1 - 0.5) * 0.8, sc), [v * 1.05, v, v * 0.93], [1.25, 0.72, 1.0]); }
+          for (let k = 0; k < n; k++) { const h1 = hash1(k * 13 + ring, seed + 9), h2 = hash1(k, ring * 7 + seed), a = ((k + 0.5 * (ring & 1)) / n) * TAU, sc = size * (0.8 + 0.5 * h2), v = 0.085 + 0.1 * h2 * h2 + 0.03 * h1; stamp(g, protos[(k + ring) % protos.length], frame([c[0] + Math.cos(a) * rr, y - 0.5 + sc * 0.3, c[1] + Math.sin(a) * rr], h1 * TAU, (h2 - 0.5) * 0.8, (h1 - 0.5) * 0.8, sc), [v * (1.0 + 0.12 * h1), v, v * (0.96 - 0.1 * h2)], [1.25, 0.72, 1.0], 1 + Math.floor(h1 * 251)); }
         }
       }
       // the sea's bands on every stone, by its place in the world
@@ -574,10 +576,9 @@ function pipeRun(g, a, b, n, pitch, r, cols, lod, up = [0, 1, 0]) {
 // a module: a clad box with a framed base, doors and louvres on its long sides, and a railed roof
 function module(g, x0, x1, y0, y1, z0, z1, col, lod, { roof = true, doors = true } = {}) {
   slab(g, x0, x1, y0, y1, z0, z1, col, lod === 2 ? RUB : CORR);
-  if (lod === 2) return;
+  if (lod) return;
   slab(g, x0 - 0.1, x1 + 0.1, y0, y0 + 0.3, z0 - 0.1, z1 + 0.1, [0.25, 0.26, 0.27], RUB);
   slab(g, x0 - 0.12, x1 + 0.12, y1 - 0.05, y1 + 0.12, z0 - 0.12, z1 + 0.12, scl(col, 0.8), RUB);
-  if (lod) return;
   if (doors) for (const z of [z0 - 0.03, z1 + 0.03]) { const n = [0, 0, z < (z0 + z1) / 2 ? -1 : 1]; for (let x = x0 + 1.4; x < x1 - 1; x += 4.2) { wallDoor(g, [x, y0 + 0.3, z], n, 0.95, 2.05, [0.5, 0.42, 0.06], 0); for (let k = 0; k < 5; k++) box(g, [x + 1.8, y0 + 1.6 + k * 0.16, z + n[2] * 0.03], 0.5, 0.05, 0.03, [0.2, 0.2, 0.21], RUB); } }
   if (roof) railing(g, [[x0, y1 + 0.12, z0], [x1, y1 + 0.12, z0], [x1, y1 + 0.12, z1], [x0, y1 + 0.12, z1], [x0, y1 + 0.12, z0]], [0.62, 0.5, 0.05], RUB, { h: 1.1, every: 2.6, r: 0.035, segs: 3 });
 }
@@ -685,7 +686,7 @@ export function platformGeo(lod = 0, seed = 2) {
       if (f > 0) { slab(g, ax0 - 1.3, ax0, y - 0.1, y, az0, az1, [0.3, 0.31, 0.32], NSK); railing(g, [[ax0 - 1.25, y, az0], [ax0 - 1.25, y, az1]], yellow, RUB, { h: 1.1, every: 2.1, r: 0.035, segs: 3 }); }
     }
     slab(g, ax0 - 0.2, ax1 + 0.2, ay1, ay1 + 0.5, az0 - 0.2, az1 + 0.2, [0.3, 0.3, 0.3], RUB);
-    if (near) { text(g, 'TIDAL ALPHA', [ax1 + 0.02, ay0 + 3 * st + 0.35, az1 - 1.2], [0, 0, -1], [0, 1, 0], 0.85, [0.07, 0.14, 0.28], RUB, { off: 0.03, weight: 0.2 }); for (const z of [-3, 2]) wallDoor(g, [ax1, ay0 + 0.02, z], [1, 0, 0], 1.0, 2.1, [0.5, 0.42, 0.06], 0); stairs(g, [ax0 - 0.65, ay0 + st, az1 + 0.9], [ax0 - 0.65 + 5.5, ay0, az1 + 0.9], [0, 0, 1], 1.0, steel, 0); }
+    if (near) { text(g, 'TIDAL ALPHA', [ax1 + 0.02, ay0 + 3 * st + 0.35, az1 - 1.2], [0, 0, -1], [0, 1, 0], 0.85, [0.07, 0.14, 0.28], RUB, { off: 0.07, weight: 0.2 }); for (const z of [-3, 2]) wallDoor(g, [ax1, ay0 + 0.02, z], [1, 0, 0], 1.0, 2.1, [0.5, 0.42, 0.06], 0); stairs(g, [ax0 - 0.65, ay0 + st, az1 + 0.9], [ax0 - 0.65 + 5.5, ay0, az1 + 0.9], [0, 0, 1], 1.0, steel, 0); }
   }
   // lifeboats in their davits on the accommodation's sides, liferaft canisters on a rack
   if (!far) {
@@ -702,7 +703,7 @@ export function platformGeo(lod = 0, seed = 2) {
     lathe(g, [[hr, hy], [hr, hy - 0.45], [hr, hy - 0.45], [0, hy - 0.45]], [0.3, 0.31, 0.32], RUB, { segs: n, at: [hc[0], 0, hc[2]] });
     if (!far) {
       // the H: three bars a little proud (near only: farther off the depth buffer could not hold them apart)
-      if (near) { const hb = (x0, x1, z0, z1) => slab(g, hc[0] + x0, hc[0] + x1, hy, hy + 0.03, hc[2] + z0, hc[2] + z1, [0.72, 0.72, 0.7], RUB); hb(-1.7, -1.0, -2.2, 2.2); hb(1.0, 1.7, -2.2, 2.2); hb(-1.0, 1.0, -0.35, 0.35); text(g, 'TIDAL ALPHA', [hc[0] + 8.1, hy + 0.03, hc[2] + 3.6], [0, 0, -1], [-1, 0, 0], 0.9, [0.72, 0.72, 0.7], RUB, { off: 0.0, weight: 0.2 }); }
+      if (near) { const hb = (x0, x1, z0, z1) => slab(g, hc[0] + x0, hc[0] + x1, hy, hy + 0.07, hc[2] + z0, hc[2] + z1, [0.72, 0.72, 0.7], RUB); hb(-1.7, -1.0, -2.2, 2.2); hb(1.0, 1.7, -2.2, 2.2); hb(-1.0, 1.0, -0.35, 0.35); text(g, 'TIDAL ALPHA', [hc[0] + 8.1, hy + 0.07, hc[2] + 3.6], [0, 0, -1], [-1, 0, 0], 0.9, [0.72, 0.72, 0.7], RUB, { off: 0.0, weight: 0.2 }); }
       // the safety net: a frame sloping out and up, with stays
       const out = oct.map((p) => [hc[0] + (p[0] - hc[0]) * 1.14, hy + 0.25, hc[2] + (p[2] - hc[2]) * 1.14]);
       tube(g, out, lod ? 0.07 : 0.05, yellow, RUB, { segs: 3, closed: true });

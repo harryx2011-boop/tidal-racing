@@ -127,7 +127,7 @@ function pane(g, pts, lod, frameCol = [0.72, 0.74, 0.76], fm = MET, glass = GLAS
 }
 // a window on the side of a house between x0..x1 and y0..y1, corners cut; rake leans the ends (a raked windscreen line)
 function sideWindow(g, C, x0, x1, y0, y1, sg, lod, { rake = 0, cut = 0.06, frame: fc, fm, off = 0.012 } = {}) {
-  const P = (x, y) => C.side(x + rake * (y - y0), y, sg, lod ? off * 2 : off);
+  const P = (x, y) => C.side(x + rake * (y - y0), y, sg, lod ? 0.09 : off);
   const pts = lod ? [P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)] : [P(x0 + cut, y0), P(x1 - cut, y0), P(x1, y0 + cut), P(x1, y1 - cut), P(x1 - cut, y1), P(x0 + cut, y1), P(x0, y1 - cut), P(x0, y0 + cut)];
   pane(g, pts, lod, fc, fm);
 }
@@ -538,10 +538,11 @@ export function cruiserGeo(lod = 0, seed = 1) {
       if (near) for (const x of [2.9, 3.6]) sideWindow(g, C, x, x + 0.45, 1.52, 1.66, s, 0, { cut: 0.04 });
     }
     // the aft bulkhead: a sliding glass door and a window
-    pane(g, [[XC - 0.014, CF + 0.08, 0.1], [XC - 0.014, CF + 0.08, 0.95], [XC - 0.014, 2.85, 0.95], [XC - 0.014, 2.85, 0.1]], lod, DARK, RUB);
-    pane(g, [[XC - 0.014, 2.0, -1.25], [XC - 0.014, 2.0, -0.1], [XC - 0.014, 2.8, -0.1], [XC - 0.014, 2.8, -1.2]], lod, DARK, RUB);
+    const xb = XC - (lod ? 0.09 : 0.014);
+    pane(g, [[xb, CF + 0.08, 0.1], [xb, CF + 0.08, 0.95], [xb, 2.85, 0.95], [xb, 2.85, 0.1]], lod, DARK, RUB);
+    pane(g, [[xb, 2.0, -1.25], [xb, 2.0, -0.1], [xb, 2.8, -0.1], [xb, 2.8, -1.2]], lod, DARK, RUB);
     // windscreen: three raked panes between mullions, wipers
-    const ws = (x, z) => [x, lerp(3.1, 2.02, (x - 0.9) / 1.4) + 0.045 * (1 - (z / 1.3) * (z / 1.3)) + 0.02, z];
+    const ws = (x, z) => [x, lerp(3.1, 2.02, (x - 0.9) / 1.4) + 0.045 * (1 - (z / 1.3) * (z / 1.3)) + (lod ? 0.1 : 0.02), z];
     for (const [z0, z1] of [[-1.16, -0.44], [-0.38, 0.38], [0.44, 1.16]]) {
       const k = (z) => 1 - 0.1 * Math.abs(z);
       pane(g, [ws(1.02, z0 * 1.12), ws(1.02, z1 * 1.12), ws(2.2, z1 * k(z1)), ws(2.2, z0 * k(z0))], lod, DARK, RUB);
@@ -689,6 +690,7 @@ export function ribGeo(lod = 0, seed = 1) {
     // centre console: body, raked screen in a grab rail, wheel, throttle, a lit plotter
     const cx = 0.25, fy = H.deckY(0) - 0.07;
     hexaBox(g, [cx - 0.38, cx + 0.42], fy, [0.32, 0.26], 0.95, V.grp);
+    if (near) { for (const s of [-1, 1]) { tube(g, [[cx - 0.2, fy + 0.18, s * 0.315], [cx + 0.25, fy + 0.18, s * 0.315], [cx + 0.25, fy + 0.62, s * 0.292], [cx - 0.2, fy + 0.62, s * 0.292]], 0.008, [0.3, 0.3, 0.3], RUB, { segs: 3, closed: true }); box(g, [cx + 0.2, fy + 0.4, s * 0.31], 0.02, 0.03, 0.01, STEEL, MET); } blob(g, [cx + 0.05, fy + 0.97, 0.12], 0.05, 0.035, 0.05, [0.02, 0.02, 0.03], GLS, { n: 3, segs: 8 }); box(g, [cx - 0.375, fy + 0.5, 0], 0.012, 0.1, 0.2, [0.05, 0.05, 0.06], RUB); }
     quad(g, [cx + 0.3, fy + 0.97, -0.27], [cx + 0.3, fy + 0.97, 0.27], [cx + 0.14, fy + 1.42, 0.24], [cx + 0.14, fy + 1.42, -0.24], [0.02, 0.03, 0.04], GLS);
     tube(g, [[cx + 0.34, fy + 0.9, -0.31], [cx + 0.13, fy + 1.47, -0.27], [cx + 0.13, fy + 1.47, 0.27], [cx + 0.34, fy + 0.9, 0.31]], lod ? 0.02 : 0.015, STEEL, MET, { segs: 4 });
     if (near) {
@@ -805,21 +807,25 @@ export function committeeGeo(lod = 0, seed = 1) {
   if (!far) {
     for (const s of [-1, 1]) {
       for (const [x0, x1] of [[-0.8, 0.05], [0.22, 1.07], [1.24, 2.09]]) sideWindow(g, C, x0, x1, 2.55, 3.35, s, lod, { cut: 0.06, frame: [0.2, 0.2, 0.2], fm: RUB });
-      // the wheelhouse door, aft on each side, with a port in it and a handle
-      const dz = (y) => C.side(-0.95, y, s, 0.014)[2];
-      if (near) { quad(g, [-1.1, 1.5, dz(1.5)], [-1.1 + 0.02, 1.5, dz(1.5)], [-1.1 + 0.02, 3.42, dz(3.42)], [-1.1, 3.42, dz(3.42)], [0.3, 0.3, 0.3], RUB); rod(g, [-0.98, 2.4, dz(2.4) + s * 0.03], [-0.98, 2.55, dz(2.5) + s * 0.03], 0.012, STEEL, MET, 4); }
+      // a grab rail under the windows, a vent, an extinguisher in its red box, the name board's lamp
+      if (near) {
+        tube(g, lin(-1.0, 2.1, 4).map((x) => C.side(x, 2.42, s, 0.06)), 0.016, STEEL, MET, { segs: 4 }); for (const x of [-1.0, 0.55, 2.1]) rod(g, C.side(x, 2.42, s, 0.0), C.side(x, 2.42, s, 0.06), 0.012, STEEL, MET, 3);
+        for (let k = 0; k < 5; k++) { const p = C.side(1.75, 1.72 + k * 0.07, s, 0.012); box(g, p, 0.22, 0.02, 0.012, [0.3, 0.3, 0.3], RUB); }
+        { const p = C.side(-0.75, 1.95, s, 0.07); box(g, p, 0.13, 0.26, 0.07, [0.55, 0.05, 0.04], RUB); }
+        tube(g, [C.side(0.6, 3.5, s, 0.0), C.side(0.6, 3.62, s, 0.25), C.side(0.6, 3.5, s, 0.3)], 0.014, DARK, RUB, { segs: 4 });
+      }
       // the sign board under the windows
       const w = COMMITTEE.sign[0] / 2, h = COMMITTEE.sign[1], [a, b] = s > 0 ? [-w, w] : [w, -w], n = [0, 0, s], zb = s * 1.73, y0 = 3.95;
       g.tri([0.45 + a, y0, zb], [0.45 + b, y0, zb], [0.45 + b, y0 + h, zb], n, n, n, [1, 1, 1], TEX, [0, 1], [1, 1], [1, 0]);
       g.tri([0.45 + a, y0, zb], [0.45 + b, y0 + h, zb], [0.45 + a, y0 + h, zb], n, n, n, [1, 1, 1], TEX, [0, 1], [1, 0], [0, 0]);
-      box(g, [0.45, y0 + h / 2, zb - s * 0.012], w + 0.03, h / 2 + 0.03, 0.008, [0.08, 0.09, 0.1], RUB);
+      if (near) box(g, [0.45, y0 + h / 2, zb - s * 0.012], w + 0.03, h / 2 + 0.03, 0.008, [0.08, 0.09, 0.1], RUB);
     }
     // forward windows: three panes with a centre one that opens, wipers; a visor over them
-    for (const [z0, z1] of [[-1.0, -0.4], [-0.33, 0.33], [0.4, 1.0]]) { pane(g, [[3.614, 2.55, z0], [3.614, 2.55, z1], [3.614, 3.38, z1], [3.614, 3.38, z0]], lod, [0.2, 0.2, 0.2], RUB); if (near) rod(g, [3.63, 3.36, (z0 + z1) / 2], [3.63, 2.75, (z0 + z1) / 2 + 0.2], 0.006, DARK, RUB, 3); }
+    for (const [z0, z1] of [[-1.0, -0.4], [-0.33, 0.33], [0.4, 1.0]]) { const xf0 = lod ? 3.7 : 3.614; pane(g, [[xf0, 2.55, z0], [xf0, 2.55, z1], [xf0, 3.38, z1], [xf0, 3.38, z0]], lod, [0.2, 0.2, 0.2], RUB); if (near) rod(g, [3.63, 3.36, (z0 + z1) / 2], [3.63, 2.75, (z0 + z1) / 2 + 0.2], 0.006, DARK, RUB, 3); }
     slab(g, 3.6, 3.95, 3.5, 3.54, -1.2, 1.2, white, GEL);
     // after bulkhead: a door and a window, the ladder to the roof
-    pane(g, [[-1.214, 2.5, -1.15], [-1.214, 2.5, -0.3], [-1.214, 3.3, -0.3], [-1.214, 3.3, -1.15]], lod, [0.2, 0.2, 0.2], RUB);
-    quad(g, [-1.212, 1.5, 0.3], [-1.212, 1.5, 1.05], [-1.212, 3.4, 1.05], [-1.212, 3.4, 0.3], [0.68, 0.68, 0.65], GEL);
+    { const xa = lod ? -1.3 : -1.214; pane(g, [[xa, 2.5, -1.15], [xa, 2.5, -0.3], [xa, 3.3, -0.3], [xa, 3.3, -1.15]], lod, [0.2, 0.2, 0.2], RUB); }
+    if (near) quad(g, [-1.212, 1.5, 0.3], [-1.212, 1.5, 1.05], [-1.212, 3.4, 1.05], [-1.212, 3.4, 0.3], [0.68, 0.68, 0.65], GEL);
     if (near) { pane(g, [[-1.222, 2.7, 0.5], [-1.222, 2.7, 0.85], [-1.222, 3.2, 0.85], [-1.222, 3.2, 0.5]], 0, [0.2, 0.2, 0.2], RUB); ladder(g, [-1.45, dy(-1.4) + 0.05, -1.3], [-1.3, 3.86, -1.3], [0, 0, 1], STEEL, MET, { w: 0.4, r: 0.016, step: 0.3 }); }
   }
   // ---- rails: pipe rails on the bulwark aft and forward, round the roof deck ----
@@ -995,7 +1001,7 @@ export function cargoGeo(seed = 1, lod = 0) {
   if (near) {
     // draught marks at the stem and the stern, a load line disc amidships; anchors home in their hawse pipes
     for (const s of [-1, 1]) {
-      for (const [t, u] of [[0.955, 0], [0.04, 0]]) for (let m = 2; m <= 8; m += 2) { const q = [0, 0, 0]; fn(t, (m * 0.9 - Y0) / (ys(t) - Y0), s, q); void u; text(g, String(m), [q[0] - 0.4 * s, q[1], q[2] + s * 0.14], [s, 0, -0.25 * (t > 0.5 ? 1 : -0.6)], [0, 1, 0], 0.7, [0.75, 0.75, 0.72], RUB, { off: 0.1, weight: 0.2 }); }
+      for (const [t, u] of [[0.955, 0], [0.04, 0]]) for (let m = 2; m <= 8; m += 2) { const q = [0, 0, 0]; fn(t, (m * 0.9 - Y0) / (ys(t) - Y0), s, q); void u; text(g, String(m), [q[0] - 0.4 * s, q[1], q[2] + s * 0.14], [s, 0, -0.25 * (t > 0.5 ? 1 : -0.6)], [0, 1, 0], 0.7, [0.75, 0.75, 0.72], RUB, { off: 0.16, weight: 0.2 }); }
       hoop(g, [3, 2.6, s * 16.14], [0, 0, s], 0.55, 0.07, [0.75, 0.75, 0.72], RUB, 14, 3); box(g, [3, 2.6, s * 16.14], 0.85, 0.06, 0.05, [0.75, 0.75, 0.72], RUB);
       const hz = sheer(0.925, s), a0 = mark(g);
       box(g, [0, 0, 0], 0.22, 1.6, 0.22, [0.1, 0.1, 0.11], RUB); for (const z of [-1, 1]) hexaFluke(g, z);
@@ -1054,7 +1060,7 @@ export function cargoGeo(seed = 1, lod = 0) {
     for (const [a, b, c] of bands) lathe(g, [[3.4, y0f + hh * a], [3.3 - 0.25 * b, y0f + hh * b]], c, far ? RUB : GRAINM, { segs: far ? 6 : lod ? 10 : 20, at: [fx, 0, 0], ell: 1.7 });
     lathe(g, [[3.05, y0f + hh], [0, y0f + hh]], [0.02, 0.02, 0.022], RUB, { segs: far ? 6 : lod ? 10 : 20, at: [fx, 0, 0], ell: 1.7 });
     if (!far) for (const [dx, dz, r, h] of [[0.8, 0, 0.7, 1.6], [-0.9, 1.6, 0.4, 1.1], [-0.9, -1.6, 0.4, 1.1]]) lathe(g, [[r, 0], [r, h], [r * 0.8, h]], [0.03, 0.03, 0.03], RUB, { segs: 6, at: [fx + dx, y0f + hh, dz] });
-    if (near) for (const s of [-1, 1]) text(g, 'T', [fx - 1.6 * s, y0f + hh * 0.2, s * 5.75], [s, 0, 0], [0, 1, 0], 3.6, [0.78, 0.78, 0.75], RUB, { off: 0.12, weight: 0.22 });
+    if (near) for (const s of [-1, 1]) text(g, 'T', [fx - 1.6 * s, y0f + hh * 0.2, s * 5.75], [s, 0, 0], [0, 1, 0], 3.6, [0.78, 0.78, 0.75], RUB, { off: 0.18, weight: 0.22 });
     fy; void fy;
   }
   // ---- boats: an enclosed lifeboat in davits each side, a free-fall boat on its ramp over the stern ----
@@ -1086,7 +1092,7 @@ export function cargoGeo(seed = 1, lod = 0) {
         F[10] = hy + k * 2.6; F[11] = z;
         if (two) { F[9] = x0; stamp(g, k === tiers - 1 || r === 0 || r === rows - 1 ? proto : plain, F, c, [0.495, 1, 1]); F[9] = x0 + 6.15; stamp(g, plain, F, [c[1] * 1.3 + 0.05, c[2] + 0.05, c[0] * 0.8 + 0.05], [0.495, 1, 1]); }
         else { F[9] = x0; stamp(g, lod ? plain : proto, F, c); }
-        if (near && (r === 0 || r === rows - 1) && R() < 0.22) { const s = r === 0 ? -1 : 1; text(g, 'TIDAL', [x0 + 6.1, hy + k * 2.6 + 0.85, r === 0 ? z : z + 2.44], [s, 0, 0], [0, 1, 0], 0.9, [0.8, 0.8, 0.77], RUB, { off: 0.08, weight: 0.22, centre: true }); }
+        if (near && (r === 0 || r === rows - 1) && R() < 0.22) { const s = r === 0 ? -1 : 1; text(g, 'TIDAL', [x0 + 6.1, hy + k * 2.6 + 0.85, r === 0 ? z : z + 2.44], [s, 0, 0], [0, 1, 0], 0.9, [0.8, 0.8, 0.77], RUB, { off: 0.14, weight: 0.22, centre: true }); }
       }
     }
     if (far) {

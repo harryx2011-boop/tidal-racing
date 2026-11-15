@@ -408,8 +408,8 @@ function person(g, o, idx, fno, lod, part) {
       const b = [hand[0] - 0.04, hand[1] - 0.2, hand[2]], tp = [hand[0] + 0.1, hand[1] + 0.95, hand[2] + sd * 0.06];
       rod(g, b, tp, 0.012, [0.5, 0.4, 0.25], RUB, lod ? 3 : 5);
       const fc = o.flag || [0.75, 0.1, 0.04];
-      const chq = (P, N, C, i) => { const a = Math.floor((tp[1] - P[i + 1]) / 0.11) + Math.floor(Math.abs(P[i + 2] - tp[2]) / 0.13), c = a & 1 ? 0.03 : 0.8; C[i] = c; C[i + 1] = c; C[i + 2] = c; };
-      surf(g, (u, v, out) => { out[0] = tp[0] - 0.01 * v - 0.05 * u * u + 0.05 * Math.sin(u * 5 + v * 2); out[1] = tp[1] - 0.02 - v * 0.4 - 0.22 * u * u; out[2] = tp[2] + sd * (0.02 + u * 0.5); }, lin(0, 1, lod ? 2 : 5), lin(0, 1, lod ? 1 : 3), fc, CLOTH, o.chequer ? { paint: chq } : undefined);
+      const chq = (P, N, C, i) => { const a = Math.floor((tp[1] - P[i + 1] - 0.22 * Math.pow(Math.abs(P[i + 2] - tp[2]) / 0.52, 2)) / 0.105 + 0.5) + Math.floor(Math.abs(P[i + 2] - tp[2]) / 0.105 + 0.5), c = a & 1 ? 0.03 : 0.8; C[i] = c; C[i + 1] = c; C[i + 2] = c; };
+      surf(g, (u, v, out) => { out[0] = tp[0] - 0.01 * v - 0.05 * u * u + 0.05 * Math.sin(u * 5 + v * 2); out[1] = tp[1] - 0.02 - v * 0.4 - 0.22 * u * u; out[2] = tp[2] + sd * (0.02 + u * 0.5); }, lin(0, 1, lod ? 2 : o.chequer ? 10 : 5), lin(0, 1, lod ? 1 : o.chequer ? 8 : 3), fc, CLOTH, o.chequer ? { paint: chq } : undefined);
     }
   }
   // place it

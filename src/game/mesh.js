@@ -142,9 +142,13 @@ void rubberSurface(inout vec3 albedo, inout float ra, inout vec3 Nm, vec3 N, vec
   albedo *= 0.86 + 0.28 * grain;
   ra = 0.8;
   if (dv == 7) {
-    // rock: broad mottling, bedding planes and thin dark cracks
-    float n1 = vnoise(vObj * 0.9 + 3.1), n2 = vnoise(vObj * 3.7 + 9.0);
-    float strata = sin(vObj.y * 7.0 + n1 * 9.0 + vObj.x * 0.9 + vObj.z * 0.6);
+    // rock: broad mottling, bedding planes and thin dark cracks. uv.y is a stone's own number (0 for one outcrop): a
+    // heap of stones is one mesh, and each must have its own grain and its own lie of the bedding
+    float id = vUV.y;
+    vec3 q3 = vObj + id * vec3(37.1, 17.3, 53.7);
+    float n1 = vnoise(q3 * 0.9 + 3.1), n2 = vnoise(q3 * 3.7 + 9.0);
+    vec3 bed = id > 0.0 ? normalize(vec3(h11(id) - 0.5, 0.6, h11(id + 7.0) - 0.5)) * 9.0 : vec3(0.9, 7.0, 0.6);
+    float strata = sin(dot(vObj, bed) + n1 * 9.0);
     float crack = (1.0 - smoothstep(0.0, 0.03 + pf * 1.5, abs(n2 - 0.5))) * fadeOut(pf, 5.0);
     albedo *= (0.8 + 0.4 * n2) * mix(1.0, 0.88 + 0.12 * strata, fadeOut(pf, 2.5)) * mix(1.0, 0.55, crack);
   } else if (dv == 5) {

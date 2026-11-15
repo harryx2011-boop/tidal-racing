@@ -252,7 +252,7 @@ export function towerGeo(side, lod = 0) {
     const BN = [[[0.03, 0.08, 0.3], [0.8, 0.8, 0.76], 'TIDAL RACING'], [[0.7, 0.25, 0.02], [0.05, 0.05, 0.06], 'OPEN WATER']];
     [1, -1].forEach((sx, bi) => {
       const [bg, ink, word] = BN[(bi + (port ? 0 : 1)) % 2], ya = y0 + 3.6, yb = yT - 0.5, P = (y, z) => [sx * (hw(y) + 0.09), y, z * hw(y) * 0.92];
-      kquad(g, P(ya, -1), P(ya, 1), P(yb, 1), P(yb, -1), bg, CLOTH);
+      kquad(g, P(ya + 0.5, -1), P(ya + 0.5, 1), P(yb - 0.5, 1), P(yb - 0.5, -1), bg, CLOTH);
       kquad(g, P(ya, -1), P(ya, 1), P(ya + 0.5, 1), P(ya + 0.5, -1), ink, CLOTH); kquad(g, P(yb - 0.5, -1), P(yb - 0.5, 1), P(yb, 1), P(yb, -1), ink, CLOTH);
       if (near) {
         const mid = (ya + yb) / 2, sl = (hw(yb) - hw(ya)) / (yb - ya);
@@ -443,7 +443,7 @@ export function pylonGeo(side, lod = 0) {
     const half = 0.72;
     const fn = (u, v) => {
       const a = a0 - (u - 0.5) * half * 2, y = lerp(ya, yb, 1 - v);
-      const rr = r0(y) * puff(y) + (near ? 0.012 : 0.06);
+      const rr = r0(y) * puff(y) + (near ? 0.012 : 0.1);
       return [Math.cos(a) * rr, y, Math.sin(a) * rr];
     };
     texSheet(g, fn, near ? 8 : 4, near ? 4 : 2, [1, 1, 1], [MAT.TEXTURED, 0, 0], [Math.cos(a0), 0, Math.sin(a0)]);
