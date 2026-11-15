@@ -305,7 +305,7 @@ export class Coastal {
       item(G.ground, { make: (l) => ({ g: stackGeo(s, tr, l) }), n: 3, at: [170, 650], origin: [s.x, 0, s.z], box: [s.x - s.r * 1.9, -6, s.z - s.r * 1.9, s.x + s.r * 1.9, s.h + 3, s.z + s.r * 1.9], cull: 9000 });
     }
     const cells = new Map();
-    for (const r of P.rocks) { const k = Math.floor(r.x / 128) + ':' + Math.floor(r.z / 128); let c = cells.get(k); if (!c) cells.set(k, c = []); c.push(r); }
+    for (const r of P.rocks) { const k = Math.floor(r.x / 192) + ':' + Math.floor(r.z / 192); let c = cells.get(k); if (!c) cells.set(k, c = []); c.push(r); }
     const sets = [0, 1, 2].map((l) => ({ block: rockSet('block', 4, l, 'land', 101), boulder: rockSet('boulder', 3, l, 'land', 131) }));
     for (const list of cells.values()) {
       let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9, y0 = 1e9, y1 = -1e9;

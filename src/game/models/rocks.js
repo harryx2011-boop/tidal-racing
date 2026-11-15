@@ -14,7 +14,7 @@ import { Geo, sheet, stamp, frame, rng, vn, fb, TAU, lerp, smooth, clamp, paint,
 import { GROUND } from './cover.js';
 
 // (the second entry: how much finer than a cliff's the rock's beds and joints are drawn; the terrain shader reads it)
-const ROCK = [GROUND.ROCK, 1, 0, 0], SMALL = [GROUND.ROCK, 3, 0, 0];
+const ROCK = [GROUND.ROCK, 1, 0, 0], SMALL = [GROUND.ROCK, 2.2, 0, 0];
 export const STYLES = {
   boulder: { top: [0.7, 1.15], cuts: 8, cut: [0.5, 0.82], pw: 2.6, sq: 0.6, dip: 0.12 },
   skerry: { top: [0.3, 0.55], cuts: 6, cut: [0.55, 0.9], pw: 3.2, sq: 0.75, dip: 0.3 },

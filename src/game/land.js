@@ -260,10 +260,10 @@ vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, out float crev, out
   float rg = (vn(vec2((al + 0.8) * 0.16, 3.7)) - vn(vec2((al - 0.8) * 0.16, 3.7))) + 0.5 * (vn(vec2((al + 0.4) * 0.47, 9.1)) - vn(vec2((al - 0.4) * 0.47, 9.1))) * fo1;
   float gully = (1.0 - smoothstep(0.15, 0.4, g0)) * 0.5 + (1.0 - smoothstep(0.12, 0.35, g1)) * 0.3 * fo1;
   float streak = smoothstep(0.55, 0.75, vn(vec2(al * 0.9, 1.3)) * 0.65 + vn(vec2(al * 3.1, P.y * 0.08)) * 0.35) * face * fo1;
-  vec3 c = mix(vec3(0.19, 0.172, 0.15), vec3(0.4, 0.36, 0.3), mix(0.5, tone0 * 0.6 + tone1 * 0.4 * fo1 + 0.2 * (1.0 - fo1), fo0));
+  vec3 c = mix(vec3(0.215, 0.195, 0.17), vec3(0.385, 0.345, 0.29), mix(0.5, tone0 * 0.6 + tone1 * 0.4 * fo1 + 0.2 * (1.0 - fo1), fo0));
   c = mix(c, vec3(0.34, 0.235, 0.15), 0.45 * smoothstep(0.55, 0.8, wv + 0.3 * tone0 - 0.15));
   c *= mix(1.0, 0.82 + 0.36 * blk, fo2) * mix(1.0, 0.9 + 0.2 * lam, fo2 * 0.7) * (0.84 + 0.5 * n1) * (0.92 + 0.3 * n2);
-  c *= 1.0 - 0.3 * streak - 0.3 * seam;
+  c *= 1.0 - 0.3 * streak - 0.22 * seam;
   float gs = smoothstep(0.6, 0.8, vn(vec2(al * 0.7, B0 * 3.1 + 1.0))) * smoothstep(0.1, 0.9, bf0) * smoothstep(6.0, 11.0, P.y) * face * fo0;
   c = mix(c, vec3(0.6, 0.6, 0.56), gs * 0.5);
   crev = max(max(under * 0.85, joint), gully * fr * face);
