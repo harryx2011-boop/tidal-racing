@@ -42,6 +42,7 @@ const WL = (() => {
   return { end, at, half: Array.from({ length: 12 }, (_, i) => at(x0 + (end - x0) * i / 11)) };
 })();
 export const waterlineHalf = (x) => (x > WL.end ? 0 : WL.at(x));
+export const WATERLINE_END = WL.end;
 
 // Hull plan outline: half beam at x for a hull from the transom to the bow. Used by the sea shader
 // (hiding the sea inside the hull, the foam line, the bow wash) and by the spray emitters.
@@ -55,18 +56,51 @@ export function hullHalfWidth(x, A = BOAT_ANCHORS) {
 
 // Radiance of the underwater lights in scene units: faint against a sunlit sea, plain at dusk.
 // underwater lights against a white card in the same light: faint in sun, clear in the gloom
-const GLOW_DAY = 0.06, GLOW_DARK = 1.2;
+const GLOW_DAY = 0.035, GLOW_DARK = 1.2;
+
+const WK_CONST = `
+const float WK_APEX = ${WK.APEX.toFixed(2)}, WK_K = ${WK.K.toFixed(3)}, WK_SMAX = ${WK.SMAX.toFixed(1)}, WK_AGE = ${WK.AGE.toFixed(1)}, WK_REACH = ${WK.REACH.toFixed(1)};
+`;
+
+// ---- GLSL: how much foam there is at a point of the wake. Run per pixel (fragment shader): a value
+// made per vertex and interpolated shows the mesh's triangles as soon as it is thresholded into foam.
+// wc = (A, c, S, age) and wd = (strength, foam, width) as the vertex shader found them (below).
+// Returns (fresh froth, residual foam, bubble plume, foam on the V arms).
+export const WAKE_AMT_GLSL = WK_CONST + `
+vec4 wakeAmounts(vec4 wc, vec3 wd) {
+  float S = wc.z, age = wc.w, dist = abs(wc.y);
+  float W = wd.x, F = wd.y, WS = wd.z;
+  float wA = 1.0 + 0.07 * S;
+  float u = (dist - WK_K * (S + WK_APEX)) / wA;
+  // churned trail: solid fresh froth and prop wash, then residual foam that thins and spreads
+  float hw = (1.8 + 0.8 * sqrt(S)) * WS;
+  float lat = 1.0 - smoothstep(0.15 * hw, hw, dist);
+  lat *= lat;
+  float dens = F * lat * clamp(1.6 / hw, 0.35, 1.0) * smoothstep(0.0, 1.5, S);
+  float fresh = exp(-age / 1.3);
+  float old = exp(-age / 4.5) * (1.0 - smoothstep(7.0, 11.5, age));
+  float near = 1.0 + 1.5 * exp(-S / 12.0);
+  float arm = exp(-u * u * 0.8) * W * exp(-S / 45.0) * smoothstep(3.0, 10.0, S) * (1.0 - smoothstep(6.0, 11.0, age));
+  // (the foam ends with the trail: it fades over the last 40 m rather than being cut)
+  float tail = 1.0 - smoothstep(WK_SMAX - 40.0, WK_SMAX, S);
+  return vec4(dens * fresh * near * 3.0, dens * old * 4.0, dens * exp(-age / 4.5) * 1.6 + arm * 0.5, arm * 1.6) * tail;
+}`;
 
 // ---- GLSL: the wake field (vertex shader). Declares its own uniforms. ----
-export const WAKE_GLSL = `
+export const WAKE_GLSL = WK_CONST + `
 uniform sampler2D uWake;          // rgba32f, N x 2 rows per boat: (x, z, S, age) and (wave, foam, width, 0)
 uniform vec4 uWkHead[4];          // x: samples in the path
 uniform vec4 uWkChunk[32];        // bounding circle (cx, cz, r) of each 8-segment chunk
 uniform int uWkN;
-const float WK_APEX = ${WK.APEX.toFixed(2)}, WK_K = ${WK.K.toFixed(3)}, WK_SMAX = ${WK.SMAX.toFixed(1)}, WK_AGE = ${WK.AGE.toFixed(1)}, WK_REACH = ${WK.REACH.toFixed(1)};
-// hg = (height, d height / dx, d height / dz); fo = (fresh froth, residual foam, bubble plume)
-void wakeField(vec2 q, float soft, out vec3 hg, out vec3 fo) {
-  hg = vec3(0.0); fo = vec3(0.0);
+// hg = (height, d height / dx, d height / dz); fo = (fresh froth, residual foam, bubble plume, foam on
+// the V arms). wc = (A, c, S, age) in the frame of the path under the strongest wake here: A is the
+// distance along the path from where the boat started (fixed in the water, so a pattern laid out in
+// it stays put as the boat leaves), c the signed metres to the path, S metres behind the stern;
+// wd = (wake strength, foam, width) there. The foam itself is worked out per pixel (wakeAmounts); fo is
+// here only to pick the strongest wake.
+void wakeField(vec2 q, float soft, out vec3 hg, out vec4 fo, out vec4 wc, out vec3 wd) {
+  hg = vec3(0.0); fo = vec4(0.0); wc = vec4(0.0); wd = vec3(0.0);
+  float bestW = 0.0;
   for (int b = 0; b < ${WK.BOATS}; b++) {
     if (b >= uWkN) break;
     int n = int(uWkHead[b].x);
@@ -121,7 +155,16 @@ void wakeField(vec2 q, float soft, out vec3 hg, out vec3 fo) {
     float old = exp(-age / 4.5) * (1.0 - smoothstep(7.0, 11.5, age));
     float near = 1.0 + 1.5 * exp(-S / 12.0);
     float arm = exp(-u * u * 0.8) * W * exp(-S / 45.0) * smoothstep(3.0, 10.0, S) * (1.0 - smoothstep(6.0, 11.0, age)) * mf;
-    fo += vec3(dens * fresh * near * 3.0, dens * old * 4.0 + arm * 1.6, dens * exp(-age / 4.5) * 1.6 + arm * 0.5);
+    // (the foam ends with the trail: it fades over the last 40 m rather than being cut)
+    float tail = 1.0 - smoothstep(WK_SMAX - 40.0, WK_SMAX, S);
+    vec4 inc = vec4(dens * fresh * near * 3.0, dens * old * 4.0, dens * exp(-age / 4.5) * 1.6 + arm * 0.5, arm * 1.6) * tail;
+    fo += inc;
+    float w = inc.x + inc.y + inc.w;
+    if (w > bestW) {
+      bestW = w;
+      wc = vec4(uWkHead[b].y - S, eb.x * dv.y - eb.y * dv.x, S, age);
+      wd = vec3(W, F, WS);
+    }
   }
 }`;
 
@@ -130,6 +173,7 @@ class Trail {
   constructor() {
     const N = WK.N;
     this.n = 0;
+    this.len = 0;                                  // path length committed up to sample 1 (m)
     this.x = new Float32Array(N); this.z = new Float32Array(N); this.s = new Float32Array(N); this.age = new Float32Array(N);
     this.wv = new Float32Array(N); this.ft = new Float32Array(N); this.ws = new Float32Array(N);
     this.st = new Float64Array(N);                 // stamps (own clock, s)
@@ -190,6 +234,33 @@ export class Wake {
     this.texData = new Float32Array(WK.N * WK.BOATS * 2 * 4);
     this.head = new Float32Array(WK.BOATS * 4);
     this.chunk = new Float32Array(WK.BOATS * 8 * 4);
+    this.marks = new Float32Array(16);   // the nearest floating marks: x, z, radius, 0
+    this.markN = 0;
+  }
+
+  // The few marks nearest the camera, for the foam and ripples where each meets the sea. They follow
+  // the buoy's own drift with the waves (the marks system probes the sea under them).
+  nearMarks() {
+    const m = this.game.systems.find((s) => s.colliders && s.probe);
+    const cam = this.game.app.cam.pos, out = this.marks;
+    let n = 0;
+    if (m) {
+      const best = this._best || (this._best = [0, 0, 0, 0].map(() => ({ d: 0, i: 0 })));
+      for (let i = 0; i < m.colliders.length; i++) {
+        const c = m.colliders[i], d = (c.x - cam[0]) ** 2 + (c.z - cam[2]) ** 2;
+        if (d > 90 * 90) continue;
+        let k = n < 4 ? n++ : (d < best[3].d ? 3 : -1);
+        if (k < 0) continue;
+        best[k].d = d; best[k].i = i;
+        while (k > 0 && best[k - 1].d > best[k].d) { const t = best[k - 1]; best[k - 1] = best[k]; best[k] = t; k--; }
+      }
+      for (let k = 0; k < n; k++) {
+        const c = m.colliders[best[k].i], r = m.probe.res.get(m.items[best[k].i]);
+        out[k * 4] = c.x + (r?.dx || 0); out[k * 4 + 1] = c.z + (r?.dz || 0); out[k * 4 + 2] = c.r; out[k * 4 + 3] = 0;
+      }
+    }
+    this.markN = n;
+    return out;
   }
 
   update(dt) {
@@ -223,9 +294,9 @@ export class Wake {
       tr.ft[i] = gate * smoothstep(1, 9, spd) * (0.35 + 0.65 * thr) * (1 + (pose.boosting ? 0.3 : 0));
       tr.ws[i] = 0.6 + 0.6 * Math.min(W, 1);
     };
-    if (tr.n === 0) { tr.n = 2; set(0); set(1); }
+    if (tr.n === 0) { tr.n = 2; tr.len = 0; set(0); set(1); }
     set(0);
-    if (Math.hypot(tr.x[0] - tr.x[1], tr.z[0] - tr.z[1]) >= WK.SPACING) { tr.shift(); set(0); }
+    if (Math.hypot(tr.x[0] - tr.x[1], tr.z[0] - tr.z[1]) >= WK.SPACING) { tr.len += Math.hypot(tr.x[0] - tr.x[1], tr.z[0] - tr.z[1]); tr.shift(); set(0); }
     while (tr.n > 2 && this.t - tr.st[tr.n - 1] > WK.AGE + 1) tr.n--;
     // arc length, age and bounds
     tr.s[0] = 0; tr.age[0] = this.t - tr.st[0];
@@ -270,6 +341,7 @@ export class Wake {
         d.set([tr.wv[j], tr.ft[j], tr.ws[j], 0], rowB + i * 4);
       }
       this.head[b * 4] = tr.n;
+      this.head[b * 4 + 1] = tr.len + tr.s[1];
       this.chunk.set(tr.chunks, b * 32);
       const ax = pose.axes();
       pos.set([pose.pos[0], pose.pos[1], pose.pos[2], 0], b * 4);
@@ -287,6 +359,7 @@ export class Wake {
       uHull: [A.transom[0], A.bow[0], A.halfBeam, 1.0],
       uWl: WL.half, uWlEnd: WL.end,
       uProps: pr.flat(),
+      uMarks: this.nearMarks(), uMarkN: this.markN,
       uWaterShadow: clamp(fx.waterShadow ?? 1, 0, 1),
       uGlow: GLOW_DAY + (GLOW_DARK - GLOW_DAY) * Math.min(Math.max(((this.game.meshes.lamp ?? 0.1) - 0.1) / 0.9, 0), 1),
     };

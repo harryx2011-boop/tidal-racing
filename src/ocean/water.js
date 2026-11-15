@@ -5,13 +5,12 @@ import { Program, makeMesh } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { FOAM_GLSL } from './foam.js';
 import { RAIN_SURFACE_GLSL } from '../fx/ripples.js';
-import { WAKE_GLSL } from '../game/wake.js';
+import { WAKE_GLSL, WAKE_AMT_GLSL } from '../game/wake.js';
 
-// Boats on the sea, per pixel, in each boat's own frame: the hull hides the sea (the open cockpit
-// never shows water), a thin foam line where the hull meets it, bow wash thrown out along the hull
-// sides, the boat's shadow (an ellipsoid projected along the sun), the shade under the hull and the
-// underwater light behind the transom. Only pixels within reach of a boat pay for it.
-const BOATS_GLSL = `
+// What both shader stages know about the boats: where they are, the hull's outline, and the bow wave
+// (a ridge of water lifted along each hull side, thrown outward at its crest). The vertex stage
+// displaces the sea with it, the fragment stage puts foam on it.
+const BOAT_SHARED = `
 uniform int uBoatN;
 uniform vec4 uBoatPos[4];   // xyz: position
 uniform vec4 uBoatX[4];     // body axes in world space
@@ -22,9 +21,6 @@ uniform vec4 uBoatFx[4];    // x: in the water (0..1), y: throttle, z: boosting
 uniform vec4 uHull;         // transom x, bow x, half beam, gunwale height
 uniform float uWl[12];      // half-width of the hull at the waterline, at 12 stations from the transom to uWlEnd
 uniform float uWlEnd;       // where the waterline ends forward (the stem has risen clear of the water)
-uniform vec3 uProps[3];     // propellers (boat space)
-uniform float uWaterShadow;
-uniform float uGlow;        // underwater lights: radiance as a multiple of a white card in the same light
 float hullHalf(float x) {
   float u = (x - uHull.x) / (uHull.y - uHull.x);
   if (u <= 0.0 || u >= 1.0) return 0.0;
@@ -37,6 +33,36 @@ float wlHalf(float x) {
   int i = min(int(t), 10);
   return mix(uWl[i], uWl[i + 1], t - float(i));
 }
+float bh(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float bn(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(bh(i), bh(i + vec2(1.0, 0.0)), f.x), mix(bh(i + vec2(0.0, 1.0)), bh(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// Height of the bow wave at a point lx along and lz across the hull (boat frame), for speed k (36 m/s
+// is 1). The stem shoulders water aside: it piles against the hull a little aft of the stem, peaks
+// where the hull is widest in the water and rolls out and down as it runs aft. Steep on the hull
+// side, long on the outside.
+float bowH(float lx, float lz, float k, float soft) {
+  float fw = uWlEnd - lx;
+  float o = abs(lz) - wlHalf(lx);
+  float along = smoothstep(-0.2, 0.9, fw) * exp(-max(fw, 0.0) / 3.4) * (1.0 - smoothstep(6.0, 9.0, fw));
+  float off = 0.06 + 0.22 * fw, wid = 0.2 + 0.14 * fw;
+  float u = (o - off) / (o < off ? wid * 0.9 : wid * 1.6);
+  // (the mesh cannot carry a ridge narrower than its own spacing)
+  return 0.5 * k * k * along * exp(-u * u) * (1.0 - smoothstep(0.5, 1.3, soft / wid));
+}
+`;
+
+// Boats on the sea, per pixel, in each boat's own frame: the hull hides the sea (the open cockpit
+// never shows water), a thin foam line where the hull meets it, bow wash thrown out along the hull
+// sides, the boat's shadow (an ellipsoid projected along the sun), the shade under the hull and the
+// underwater light behind the transom. Only pixels within reach of a boat pay for it.
+const BOATS_GLSL = BOAT_SHARED + `
+uniform vec3 uProps[3];     // propellers (boat space)
+uniform float uWaterShadow;
+uniform float uTime;
+uniform float uGlow;        // underwater lights: radiance as a multiple of a white card in the same light
 // Half-width of the hull's cross-section at height y: flaring from the waterline out to the sheer
 // above it, narrowing to the keel (0.42 m down) below it. A sea point inside this is inside the hull.
 float hullSection(float x, float y) {
@@ -65,15 +91,22 @@ BoatFx boatFx(vec3 P, vec3 L) {
     float out_ = max(-din, 0.0);
     // the outline matters only alongside the hull, not ahead of the stem or behind the transom
     float xm = smoothstep(uHull.x - 0.3, uHull.x + 0.3, l.x) * (1.0 - smoothstep(uHull.y + 0.2, uHull.y + 0.8, l.x));
-    // foam line at the hull
-    float line = smoothstep(-0.04, 0.03, -din) * (1.0 - smoothstep(0.05, 0.32, out_));
-    r.act += line * xm * gate * low * (0.45 + 0.5 * min(spd, 1.0)) * 1.5;
-    // bow wash: the water thrown aside by the stem spreads out along the hull as it runs aft
-    float fx = uHull.y - l.x;
-    float off = 0.15 + 0.2 * fx, wid = 0.3 + 0.12 * fx;
-    float band = exp(-pow((out_ - off) / wid, 2.0));
-    float along = smoothstep(-0.6, 0.8, fx) * (1.0 - smoothstep(3.5, 7.5, fx));
-    r.act += band * along * spd * spd * gate * low * 1.8;
+    // foam line at the hull: the water laps at the hull, so the line is ragged and its width comes
+    // and goes along the hull, more so the faster the boat (at rest it is a calm, thin line). The
+    // noise is laid out in the water, so at speed it streams aft along the hull.
+    float lap = bn(P.xz * vec2(2.3, 2.3) + uTime * 0.25) * 0.6 + bn(P.xz * 7.1 - uTime * 0.6) * 0.4;
+    float dinw = din + (lap - 0.5) * (0.02 + 0.2 * min(spd, 1.2));
+    float wide = 0.07 + (0.05 + 0.3 * min(spd, 1.2)) * lap;
+    float line = smoothstep(-0.04, 0.03, -dinw) * (1.0 - smoothstep(0.04, wide, out_));
+    r.act += line * xm * gate * low * (0.5 + 0.5 * min(spd, 1.0)) * 1.5;
+    // bow wave: foam rides the crest of the ridge the vertex stage lifted, and a sheet of it is
+    // left running aft along the hull side below the crest
+    float fx = uWlEnd - l.x;
+    float hb = bowH(l.x, l.z, spd, 0.0) / max(0.5 * spd * spd, 0.02);
+    float crest = smoothstep(0.35, 0.95, hb);
+    float off = 0.06 + 0.22 * fx, wid = 0.2 + 0.14 * fx;
+    float sheet = exp(-pow((out_ - off - 0.15 * wid) / (wid * 2.2), 2.0)) * smoothstep(-0.2, 0.9, fx) * (1.0 - smoothstep(3.5, 8.0, fx));
+    r.act += (crest * 3.0 * (0.6 + 0.8 * lap) + sheet * 1.1 * lap) * spd * spd * gate * low * 1.6;
     // shade under and beside the hull (skylight is blocked)
     r.ao = max(r.ao, 0.55 * (1.0 - smoothstep(0.0, 1.6, out_)) * low * xm);
     // shadow: how far the ray to the sun misses the ellipsoid, soft by the sun's size and a little more
@@ -86,18 +119,19 @@ BoatFx boatFx(vec3 P, vec3 L) {
       float pen = 0.22 + 0.025 * tca;
       r.shadow = max(r.shadow, (1.0 - smoothstep(1.0 - pen, 1.0 + pen, miss)) * 0.92 * uWaterShadow);
     }
-    // underwater lights behind the transom, in the boat's accent colour
+    // underwater lights behind the transom, in the boat's accent colour: light from a lamp under the
+    // surface falls off steeply from a bright core and trails off into a long dim tail
     for (int p = 0; p < 3; p++) {
-      vec3 q = (l - (uProps[p] + vec3(-0.7, 0.0, 0.0))) / vec3(1.4, 1.0, 0.7);
+      vec3 q = (l - (uProps[p] + vec3(-0.5, 0.0, 0.0))) / vec3(1.3, 0.9, 0.6);
       // (the tail is cut off: under a dark sky the exposure would lift it into a disc metres wide)
-      r.glow += uBoatCol[b].rgb * max(exp(-0.5 * dot(q, q)) - 0.03, 0.0);
+      r.glow += uBoatCol[b].rgb * max(pow(1.0 + 1.5 * dot(q, q), -2.0) - 0.012, 0.0) * 0.55;
     }
   }
   return r;
 }
 `;
 
-const VS = WAKE_GLSL + `
+const VS = WAKE_GLSL + BOAT_SHARED + `
 layout(location = 0) in vec2 aPolar; // radius (m), angle (rad)
 uniform mat4 uViewProj;
 uniform vec3 uCamPos;
@@ -109,7 +143,8 @@ uniform float uDispScale;
 out vec3 vWorld;
 out vec2 vXZ;
 out float vDisp;
-out vec4 vWk;      // boat wakes: fresh froth, residual foam, bubble plume
+out vec4 vWkC;     // boat wakes: pattern frame (along the path, across it, metres behind the stern, age)
+out vec3 vWkD;     // boat wakes: strength, foam, width
 out vec2 vWkS;     // boat wakes: slope
 void main() {
   float r = aPolar.x;
@@ -125,13 +160,28 @@ void main() {
   // fade displacement where the mesh is extremely coarse (far field)
   vec3 P = vec3(xz.x + D.x, D.y, xz.y + D.z);
   // boat wakes lift the sea (the same field the physics feels, see src/game/wake.js)
-  vWk = vec4(0.0); vWkS = vec2(0.0);
+  vWkC = vec4(0.0); vWkD = vec3(0.0); vWkS = vec2(0.0);
   if (uWkN > 0) {
-    vec3 hg, fo;
-    wakeField(P.xz, spacing, hg, fo);
+    vec3 hg; vec4 fo;
+    wakeField(P.xz, spacing, hg, fo, vWkC, vWkD);
     P.y += hg.x;
-    vWk = vec4(fo, 0.0);
     vWkS = hg.yz;
+    // bow waves: a ridge along each hull side, its crest thrown outward
+    for (int b = 0; b < 4; b++) {
+      if (b >= uBoatN) break;
+      vec3 rel = P - uBoatPos[b].xyz;
+      if (dot(rel.xz, rel.xz) > 100.0 || uBoatCol[b].a < 0.2) continue;
+      vec3 X = uBoatX[b].xyz, Z = uBoatZ[b].xyz;
+      float lx = dot(rel, X), lz = dot(rel, Z);
+      if (lx < uHull.x || lx > uHull.y + 1.0 || abs(lz) > 4.0) continue;
+      float k = uBoatCol[b].a * uBoatFx[b].x;
+      float h0 = bowH(lx, lz, k, spacing), e = 0.08;
+      float hx = (bowH(lx + e, lz, k, spacing) - h0) / e, hz = (bowH(lx, lz + e, k, spacing) - h0) / e;
+      P.y += h0;
+      // the crest overhangs: lift is paired with a push away from the hull
+      P.xz += Z.xz * sign(lz) * 0.8 * h0;
+      vWkS += hx * X.xz + hz * Z.xz;
+    }
   }
   // earth curvature
   float dr = length(P.xz - uCamPos.xz);
@@ -142,8 +192,9 @@ void main() {
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
-const FS = SKY_LOOKUP_GLSL + FOAM_GLSL + RAIN_SURFACE_GLSL + BOATS_GLSL + `
-in vec4 vWk;
+const FS = SKY_LOOKUP_GLSL + WAKE_AMT_GLSL + FOAM_GLSL + RAIN_SURFACE_GLSL + BOATS_GLSL + `
+in vec4 vWkC;
+in vec3 vWkD;
 in vec2 vWkS;
 in vec3 vWorld;
 in vec2 vXZ;
@@ -168,7 +219,6 @@ uniform vec3 uRrs;               // water-leaving remote sensing reflectance (1/
 uniform vec3 uSSS;               // crest scatter colour * strength
 uniform float uFoamAmount;
 uniform float uFoamLace;         // residual foam lace everywhere at gale force (stage-B whitecaps)
-uniform float uTime;
 uniform float uRain;
 uniform vec3 uGust;              // x: gustiness 0..1, yz: downwind drift of the gust pattern (m)
 float ghash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -234,6 +284,99 @@ vec2 smoothUv(vec2 uv, float res) {
   return (i + f - 0.5) / res;
 }
 
+uniform int uMarkN;
+uniform vec4 uMarks[4];       // the nearest floating marks: x, z, float radius
+// Where a mark meets the sea: foam lapping at its float and rings running out from it, stronger the
+// rougher the sea. Returns the foam amount and adds the ripples' slope to sl.
+float markFx(vec2 xz, inout vec2 sl) {
+  float foam = 0.0;
+  float rough = 0.3 + 0.7 * smoothstep(0.2, 2.5, uHs);
+  for (int i = 0; i < 4; i++) {
+    if (i >= uMarkN) break;
+    vec2 dv = xz - uMarks[i].xy;
+    float r = uMarks[i].z, d = length(dv);
+    if (d > r + 4.0 || d < r * 0.9) continue;
+    float a = atan(dv.y, dv.x);
+    // the swash laps unevenly round the float and over time
+    float n = bn(vec2(a * 3.0 * r * 0.5, uTime * 0.8 + float(i) * 7.0)) * 0.6 + bn(vec2(a * 9.0 * r * 0.5 + 3.0, uTime * 1.7)) * 0.4;
+    float e = d - r;
+    float w = 0.1 + (0.12 + 0.35 * rough) * n;
+    foam += exp(-pow((e - 0.05) / w, 2.0)) * (0.8 + 1.8 * rough);
+    // a thinner, broken fringe further out
+    foam += exp(-pow((e - 0.35 - 0.8 * rough * n) / (0.25 + 0.3 * rough), 2.0)) * 0.5 * rough * smoothstep(0.35, 0.7, n);
+    float ph = 14.0 * e - uTime * 4.5 + float(i) * 2.0;
+    sl += dv / d * 0.05 * (0.4 + rough) * sin(ph) * exp(-e * 0.9) * smoothstep(0.0, 0.15, e);
+  }
+  return foam;
+}
+
+// Foam of the boats (the wash, the V arms, the hull line, the bow wave, the rings round the marks), made
+// apart from the sea's own whitecaps so it can have its own structure: boiling froth where the props churn
+// (marbled cells, thick and white), settling into streaks and lace laid out along the path of the wake
+// and spreading with it, feathered edges. Every pattern is a mip-mapped texture lookup in a frame fixed
+// in the water, so detail grows with the pixel's footprint and fades out with it instead of shimmering.
+// Returns (coverage, thickness).
+vec2 wakeFoam(vec4 fo, float contact, vec4 wc, float hw, vec2 dAx, vec2 dAy, vec2 dWx, vec2 dWy, out vec2 bump) {
+  bump = vec2(0.0);
+  // (broad ramps: a density that saturates quickly would leave only a hard rim to fray)
+  float freshA = 1.0 - exp(-(fo.x * 0.22 + contact * 0.9));
+  float oldA = 1.0 - exp(-fo.y * 0.6);
+  float armA = 1.0 - exp(-fo.w * 0.7);
+  if (freshA + oldA + armA < 0.01) return vec2(0.0);
+  float age = wc.w;
+  // pixel footprint in metres: beyond about a decimetre the fine structure is sub-pixel
+  float fpm = sqrt(length(dWx) * length(dWy));
+  float far = smoothstep(0.12, 0.7, fpm);
+  // path frame: the trail's structure stretches sideways as the trail widens
+  float kk = clamp(hw / 2.4, 1.0, 4.0);
+  vec2 pc = vec2(wc.x, wc.y / kk), ix = vec2(dAx.x, dAx.y / kk), iy = vec2(dAy.x, dAy.y / kk);
+  // the water churns: the world-frame cells drift slowly and differently in two layers
+  vec2 wp = vXZ + 0.35 * vec2(sin(uTime * 0.9 + vXZ.y), cos(uTime * 1.1 + vXZ.x)) * (1.0 - smoothstep(0.0, 3.0, age));
+  vec2 w1 = wp / 2.6, w2 = wp / 0.85 + 0.37;
+  // (every lookup is blurred a few pixels wide: a pattern with single-pixel features thresholded
+  // into coverage is confetti; the structure should be a dozen pixels or more)
+  const float SOFT = 4.0;
+  vec4 tb = textureGrad(uFoamTex, w1, dWx * SOFT / 2.6, dWy * SOFT / 2.6);
+  // the relief of the froth (boils and billows catch the light on one side), from the same pattern
+  vec2 e0 = vec2(0.14 / 2.6, 0.0);
+  float tx = textureGrad(uFoamTex, w1 + e0, dWx * SOFT / 2.6, dWy * SOFT / 2.6).r;
+  float tz = textureGrad(uFoamTex, w1 + e0.yx, dWx * SOFT / 2.6, dWy * SOFT / 2.6).r;
+  bump = vec2(tx - tb.r, tz - tb.r) * (0.15 / 0.14) * (1.0 - far);
+  vec4 tf = textureGrad(uFoamTex, w2, dWx * SOFT / 0.85, dWy * SOFT / 0.85);
+  // streaks along the path at two scales, lace along it
+  vec2 s1 = vec2(1.0 / 20.0, 1.0 / 7.0), s2 = vec2(1.0 / 6.0, 1.0 / 2.2), s3 = vec2(1.0 / 12.0, 1.0 / 4.5);
+  float st1 = textureGrad(uFoamTex, pc * s1 + 0.31, ix * s1 * SOFT, iy * s1 * SOFT).b;
+  float st2 = textureGrad(uFoamTex, pc * s2 + 0.67, ix * s2 * SOFT, iy * s2 * SOFT).b;
+  float lc = textureGrad(uFoamTex, pc * s3 + 0.12, ix * s3 * SOFT, iy * s3 * SOFT).a;
+  // where the foam thins toward its edges it breaks into fingers along the path (streaks of
+  // water that stay clear), while the dense core is left whole
+  float fing = 0.35 + 1.3 * (0.6 * st2 + 0.4 * st1);
+  freshA *= mix(fing, 1.0, smoothstep(0.45, 0.85, freshA));
+  oldA *= mix(0.55 + 0.9 * (0.5 * st1 + 0.5 * lc), 1.0, smoothstep(0.5, 0.9, oldA));
+  // thresholds: foam fills the low values of a pattern first
+  // (a little unblurred detail on top, thresholded softly, makes the lacy fringe of a froth edge)
+  float fine = textureGrad(uFoamTex, w2, dWx / 0.85, dWy / 0.85).r - 0.5;
+  float Pf = 0.1 + 0.5 * tb.r + 0.25 * (tf.r * 0.7 + tf.g * 0.3) + 0.35 * fine * (1.0 - far);
+  float Pt = 0.1 + 0.25 * st1 + 0.15 * st2 + 0.2 * lc + 0.2 * tb.r;
+  float Pa = 0.1 + 0.55 * tb.r + 0.35 * tf.g;
+  // the edge softens with age (old foam is a loose film) and as detail goes sub-pixel
+  float e = 0.15 + 0.12 * smoothstep(1.0, 7.0, age) + 0.25 * far;
+  float cf = smoothstep(Pf - e, Pf + e, freshA * 1.8);
+  float ct = smoothstep(Pt - e * 1.4, Pt + e * 1.4, (oldA + 0.6 * freshA) * 1.15) * mix(0.7, 1.0, oldA);
+  float ca = smoothstep(Pa - e, Pa + e, armA * 1.1) * 0.85;
+  // sub-pixel structure: the mean coverage
+  cf = mix(cf, clamp(freshA * 1.05, 0.0, 1.0), far);
+  ct = mix(ct, clamp(oldA * 0.7, 0.0, 1.0) * 0.8, far);
+  ca = mix(ca, clamp(armA * 0.7, 0.0, 1.0), far);
+  float cov = max(cf, max(ct, ca));
+  // thickness: dense froth near the boat, brighter where it is thick, thinning with age
+  float bub = mix(0.78 + 0.3 * tf.g * (0.6 + 0.8 * tb.r), 0.9, far);
+  // (low pattern values are where the froth is deepest: mottling the white from bright to pale)
+  float mott = smoothstep(0.3, 0.62, 1.0 - Pf);
+  float th = max(cf * mix(0.35, 1.0, mott) * mix(0.75, 1.0, freshA) * bub, max(ct * mix(0.3, 0.7, oldA), ca * 0.45));
+  return vec2(cov, clamp(th, 0.0, 1.0));
+}
+
 void main() {
   vec3 uSunE = sunIlluminance();
   vec3 uSkyE = skyIrradiance();
@@ -296,6 +439,8 @@ void main() {
   // rain ripples: normal perturbation near the camera, extra roughness further away
   vec3 rr = rainRipples(vXZ, uTime, uRain, dist, sqrt(footA));
   s += rr.xy + vWkS;
+  // (against the displaced surface: the mark rides with the water, not with the grid)
+  float markFoam = markFx(P.xz, s);
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
   float unres = uUnresolved * 0.5 * sm * sm * (1.0 - 0.4 * uRain);
   vec2 sigmaSq = var + vec2(unres);
@@ -429,14 +574,24 @@ void main() {
              * (1.0 - smoothstep(20.0, 200.0, dist)) * smoothstep(0.15, 0.35, length(sL));
   vec3 sss = uSSS * (1.0 - F) * H * back * 3.0 * uSunE * sunVis;
 
+  // (the wake's foam amounts, per pixel)
+  vec4 wkAmt = vec4(0.0);
+  float wkHw = 2.4;
+  if (vWkD.x + vWkD.y > 0.0) { wkAmt = wakeAmounts(vWkC, vWkD); wkHw = (1.8 + 0.8 * sqrt(vWkC.z)) * vWkD.z; }
   // submerged bubbles backscatter strongly: the water around and beneath whitecaps turns pale aquamarine
-  float pl = (1.0 - exp(-(plume * uFoamAmount + vWk.z) * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
+  float pl = (1.0 - exp(-(plume * uFoamAmount + wkAmt.z) * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
   body += (1.0 - F) * pl * vec3(0.035, 0.062, 0.053) * Ed / M_PI;
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
   col += (1.0 - F) * uRain * 0.008 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
 
   // foam
-  vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount + vWk.y, uFoamLace * uFoamAmount, activeRaw * uFoamAmount + vWk.x + bfx.act, dist);
+  vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uFoamLace * uFoamAmount, activeRaw * uFoamAmount, dist);
+  // (derivatives of the wake's frame, taken here where every pixel runs: the lookups inside are not)
+  vec2 dAx = dFdx(vWkC.xy), dAy = dFdy(vWkC.xy), dWx = dFdx(vXZ), dWy = dFdy(vXZ);
+  vec2 wbump;
+  vec2 wf = wakeFoam(wkAmt, bfx.act + markFoam, vWkC, wkHw, dAx, dAy, dWx, dWy, wbump);
+  foamBump = mix(foamBump, wbump, wf.x);
+  fc = vec2(1.0 - (1.0 - fc.x) * (1.0 - wf.x), mix(fc.y, wf.y, wf.x / max(fc.x + wf.x, 1e-3)));
   float foam = fc.x;
   if (uDebug == 1) { oColor = vec4(foam, foamRaw, foamCovA, 1.0); return; }
   if (foam > 0.0) {
