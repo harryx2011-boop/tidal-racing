@@ -40,7 +40,7 @@ vec4 cirrusLayer(vec3 d) {
   // run on past the veil and thin out, so a sheaf has no outline
   // (each hair comes and goes along its length, and no two are equally thick)
   float hair = max(A.r * (0.45 + 0.55 * B.a), 0.75 * B.r * (0.35 + 0.65 * A.a));
-  float dens = region * (0.5 + 0.5 * B.g) * (0.34 * A.g * A.g + 0.6 * hair * smoothstep(0.0, 0.55, A.g)) * (1.0 + 0.8 * smoothstep(0.75, 1.0, A.g));
+  float dens = region * (0.5 + 0.5 * B.g) * (0.22 * A.g * A.g + 0.6 * hair * smoothstep(0.0, 0.55, A.g)) * (1.0 + 0.4 * smoothstep(0.75, 1.0, A.g));
   // in places the sheet is banded across the flow (billows aloft)
   dens *= mix(1.0, 0.35 + 1.1 * A.b, smoothstep(0.55, 0.75, C.g + 0.4 * C.a));
   float slant = clamp(0.35 / max(d.y, 0.02), 1.0, 3.0);
@@ -95,7 +95,8 @@ vec3 rainShafts(vec3 col, vec3 d) {
   float m = rainCell(uFogCam + dh * 1500.0) * 0.3 + rainCell(uFogCam + dh * 3500.0) * 0.4 + rainCell(uFogCam + dh * 7000.0) * 0.3;
   float cell = smoothstep(0.25, 1.1, m);
   // (2D noise read on the circle of view azimuths has no seam; the lean is a turn that grows with elevation)
-  float a = d.y * 0.3, ca = cos(a), sa = sin(a);
+  // (and the whole pattern drifts round with the showers: their drift across the view, at some 6 km)
+  float a = d.y * 0.3 + dot(uRainCell.yz, vec2(-dh.y, dh.x)) / 6000.0, ca = cos(a), sa = sin(a);
   vec2 ds = vec2(ca * dh.x - sa * dh.y, sa * dh.x + ca * dh.y);
   float streak = fogNoise2(ds * 37.0 + 3.1) * 0.45 + fogNoise2(vec2(ds.x + ds.y, ds.y - ds.x) * 71.0 + 7.7) * 0.33 + fogNoise2(ds * 211.0 + 1.3) * 0.22;
   float w = (1.0 - smoothstep(0.08, 0.38, d.y)) * clamp(uRainCell.x / 0.7e-3, 0.0, 1.0);
