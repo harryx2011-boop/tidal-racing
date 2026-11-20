@@ -62,6 +62,23 @@ and sea and shore, each with one verdict. If a verdict is missing for a stream, 
 before fixing. Storm stills need a few half-second frames first: auto-exposure adapts over time and a
 storm still taken straight after `game.start` comes out almost black.
 
+**From the cloud session, as it lands (latest first):**
+
+- **Sky round 1 is merged (be096a9); `src/sky/` and the cloud lines of `src/main.js` are free to edit.**
+  Soft cumulus rims by pixel footprint, domed cumulus, thin scraps, the storm deck lit as relief, the
+  scud layer removed, the sky's light primed at a reset (three environment rounds before the first
+  frame after a race start or weather jump). Cost, unmeasured on a GPU: low and medium march 64 steps
+  (was 80) and 4 light steps (was 5), with fine steps 1.25 times longer; high is unchanged; a storm no
+  longer marches the 260 to 650 m scud shell. Nobody compared 64/4 against 80/5 side by side, so take
+  a readout before and after (`git diff e339932 be096a9 -- src/main.js`). The builder's own list of
+  what is still wrong: the storm deck is smooth ("whipped cream") and reads light grey, not slate
+  (`exposureBias` in `main.js` adds 0.4 EV in storms); near cumulus a little pebbly; cirrus as straight
+  scratches in places; grain in dark cloud at sunset; no scud. Its verdict will be
+  `docs/verdicts/S-sky-r1.md`.
+- Land and coast, and sea and shore: still building in the cloud. Until their merge commits show in
+  `git log`, leave alone `src/ocean/water.js`, `src/ocean/foam.js`, `src/game/wake.js`,
+  `src/game/boatspray.js`, `src/game/land.js`, `src/game/coastal.js` and the coast models.
+
 ### What to do, in this order
 
 1. **First real run.** `node tools/serve.mjs 5173`, open http://localhost:5173 in Chrome at 1080p.
