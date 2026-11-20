@@ -4,8 +4,8 @@
 //
 // Mesh. The racing area (the near field, a 3-4 m texel) is cut into 256 m chunks, each drawn at one of four
 // levels of detail by distance (a grid of 64, 32, 16 or 8 cells a side: 4, 8, 16, 32 m), every level one
-// shared vertex grid placed by uniforms; heights come from the height texture in the vertex shader, so a
-// chunk is one draw and costs no vertex memory. A skirt round each chunk hides the cracks between levels.
+// shared vertex grid placed per instance; heights come from the height texture in the vertex shader, so the
+// chunks cost no vertex memory and all those at one level are one instanced draw. A skirt round each chunk hides the cracks between levels.
 // Beyond the near field two rings of coarse blocks (64 m and 256 m cells, out to 20 km) read the far field
 // (64 m per texel), so distant hills stand on the horizon. Chunks and blocks that lie wholly under 4 m of
 // water are not drawn (the sea covers them), and the rest are culled against the view.
@@ -35,10 +35,10 @@
 // ground, contact darkening round whatever stands on it, the pools under the nearest lamp posts at dusk;
 // then aerial perspective and fog as everything.
 //
-// Cost (unmeasured; software GL only): triangles per chunk 8.7k / 2.3k / 0.6k / 0.2k at the four levels; a
-// typical view draws 6-12 chunks at the top level, 10-20 at the next and a few dozen coarser ones, so on the
-// order of 100-200k triangles and 30-100 draws; the two rings are eight strips of 90-100k triangles in all,
-// drawn only when in view. A terrain fragment: 5 height taps, 12 more for the terrain shadow below about 35
+// Cost (counted, not timed: software GL only). Triangles per chunk 8.7k / 2.3k / 0.6k / 0.2k at the four levels;
+// the chase camera's view along a course draws 170-270k triangles of terrain in at most four draws for the
+// chunks, up to eight for the rings (strips of 90-100k triangles in all, drawn only when in view) and one for
+// each ground mesh in view. A terrain fragment: 5 height taps, 12 more for the terrain shadow below about 35
 // degrees of sun within 4 km, 22 taps of the object map inside its rectangle only, and some 60 hashed noise
 // lookups (none of them a texture).
 import { Program, Texture, makeMesh } from '../gl.js';
@@ -55,7 +55,9 @@ export const LAMPS = 8;    // lamp posts whose light falls on the ground at once
 
 const VS = `
 layout(location = 0) in vec3 aG;      // grid x, z in 0..1, skirt flag
-uniform vec4 uChunk;                  // x0, z0, size x, size z
+layout(location = 1) in vec4 iChunk;  // the near chunks, instanced: x0, z0, size x, size z
+uniform vec4 uChunk;                  // the far blocks, one a draw: the same
+uniform float uInst;                  // 1: the rectangle is the instance's
 uniform float uSkirt;
 uniform float uFar;                   // 1: height from the far field
 uniform sampler2D uHN;
@@ -69,7 +71,8 @@ out vec3 vTint;
 out float vKind;
 out float vScale;
 void main() {
-  vec2 xz = uChunk.xy + aG.xy * uChunk.zw;
+  vec4 ch = uInst > 0.5 ? iChunk : uChunk;
+  vec2 xz = ch.xy + aG.xy * ch.zw;
   float h = uFar > 0.5 ? textureLod(uHF, (xz - uRectF.xy) * uRectF.zw, 0.0).r : textureLod(uHN, (xz - uRectN.xy) * uRectN.zw, 0.0).r;
   h -= aG.z * uSkirt;
   vec3 P = vec3(xz.x, h, xz.y);
@@ -680,6 +683,19 @@ export class Land {
     const n2 = [f.fx0, f.fz0, f.fx0 + fn * f.fd, f.fz0 + fn * f.fd];
     ring(n0, n1, RING1.cell);
     ring(n1, n2, RING2.cell);
+    // every near chunk at one level of detail is one instanced draw: a buffer of rectangles per level
+    const cap = Math.max(G.chunks.length, 1);
+    if (!this.inst || this.inst.cap < cap) {
+      this.inst = { cap, data: new Float32Array(cap * 4), n: [0, 0, 0, 0], bufs: this.lods.map((mesh) => {
+        const buf = gl.createBuffer();
+        gl.bindVertexArray(mesh.vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, cap * 16, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(1, 1);
+        gl.bindVertexArray(null);
+        return buf;
+      }) };
+    }
     this.gpu = G;
   }
 
@@ -755,19 +771,29 @@ export class Land {
     common(p);
     gl.disable(gl.CULL_FACE);
     st.drawn = 0; st.tris = 0; st.culled = 0; st.chunks = G.chunks.length;
-    // near chunks
-    p.set('uFar', 0); p.set('uTexel', f.dx);
+    // near chunks: sorted by level of detail, each level one instanced draw
+    p.set('uFar', 0); p.set('uTexel', f.dx); p.set('uInst', 1);
+    const I = this.inst, D = I.data;
     for (const c of G.chunks) {
+      c.lod = -1;
       if (!boxVisible(c.x0, c.lo - 8, c.z0, c.x1, c.hi + 40, c.z1)) { st.culled++; continue; }
       const dx = Math.max(c.x0 - cam[0], 0, cam[0] - c.x1), dz = Math.max(c.z0 - cam[2], 0, cam[2] - c.z1), d = Math.hypot(dx, dz);
       let l = 0; while (l < 3 && d > LODS[l].to) l++;
-      const mesh = this.lods[l];
-      u[0] = c.x0; u[1] = c.z0; u[2] = CHUNK; u[3] = CHUNK;
-      p.set('uChunk', u); p.set('uSkirt', 3 + CHUNK / LODS[l].n * 0.7);
-      gl.bindVertexArray(mesh.vao);
-      gl.drawElements(gl.TRIANGLES, mesh.count, mesh.itype, 0);
-      st.drawn++; st.tris += mesh.tris;
+      c.lod = l;
     }
+    for (let l = 0; l < 4; l++) {
+      let n = 0;
+      for (const c of G.chunks) if (c.lod === l) { D[n * 4] = c.x0; D[n * 4 + 1] = c.z0; D[n * 4 + 2] = CHUNK; D[n * 4 + 3] = CHUNK; n++; }
+      if (!n) continue;
+      const mesh = this.lods[l];
+      p.set('uSkirt', 3 + CHUNK / LODS[l].n * 0.7);
+      gl.bindBuffer(gl.ARRAY_BUFFER, I.bufs[l]);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, D, 0, n * 4);
+      gl.bindVertexArray(mesh.vao);
+      gl.drawElementsInstanced(gl.TRIANGLES, mesh.count, mesh.itype, 0, n);
+      st.drawn++; st.tris += mesh.tris * n;
+    }
+    p.set('uInst', 0);
     // the rings read the far field
     p.set('uFar', 1); p.set('uTexel', f.fd);
     for (const b of G.blocks) {

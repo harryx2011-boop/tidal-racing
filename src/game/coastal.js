@@ -249,7 +249,7 @@ export class Coastal {
     this.prog = null;
     this.levels = null;              // the trees' meshes as textures, shared by every course
     this.vid = null;
-    this.queue = [];
+    this.rush = 0;                   // frames left in which every level asked for is built at once (see update)
     this.tier = TIERS[settings.active] || TIERS.medium;
     this.foot = 0;
     this.best = Array.from({ length: LAMPS }, () => ({ d: 0, l: null }));
@@ -266,7 +266,7 @@ export class Coastal {
     C.quayA.fill(0); C.quayB.fill(0);
     G.P.quays.slice(0, 2).forEach((q, i) => { C.quayA.set([q.x, q.z, q.ox, q.oz], i * 4); C.quayB.set([q.hw, q.depth, q.flare, q.paved], i * 4); });
     C.objTex = G.objTex; C.objRect.set(G.objRect); C.objTexel = G.objSize ? G.objSize[2] : 1;
-    this.queue.length = 0;
+    this.rush = 3;
   }
 
   plan(course) {
@@ -509,11 +509,19 @@ export class Coastal {
       }
       for (let k = 0; k < n; k++) { const l = best[k].l; C.lampP[k * 4] = l.x; C.lampP[k * 4 + 1] = l.y; C.lampP[k * 4 + 2] = l.z; C.lampP[k * 4 + 3] = l.size; }
     }
-    // finer levels asked for by the last frame: one a frame
-    let done = false;
-    for (const it of G.ground) if (it.want !== undefined) { if (!done && !it.lods[it.want]) { this.build(G, it, it.want); done = true; } if (it.lods[it.want]) it.want = undefined; }
-    for (const it of G.fixed) if (it.want !== undefined) { if (!done && !it.lods[it.want]) { this.build(G, it, it.want); done = true; } if (it.lods[it.want]) it.want = undefined; }
-    for (const m of G.models.values()) if (m.want !== undefined) { if (!done && !m.lods[m.want]) { this.buildModel(m, m.want); done = true; } if (m.lods[m.want]) m.want = undefined; }
+    // Finer levels asked for by the last frame: as many as fit in a few milliseconds, and at least one. Where the
+    // camera has just arrived somewhere (a start, a reset, another course) everything it asks for is built at once,
+    // behind the fade, so a place is never first seen at its coarse level.
+    const cp = app.cam.pos, lp = this.lastCam || (this.lastCam = [1e9, 0, 1e9]);
+    if (Math.hypot(cp[0] - lp[0], cp[2] - lp[2]) > 30) this.rush = 3;
+    lp[0] = cp[0]; lp[2] = cp[2];
+    const t0 = now(), ok = () => this.rush > 0 || now() - t0 < 4;
+    let built = 0;
+    const serve = (list, build) => { for (const it of list) if (it.want !== undefined) { if (!it.lods[it.want] && (!built || ok())) { build(it); built++; } if (it.lods[it.want]) it.want = undefined; } };
+    serve(G.ground, (it) => this.build(G, it, it.want));
+    serve(G.fixed, (it) => this.build(G, it, it.want));
+    serve(G.models.values(), (m) => this.buildModel(m, m.want));
+    if (this.rush > 0) this.rush--;
     if (G.glowDirty) this.glowBuffer(G);
   }
 

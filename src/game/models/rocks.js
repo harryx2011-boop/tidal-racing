@@ -6,73 +6,97 @@
 //
 // Shapes. A lump is a dome over a flared foot, lobed, noised, cut by a few random planes into faces and
 // shaded half-faceted; the styles differ in height, how hard they are cut and how they taper (round boulder,
-// low skerry awash, tall fin, angular block). A stack is a column of ledged beds, undercut at the waterline,
-// leaning a little, and always wider than the terrain pillar inside it (it is measured from the height field).
+// low skerry awash, tall fin, angular block). A stack is a sheer pillar of flat-lying beds on a rubble foot
+// (see stackGeo), always wider than the terrain pillar inside it (it is measured from the height field).
 //
-// Triangles: a lump 560 / 176 / 70 at the three levels; a stack 6.7k / 1.7k / 0.4k.
+// Triangles: a lump 940 / 216 / 70 at the three levels; a stack 7-9k / 3k / 0.3k.
 import { Geo, sheet, stamp, frame, rng, vn, fb, TAU, lerp, smooth, clamp, paint, hash1 } from './kit.js';
 import { GROUND } from './cover.js';
 
 // (the second entry: how much finer than a cliff's the rock's beds and joints are drawn; the terrain shader reads it)
 const ROCK = [GROUND.ROCK, 1, 0, 0], SMALL = [GROUND.ROCK, 2.2, 0, 0];
+// top: the height of the dome the lump is cut from; cuts, cut: how many joints part it and how deep; pw, sq: the
+// dome's profile; dip: how steeply its beds lie (radians); slab: where the bedding plane that is its top cuts it
 export const STYLES = {
-  boulder: { top: [0.7, 1.15], cuts: 8, cut: [0.5, 0.82], pw: 2.6, sq: 0.6, dip: 0.12 },
-  skerry: { top: [0.3, 0.55], cuts: 6, cut: [0.55, 0.9], pw: 3.2, sq: 0.75, dip: 0.3 },
-  fin: { top: [1.3, 1.9], cuts: 8, cut: [0.45, 0.8], pw: 1.8, sq: 0.5, dip: 0.2 },
-  block: { top: [0.6, 1.0], cuts: 11, cut: [0.45, 0.72], pw: 4.0, sq: 0.8, dip: 0.1 },
+  boulder: { top: [0.8, 1.2], cuts: 6, cut: [0.5, 0.85], pw: 2.6, sq: 0.6, dip: [0.12, 0.5], slab: [0.5, 0.8] },
+  skerry: { top: [0.5, 0.75], cuts: 5, cut: [0.55, 0.9], pw: 3.2, sq: 0.75, dip: [0.15, 0.4], slab: [0.22, 0.42] },
+  fin: { top: [1.4, 2.0], cuts: 5, cut: [0.5, 0.85], pw: 1.8, sq: 0.5, dip: [0.95, 1.25], slab: [0.25, 0.45] },
+  block: { top: [0.7, 1.0], cuts: 9, cut: [0.45, 0.72], pw: 4.0, sq: 0.8, dip: [0.0, 0.2], slab: [0.5, 0.75] },
 };
-const ROWS = [14, 8, 5], COLS = [20, 11, 7];
+const ROWS = [18, 9, 5], COLS = [26, 12, 7];
 
 // One lump, about one unit in radius at y = 0 (the waterline of a sea rock, the ground line of a land one), its
 // foot going 1.6 below. tint: 'sea' whitens the crown with guano; 'land' leaves it bare.
+// It is a piece of bedded rock: a dome cut off along one bedding plane, which is its top (a slab dipping one
+// way), with the ends of the beds below it stepping down the other sides, each bed standing out or back by its
+// own measure, and parted by a few joints square to the bedding. Steep beds make a fin, level ones a block.
 export function rockProto(seed, lod = 0, style = 'boulder', tint = 'sea') {
   const S = STYLES[style], R = rng(seed * 7919 + 11), g = new Geo(lod ? 1024 : 4096);
   const rows = ROWS[lod], cols = COLS[lod];
   const top = lerp(S.top[0], S.top[1], R());
+  const l0 = R() * TAU, ln = 2 + Math.floor(R() * 3), la = 0.08 + 0.14 * R(), ell = style === 'fin' ? 0.5 + 0.2 * R() : 0.75 + 0.25 * R(), ea = R() * TAU;
+  const lean = (R() - 0.5) * (style === 'fin' ? 0.4 : 0.2), la2 = R() * TAU;
+  const ce = Math.cos(ea), se = Math.sin(ea);
+  // the bedding: its normal leans along the lump's long axis; the plane that is the top; the beds' thickness
+  const dip = lerp(S.dip[0], S.dip[1], R()), nb = [Math.sin(dip) * ce, Math.cos(dip), Math.sin(dip) * se], slab = lerp(S.slab[0], S.slab[1], R()) * top;
+  const tb = 0.13 + 0.12 * R(), bph = R(), boff = (b) => -hash1(b * 5 + 1, seed * 3 + 2) * 0.17;
+  // joints: planes near enough square to the bedding, each cutting a face off one side
   const cuts = [];
   for (let k = 0; k < S.cuts; k++) {
-    const a = R() * TAU, y = R() * 1.1 - 0.15, s = Math.sqrt(Math.max(1 - y * y, 0.05));
-    cuts.push([Math.cos(a) * s, y, Math.sin(a) * s, lerp(S.cut[0], S.cut[1], R())]);
+    const a = R() * TAU, t = (R() - 0.5) * 0.5;
+    let n = [Math.cos(a), t, Math.sin(a)];
+    const d = n[0] * nb[0] + n[1] * nb[1] + n[2] * nb[2];
+    n = [n[0] - nb[0] * d * 0.8, n[1] - nb[1] * d * 0.8, n[2] - nb[2] * d * 0.8];
+    const l = Math.hypot(n[0], n[1], n[2]) || 1;
+    cuts.push([n[0] / l, n[1] / l, n[2] / l, lerp(S.cut[0], S.cut[1], R())]);
   }
-  const l0 = R() * TAU, ln = 2 + Math.floor(R() * 3), la = 0.08 + 0.14 * R(), ell = style === 'fin' ? 0.45 + 0.2 * R() : 0.75 + 0.25 * R(), ea = R() * TAU;
-  const lean = (R() - 0.5) * (style === 'fin' ? 0.5 : 0.25), la2 = R() * TAU;
-  const ce = Math.cos(ea), se = Math.sin(ea);
-  // ledges (the lump is stepped where its beds end) and one cleft down a side
-  const steps = 3 + Math.floor(R() * 3), stepK = 0.5 + 0.35 * R(), cleft = R() * TAU, cleftD = 0.2 + 0.25 * R();
+  const cleft = R() * TAU, cleftD = 0.2 + 0.25 * R();
   sheet(g, rows + 1, cols + 1, (i, j, out) => {
     const v = i / rows, th = ((j % cols) / cols) * TAU, c = Math.cos(th), s = Math.sin(th);
     let y, rad;
     if (v < 0.28) { const t = v / 0.28; y = lerp(-1.6, 0, t); rad = lerp(1.32, 1.0, t * t); }
     else {
-      let t = (v - 0.28) / 0.72;
+      const t = (v - 0.28) / 0.72;
       rad = Math.pow(Math.max(1 - Math.pow(t, S.pw), 0), S.sq);
-      // (the radius follows the smooth profile, the height is held on each ledge and then rises: treads and risers)
-      t = lerp(t, Math.round(t * steps) / steps, stepK);
-      y = Math.pow(t, 0.85);
+      y = Math.pow(t, 0.85) * top;
       const da = Math.abs(((th - cleft + Math.PI * 3) % TAU) - Math.PI);
       rad *= 1 - cleftD * smooth(0.3, 0, da) * smooth(0, 0.15, t);
     }
-    let r = rad * (1 + la * Math.cos(th * ln + l0)) * (0.72 + 0.56 * fb(c * 1.4 + seed * 3.1, y * 1.7, s * 1.4)) * (0.92 + 0.16 * vn(c * 4.1 + seed, y * 4.1, s * 4.1));
-    // unit-space point; the planes cut it into faces
+    const r = rad * (1 + la * Math.cos(th * ln + l0)) * (0.72 + 0.56 * fb(c * 1.4 + seed * 3.1, y * 1.7, s * 1.4)) * (0.92 + 0.16 * vn(c * 4.1 + seed, y * 4.1, s * 4.1));
     let x = c * r, z = s * r, yy = y;
-    if (y > 0) for (const q of cuts) { const e = x * q[0] + yy * q[1] + z * q[2] - q[3]; if (e > 0) { x -= q[0] * e; yy -= q[1] * e * 0.7; z -= q[2] * e; } }
-    // the beds dip: the whole lump is sheared along its long axis, so its top is a tilted slab
-    if (y > 0) yy = Math.max(yy + S.dip * (x * ce + z * se) * Math.min(yy * 3, 1), 0.02);
+    if (y > 0) {
+      const rise = smooth(0, 0.25, y);
+      // the top: everything above the bedding plane is gone (a parting, not a saw cut: a little stays proud)
+      let e = x * nb[0] + yy * nb[1] + z * nb[2] - slab;
+      if (e > 0) yy -= 0.93 * e / nb[1];      // (straight down onto it: nothing overhangs the foot)
+      else {
+        // the sides: the ends of the beds under it, each out or back from the last
+        const sb = (x * nb[0] + yy * nb[1] + z * nb[2]) / tb + bph, b = Math.floor(sb), f = sb - b;
+        const k = 1 + lerp(boff(b), boff(b + 1), smooth(0.8, 1, f)) * rise;
+        x *= k; z *= k;
+      }
+      // the joints (they too keep a tenth of what stood proud, so no two faces meet in a ruled line)
+      for (const q of cuts) { const d = x * q[0] + yy * q[1] + z * q[2] - q[3]; if (d > 0) { const k = 0.9 * d * rise; x -= q[0] * k; yy -= Math.max(q[1], 0) * k; z -= q[2] * k; } }
+      const d = 1 + (0.09 * (fb(x * 3.3 + seed * 1.3, yy * 3.3, z * 3.3) - 0.5) + 0.05 * (vn(x * 9.1, yy * 9.1 + seed, z * 9.1) - 0.5)) * rise;
+      // (down the dip the top runs on under the water: a ledge awash, not a rim at the waterline)
+      x *= d; z *= d; yy = Math.max(yy, -0.35);
+    }
     // squeeze across one axis, lean
     const xa = x * ce + z * se, za = (-x * se + z * ce) * ell;
     x = xa * ce - za * se; z = xa * se + za * ce;
-    const h = Math.max(yy, 0) * top;
-    out[0] = x + Math.cos(la2) * lean * h; out[1] = yy > 0 ? h : yy; out[2] = z + Math.sin(la2) * lean * h;
-  }, [1, 1, 1], SMALL, { wrap: true, flat: 0.8 });
+    const h = Math.max(yy, 0);
+    out[0] = x + Math.cos(la2) * lean * h; out[1] = yy; out[2] = z + Math.sin(la2) * lean * h;
+  }, [1, 1, 1], SMALL, { wrap: true, flat: 0.65 });
   // tone from face to face and patch to patch; birds whiten the crowns of rocks that stand in the sea
+  let hi = 0.1; for (let i = 1; i < g.nv * 3; i += 3) if (g.P[i] > hi) hi = g.P[i];
   paint(g, 0, (P, N, C, i) => {
     let k = 0.8 + 0.4 * fb(P[i] * 2.3 + seed, P[i + 1] * 2.3, P[i + 2] * 2.3);
     let w = 0;
-    if (tint === 'sea') w = smooth(0.55, 0.85, N[i + 1]) * smooth(0.5 * top, 0.85 * top, P[i + 1]) * smooth(0.5, 0.68, vn(P[i] * 3.1 + seed, P[i + 1] * 2, P[i + 2] * 3.1));
-    k *= 1 + 1.1 * w;
+    if (tint === 'sea') w = smooth(0.55, 0.85, N[i + 1]) * smooth(0.55 * hi, 0.9 * hi, P[i + 1]) * smooth(0.5, 0.68, vn(P[i] * 3.1 + seed, P[i + 1] * 2, P[i + 2] * 3.1));
+    k *= 1 + 0.8 * w;
     C[i] = k; C[i + 1] = k; C[i + 2] = k * (1 - 0.04 * w);
   });
-  g.top = top;
+  g.top = hi;
   return g;
 }
 
@@ -104,59 +128,98 @@ export function rockFieldGeo(f, spots, lod = 0) {
   return g;
 }
 
-// A sea stack round (0, 0, 0) = (f.x, 0, f.z). terrainR(theta, y): how far out the terrain pillar reaches at
-// that bearing and height (0 if it does not): the shell always stands outside it. Its waterline radius is 0.9
-// of the feature's r (the collider), with fallen blocks out to r.
+// A sea stack round (0, 0, 0) = (f.x, 0, f.z): a pillar of flat-lying beds, as the sea leaves one when it has
+// cut the headland away behind it. Its plan is a rough polygon (the joints it parted along), its sides sheer;
+// each bed is its own course, standing proud of the next or weathered back under it, so the profile steps in
+// and out in ledges and overhangs; joints run down it as grooves, and blocks have fallen out of the courses
+// here and there. The top beds break back one by one to a small flat cap of turf, off to one side. At the foot
+// a ramp of rubble and wave-cut rock comes up out of the water to the wall.
+// terrainR(theta, y): how far out the terrain pillar reaches at that bearing and height (0 if it does not): the
+// shell always stands outside it. Its waterline radius is about 0.9 of the feature's r (the collider), with
+// fallen blocks out to r. The feature's h is the height of its shoulder; the cap stands a fifth higher.
 export function stackGeo(f, terrainR, lod = 0) {
   const g = new Geo(lod ? 8192 : 32768), seed = Math.round(f.x * 3 + f.z * 5), R = rng(seed + 9);
-  const rows = [56, 28, 12][lod], cols = [60, 30, 16][lod], H = f.h, r0 = f.r * 0.9;
-  const lobes = [[R() * TAU, 3, 0.13], [R() * TAU, 5, 0.07], [R() * TAU, 2, 0.12]];
-  const leanA = R() * TAU, lean = 0.05 + 0.06 * R();
-  // clefts: a few chimneys cut down the column
-  const clefts = [0, 1, 2, 3].map(() => [R() * TAU, 0.1 + 0.12 * R(), 0.14 + 0.16 * R(), R()]);
-  // beds: ledges where one bed steps back from the next
-  const beds = []; { let y = 0.9 + R(); while (y < H) { beds.push([y, 0.2 + 0.55 * R()]); y += 1.4 + 3.2 * R(); } }
-  // a shoulder: above it the column narrows to a pinnacle on one side
-  const shY = H * (0.55 + 0.2 * R()), shA = R() * TAU, shK = 0.25 + 0.2 * R();
-  const y0 = -4.5;
-  sheet(g, rows + 1, cols + 1, (i, j, out) => {
-    const v = i / rows, th = ((j % cols) / cols) * TAU, c = Math.cos(th), s = Math.sin(th);
-    // rows crowd toward the top, where the shape turns over
-    const y = v < 0.12 ? lerp(y0, 0, v / 0.12) : H * (1 - Math.pow(1 - (v - 0.12) / 0.88, 1.25));
-    const t = clamp(y / H, 0, 1);
-    // the column: flared under water, undercut where the sea works at it, tapering to a blunt crown
-    let rad = y < 0 ? lerp(1.0, 1.3, y / y0) : 1 - 0.12 * smooth(0, 0.1, t) * (1 - smooth(0.1, 0.28, t)) - 0.36 * Math.pow(t, 1.4);
-    rad *= Math.pow(Math.max(1 - Math.pow(t, 10), 0), 0.5);
-    let k = 1;
-    for (const l of lobes) k += l[2] * Math.cos(th * l[1] + l[0] + t * 1.6) * (0.6 + 0.9 * t);
-    k *= 0.88 + 0.24 * fb(c * 1.6 + seed, y * 0.22, s * 1.6) + 0.12 * (vn(c * 5.3, y * 0.9 + seed, s * 5.3) - 0.5);
-    for (const q of clefts) { let da = Math.abs(((th - q[0] - 0.25 * Math.sin(y * 0.3 + q[3] * 9) + Math.PI * 3) % TAU) - Math.PI); k *= 1 - q[2] * smooth(q[1], 0, da) * smooth(0.02, 0.2, t) * (0.6 + 0.4 * q[3]); }
-    if (y > shY) k *= 1 - shK * smooth(shY, shY + 1.2, y) * (0.5 + 0.5 * Math.cos(th - shA));
-    // ledges: each bed stands proud at its top and steps in above
-    let step = 0;
-    for (let b = 0; b < beds.length; b++) if (y < beds[b][0]) { const lo = b ? beds[b - 1][0] : 0; step = -beds[b][1] * (1 - Math.pow(clamp((y - lo) / (beds[b][0] - lo), 0, 1), 1.5)); break; }
-    let rr = Math.max(r0 * rad * k + step * (1 - Math.pow(t, 6)), 0);
-    if (y > -0.5 && t < 0.995) rr = Math.max(rr, terrainR(th, y) + 0.7);
-    if (i === rows) rr = 0;
-    out[0] = c * rr + Math.cos(leanA) * lean * Math.max(y, 0); out[1] = y; out[2] = s * rr + Math.sin(leanA) * lean * Math.max(y, 0);
-  }, [1, 1, 1], ROCK, { wrap: true, flat: 0.45 });
-  // tone; guano under the ledges where birds sit; turf on the cap
+  const cols = [72, 36, 16][lod], H = f.h * 1.2, rw = f.r * 0.9, rc = f.r * (0.6 + 0.06 * R());
+  // the plan: a polygon of five to seven sides, its corners eased, longer one way than the other
+  const sides = 4 + Math.floor(R() * 3), a0 = R() * TAU, ea = R() * TAU, ell = 0.14 + 0.14 * R();
+  const plan = (th) => {
+    const w = TAU / sides, q = (((th - a0) % w) + w) % w - w / 2;
+    return lerp(1, Math.cos(w / 2) / Math.cos(q), 0.85) * (1 + ell * Math.cos(2 * (th - ea)));
+  };
+  // through-going joints: grooves down the whole column, wandering a little
+  const joints = []; for (let k = 0, n = 5 + Math.floor(R() * 3); k < n; k++) joints.push([(k + 0.2 + 0.6 * R()) / n * TAU, 0.06 + 0.07 * R(), 0.45 + 0.8 * R(), R() * 9]);
+  // the beds: 1 to 3 m thick; each stands out or back by its own measure, breaks into blocks of its own length
+  const beds = []; { let y = 1.9 + 0.5 * R(), k = 0; while (y < H - 0.8) { const th = Math.min((k % 3 === 2 ? 0.7 : 1.3) + 2.0 * R() * R(), H - y); beds.push({ y0: y, y1: y + th, off: R() < 0.22 ? -0.5 - 0.4 * R() : (k & 1 ? -1 : 1) * (0.08 + 0.3 * R()), blk: 0.25 + 0.45 * R(), ph: R() * TAU, id: k }); y += th; k++; } }
+  beds[beds.length - 1].y1 = H;
+  // the crown: above yc each bed is smaller than the one below and sits toward one side
+  const yc = H * (0.66 + 0.1 * R()), ca = R() * TAU, nb = beds.length;
+  let kc = 1, cx = 0, cz = 0;
+  for (const b of beds) {
+    // (the column wanders as it rises: no bed sits square on the one below)
+    cx += (R() - 0.5) * 0.7; cz += (R() - 0.5) * 0.7;
+    if (b.y0 >= yc) { b.off = Math.min(b.off, 0) * 0.3; const k2 = kc * (0.62 + 0.22 * R()), sh = (kc - k2) * rc * (0.55 + 0.35 * R()), da = ca + (R() - 0.5) * 1.6; cx += Math.cos(da) * sh; cz += Math.sin(da) * sh; kc = k2; }
+    b.k = kc; b.cx = cx; b.cz = cz;
+  }
+  const leanA = R() * TAU, lean = 0.03 + 0.04 * R();
+  // the rows: the foot under water, the ramp, then each bed from its bottom edge to its top one
+  const rows = [];
+  for (const y of lod === 2 ? [-4.5, 0, 1.9] : [-4.5, -2, -0.6, 0, 0.3, 0.65, 1.0, 1.3, 1.6, 1.9]) rows.push([y, null]);
+  for (const b of beds) {
+    const th = b.y1 - b.y0, n = lod === 0 ? Math.max(1, Math.round(th / 0.9)) : lod === 1 ? 1 : 0;
+    if (lod === 2) { if (b.id % 2 === 0 || b.id === nb - 1) rows.push([(b.y0 + b.y1) / 2, b]); continue; }
+    for (let k = 0; k <= n; k++) rows.push([lerp(b.y0 + 0.02, b.y1 - 0.02, k / n), b]);
+  }
+  const top = beds[nb - 1];
+  rows.push([H, top, 0.45], [H, top, 0]);
+  const col = (b, th, y) => {
+    const c = Math.cos(th), s = Math.sin(th);
+    let r = rc * plan(th) * (1 - 0.16 * y / H) * (0.93 + 0.14 * fb(c * 1.3 + seed, y * 0.06, s * 1.3)) + b.off;
+    // the bed's own wander, and the blocks gone from it
+    r += 0.3 * (vn(c * 3.1 + b.id * 7.1, b.id * 1.7, s * 3.1) - 0.5);
+    const cell = Math.floor((th + b.ph) / b.blk), gone = hash1(cell * 7 + 3, b.id * 13 + seed);
+    if (gone < 0.26) r -= 0.3 + 3.2 * gone;
+    for (const q of joints) { const da = Math.abs(((th - q[0] - 0.05 * Math.sin(y * 0.4 + q[3]) + Math.PI * 3) % TAU) - Math.PI); r -= q[2] * smooth(q[1], 0, da) * (0.6 + 0.4 * vn(q[3], y * 0.5, 1)); }
+    return Math.max(r, 0.5) * b.k;
+  };
+  sheet(g, rows.length, cols + 1, (i, j, out) => {
+    const [y, b, cap] = rows[i], th = ((j % cols) / cols) * TAU, c = Math.cos(th), s = Math.sin(th);
+    let rr, ox = 0, oz = 0;
+    let yy = y;
+    if (!b) {
+      // the foot: flared under water; above it rubble and wave-cut rock slope up to the wall, high on one side
+      // of the stack and hardly there on another, and the wall stands on that
+      const base = rw * (0.9 + 0.2 * fb(c * 1.7 + seed, 0.3, s * 1.7)) * (1 + 0.25 * ell * Math.cos(2 * (th - ea)));
+      const wall = col(beds[0], th, 1.9) + 0.2, hr = 0.25 + 1.6 * smooth(0.3, 0.75, fb(c * 1.1 + seed * 0.7, 1.7, s * 1.1));
+      if (y < 0) rr = base * lerp(1, 1.35, y / -4.5);
+      else {
+        const t = y / 1.9, u = Math.min(t / 0.7, 1);
+        yy = t <= 0.7 ? hr * Math.pow(u, 1.3) : lerp(hr, 1.9, (t - 0.7) / 0.3);
+        rr = lerp(base, wall, Math.pow(u, 0.7)) + 0.7 * (vn(c * 5.3 + seed, u * 2.3, s * 5.3) - 0.5) * u * (1 - u) * 4 * (hr / 1.85);
+      }
+    } else { rr = col(b, th, y) * (cap === undefined ? 1 : cap); ox = b.cx; oz = b.cz; }
+    // (the pillar of the height field inside: a bed clears it by its widest, at the bed's foot, so the wall of a bed
+    // stays a wall and the stack steps in over the pillar's cone instead of following it)
+    if (yy > -0.5 && yy < H - 0.5) { const tr = terrainR(th, b ? b.y0 : yy); if (tr > 0) rr = Math.max(rr, tr + 0.7 + Math.hypot(ox, oz)); }
+    const l = lean * Math.max(yy, 0);
+    out[0] = c * rr + ox + Math.cos(leanA) * l; out[1] = yy; out[2] = s * rr + oz + Math.sin(leanA) * l;
+  }, [1, 1, 1], ROCK, { wrap: true, flat: 0.6 });
+  // tone; guano on the ledges where birds sit; turf on the cap and the ledges of the crown
   paint(g, 0, (P, N, C, i) => {
     const y = P[i + 1], t = y / H;
-    let k = 0.82 + 0.36 * fb(P[i] * 0.9 + seed, y * 0.9, P[i + 2] * 0.9);
+    const k = 0.84 + 0.32 * fb(P[i] * 0.9 + seed, y * 0.9, P[i + 2] * 0.9);
     let cr = k, cg = k, cb = k;
-    const white = smooth(0.3, 0.75, N[i + 1]) * smooth(0.25, 0.5, t) * smooth(0.42, 0.62, vn(P[i] * 1.7 + seed, y * 0.8, P[i + 2] * 1.7)) * (1 - smooth(0.9, 0.97, t));
-    cr *= 1 + 1.6 * white; cg *= 1 + 1.6 * white; cb *= 1 + 1.5 * white;
-    const turf = smooth(0.55, 0.85, N[i + 1]) * smooth(0.9, 0.97, t);
-    cr = lerp(cr, 0.4 * k, turf); cg = lerp(cg, 0.72 * k, turf); cb = lerp(cb, 0.22 * k, turf);
+    const white = smooth(0.35, 0.8, N[i + 1]) * smooth(0.2, 0.4, t) * smooth(0.4, 0.6, vn(P[i] * 1.7 + seed, y * 0.8, P[i + 2] * 1.7)) * (1 - smooth(0.85, 0.95, t));
+    cr *= 1 + 1.5 * white; cg *= 1 + 1.5 * white; cb *= 1 + 1.4 * white;
+    const turf = smooth(0.6, 0.85, N[i + 1]) * Math.max(smooth(0.93, 0.99, t), smooth(yc / H - 0.05, yc / H + 0.1, t) * smooth(0.42, 0.6, vn(P[i] * 0.9 + seed, y * 0.4, P[i + 2] * 0.9)));
+    cr = lerp(cr, 0.42 * k, turf); cg = lerp(cg, 0.7 * k, turf); cb = lerp(cb, 0.22 * k, turf);
     C[i] = cr; C[i + 1] = cg; C[i + 2] = cb;
   });
-  // fallen blocks round the foot, awash
+  // fallen blocks round the foot, awash, the largest under the wall they came from
   if (lod < 2) {
     const blocks = rockSet('block', 3, Math.max(lod, 1), 'sea', 81);
-    const n = lod ? 5 : 9;
+    const n = lod ? 7 : 13;
     for (let k = 0; k < n; k++) {
-      const a = R() * TAU, d = f.r * (0.86 + 0.14 * R()), rr = 0.8 + 1.5 * R();
+      const a = R() * TAU, d = f.r * (0.62 + 0.36 * R()), rr = (0.7 + 1.5 * R()) * (1.3 - 0.5 * d / f.r);
       stamp(g, blocks[k % 3], frame([Math.cos(a) * d, -0.3 * R(), Math.sin(a) * d], R() * TAU, 0, 0, 1), null, [rr, rr * (0.6 + 0.6 * R()), rr]);
     }
   }
