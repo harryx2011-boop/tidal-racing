@@ -177,7 +177,9 @@ storm still taken straight after `game.start` comes out almost black.
 
 The owner stopped the agents to save usage and asked for the game to ship as it is. It is live at
 https://harryx2011-boop.github.io/tidal-racing/ from this branch, with a pull request into `main` open.
-Not done, in the order it would be picked up again:
+**The owner marked the game FINISHED on 20 November** ("this game is done", "multiplayer support is
+done"). No further work is planned. The list below is kept only as a record of what was left open, in
+case the project is ever reopened:
 
 1. The 78 s cold-load freeze (no fix merged; partial, uncommitted work in the `local/load` worktree).
 2. Real recorded sound (not started beyond sourcing; the game still plays the synthesized sound).
