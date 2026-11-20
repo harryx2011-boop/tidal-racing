@@ -51,14 +51,15 @@ is driven into every solid), and `tools/check-contact.mjs` once that exists. It 
 `.github/workflows/test.yml` runs it on every push and pull request.
 
 The browser smoke test needs Chromium and Playwright, so it is not part of CI. It serves the game under the
-sub-path `/tidal-racing/` (as GitHub Pages does), boots it headless, races a lap of each course with the
+sub-path `/tidal-racing/` (as GitHub Pages does), boots it headless, races the first gates of each course (a lap with `--full`) with the
 autopilot under a fixed seed and renders two frames of each, and fails on page errors, shader errors, failed
 requests, a hard hit, grounding, the boat over land, a blank frame, or a blocked `localStorage`; it also checks
 that a browser with no WebGL2 gets a message instead of a blank page. It is slow in software GL (a quarter of an
-hour or more), so run it through the render queue:
+hour or more for a full lap, a few minutes for the default short segment of each course), so on the shared
+container run it on the test lane (a `flock` convention only; the render slots of `tools/shot.sh` are for stills):
 
 ```bash
-flock /tmp/tidal-shot-2.lock node tools/smoke.mjs     # SMOKE_COURSES=oval, SMOKE_FULL=1, SMOKE_Q=medium
+flock /tmp/tidal-test.lock node tools/smoke.mjs     # SMOKE_COURSES=oval, --full, SMOKE_WALL=seconds, SMOKE_Q=medium
 ```
 
 ## Layout

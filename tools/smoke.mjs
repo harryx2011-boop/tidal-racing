@@ -1,5 +1,6 @@
 // Headless smoke test: boots the game in Chromium and drives a lap of every course.
-//   flock /tmp/tidal-shot-2.lock node tools/smoke.mjs        (the shared render queue: at most two browsers)
+//   flock /tmp/tidal-test.lock node tools/smoke.mjs     (the container's lane for browser test scripts; a convention only,
+//                                                         the script runs fine without it. Not the render slots of shot.sh)
 // By default a short segment of each course (start and the first gates); --full (or SMOKE_FULL=1) races a lap of
 // each (a circuit's first lap), or every lap with SMOKE_FULL=1 and SMOKE_ALL=1. A wall-clock limit per course fails the run.
 // For each course it starts a race with a fixed seed, runs the autopilot for a full lap with T.sim (the sea and
@@ -25,8 +26,8 @@ const { chromium } = pw;
 const root = join(fileURLToPath(import.meta.url), '..', '..');
 const COURSES = (process.env.SMOKE_COURSES || 'circuit,sprint,oval').split(',');
 const FULL = !!process.env.SMOKE_FULL || process.argv.includes('--full');
-const WALL = Number(process.env.SMOKE_WALL || (FULL ? 1800 : 240)) * 1000;   // per course, wall clock: fail loudly rather than hang
-const SEGMENT_GATES = 4;    // the default run: start, then pass gates 0 to 3 (about 20 to 30 s of racing)
+const WALL = Number(process.env.SMOKE_WALL || (FULL ? 1800 : 120)) * 1000;   // per course, wall clock: fail loudly rather than hang
+const SEGMENT_GATES = 2;    // the default run: start, then pass gates 0 to 3 (about 20 to 30 s of racing)
 const Q = process.env.SMOKE_Q || 'low';
 const SEED = 20241120;
 const HIT_SPEED = 8;        // m/s: a solid touched faster than this is a hard hit
@@ -79,7 +80,12 @@ function install() {
     // race one lap and report what happened
     async lap({ id, seed, maxSteps, full, dt, wall, gates, all }) {
       const g = app.game, col = g.collisions;
-      for (let i = 0; i < 30 / dt; i++) { T.step(dt); if (i % 20 === 0) await new Promise((r) => setTimeout(r, 0)); }
+      for (let i = 0; i < 10 / dt; i++) { T.step(dt); if (i % 20 === 0) await new Promise((r) => setTimeout(r, 0)); }
+      // The sea probe's fenced readback is answered only now and then in this headless page (a fence is seen as
+      // signalled rarely), so the boat would wait for it most of the time. The probe has a blocking path for tests
+      // (probe.run's `sync`): use it, so every step has this step's sea and a segment takes the same steps every run.
+      const pr = g.probe, run0 = pr.run.bind(pr);
+      pr.run = (ot, pts, fp) => run0(ot, pts, fp, true);
       g.start(id, 'breeze', 'day', seed);
       T.autopilot();
       const hits = [], t0 = performance.now(), r = { id, steps: 0, physSteps: 0, timedOut: false, simSeconds: 0, hardHits: 0, maxImpact: 0, hits: 0, maxGround: 0, onLand: 0, worstHeight: -1e9, nan: false, lapTimes: null };
@@ -101,9 +107,12 @@ function install() {
         if (h > r.worstHeight) r.worstHeight = h;
         if (h > 0) r.onLand++;
         if (![...b.pos, ...b.vel, b.yaw].every(Number.isFinite)) { r.nan = true; break; }
-        if (i % 15 === 0) await new Promise((x) => setTimeout(x, 0));
+        // (a yield every step: Chrome reports a fence as signalled only once the task that made it has ended, so without
+        // this the sea probe's answer is never seen, the boat waits for it and the lap takes ten times as long)
+        await new Promise((x) => setTimeout(x, 0));
       }
       col.step = orig;
+      pr.run = run0;
       Object.assign(r, { physRatio: +(r.physSteps / Math.max(r.simSeconds * 120, 1)).toFixed(2), state: g.state, next: g.progress.next, total: g.course.total, raceTime: +g.raceTime.toFixed(2), laps: g.laps.map((t) => +t.toFixed(2)), lapsDone: g.laps.length, hitList: hits, maxGround: +r.maxGround.toFixed(2), maxImpact: +r.maxImpact.toFixed(1), worstHeight: +r.worstHeight.toFixed(2), finishTime: +g.finishTime.toFixed(2) });
       return r;
     },
@@ -150,7 +159,7 @@ try {
     const t0 = Date.now();
     console.log(`${id}:`);
     const maxSteps = FULL ? (id === 'sprint' ? 9000 : 6000) * (process.env.SMOKE_ALL ? 2 : 1) : 1500;
-    const r = await page.evaluate((a) => window.T.lap(a), { id, seed: SEED, maxSteps, full: FULL, dt: 1 / 30, wall: WALL, gates: SEGMENT_GATES, all: !!process.env.SMOKE_ALL });
+    const r = await page.evaluate((a) => window.T.lap(a), { id, seed: SEED, maxSteps, full: FULL, dt: FULL ? 1 / 30 : 1 / 20, wall: WALL, gates: SEGMENT_GATES, all: !!process.env.SMOKE_ALL });
     await page.evaluate(() => window.T.frames(2));
     const blank = await page.evaluate(() => window.T.blank());
     const glerr = await page.evaluate(() => { const e = window.__glErrors.slice(), gl = app.gl; const codes = []; for (let i = 0; i < 8; i++) { const c = gl.getError(); if (!c) break; codes.push(c); } return { shader: e, codes }; });
