@@ -22,8 +22,12 @@
 // Quality. The tier (settings.active) sets the trees' range and scales the distances the levels change at; app.fx.shadows scales those again as the governor sheds load, and at 0 the
 // object shadows are off.
 //
-// Cost (software GL only; nothing measured on a GPU). A close pass along a harbour at the medium tier draws
-// about 250k triangles in 60 to 110 draws for this system; see the report for views per course.
+// Cost (counted, not timed: software GL only, nothing measured on a GPU). In the chase camera's view along the
+// three racing lines, sampled every 25 m, this system and the terrain together draw at the medium tier a median
+// of 280 to 390 thousand triangles (worst view 760 thousand) in 60 to 90 draws (worst 135); at the high tier a
+// median of 330 to 520 thousand (worst 960 thousand) in at most 160 draws; at the low tier a median of 210 to 320
+// thousand (worst 680 thousand). Trees are the larger part of the worst views: up to 18 thousand drawn at once,
+// nearly all at the farthest level (8 triangles) and a few hundred at the nearer ones.
 import { Program, Texture, Target } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { smoothstep } from '../math.js';
@@ -122,7 +126,10 @@ void main() {
     albedo = mix(albedo, albedo.grb * vec3(1.25, 0.8, 0.6), smoothstep(0.9, 1.0, t) * 0.55);
     float n1 = mix(0.5, vnoise(vWorld * 1.7), 1.0 - smoothstep(0.2, 0.6, fp * 1.7));
     float n2 = mix(0.5, vnoise(vWorld * 9.0), 1.0 - smoothstep(0.03, 0.1, fp));
-    float cut = vnoise(vWorld * 5.0) * 0.6 + vnoise(vWorld * 13.0) * 0.4;
+    // (the leaves themselves, where a pixel is small enough to show one)
+    float fine = 1.0 - smoothstep(0.012, 0.04, fp);
+    float n3 = mix(0.5, vnoise(vWorld * 31.0), fine);
+    float cut = vnoise(vWorld * 5.0) * 0.6 + vnoise(vWorld * 13.0) * 0.4 + (n3 - 0.5) * 0.3;
     // a ragged outline: leaves against the sky, not the edge of a balloon (only where a pixel can show it)
     // (the rim is the lump's own, from the surface as drawn: toward its edge more and more of it is sky)
     vec3 Ng = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
@@ -130,7 +137,7 @@ void main() {
     float near = 1.0 - smoothstep(0.08, 0.22, fp);
     if (cut < (0.24 + rim * sqrt(rim) * 0.95) * near) discard;
     float gap = mix(1.0, smoothstep(0.3, 0.6, cut), near);
-    albedo *= (0.68 + 0.64 * n1) * (0.66 + 0.68 * n2);
+    albedo *= (0.68 + 0.64 * n1) * (0.66 + 0.68 * n2) * (0.78 + 0.44 * n3);
     shade *= (0.5 + 0.5 * gap) * (gl_FrontFacing ? 1.0 : 0.6);
   } else {
     albedo *= 0.7 + 0.6 * vnoise(vWorld * vec3(11.0, 2.5, 11.0));

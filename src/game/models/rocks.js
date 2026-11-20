@@ -284,7 +284,8 @@ export function cliffGeo(field, t, origin, lod = 0) {
     let x = t.x0 + i * c, z = t.z0 + j * c;
     field.sample(x, z, sm);
     const h = sm.h, gr = Math.hypot(sm.gx, sm.gz), q = (j * N1 + i);
-    const w = smooth(0.48, 0.8, gr) * smooth(-0.3, 0.25, h) * (1 - smooth(150, 180, h));
+    // (the skin comes up through the ground over a narrow band of slope: where the two lie close they would fight for the pixel far off)
+    const w = smooth(0.6, 0.8, gr) * smooth(-0.3, 0.25, h) * (1 - smooth(150, 180, h));
     let y = h - 0.6, turf = 0;
     if (w > 0) {
       const ux = sm.gx / gr, uz = sm.gz / gr;

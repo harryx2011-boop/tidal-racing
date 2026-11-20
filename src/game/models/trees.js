@@ -25,8 +25,8 @@ import { woodsAt, woodsGate, fieldAt, fieldMask, fieldGate, trackD, lvn } from '
 export const SPECIES = ['oak', 'birch', 'pine', 'spruce', 'thorn', 'bush'];
 // height range (m), width relative to the unit tree, leaf and bark colours
 const KIND = {
-  oak: { h: [8, 14], leaf: [0.07, 0.115, 0.03], bark: [0.085, 0.07, 0.055] },
-  birch: { h: [8, 13], leaf: [0.105, 0.15, 0.04], bark: [0.42, 0.4, 0.36] },
+  oak: { h: [8, 14], leaf: [0.06, 0.098, 0.028], bark: [0.085, 0.07, 0.055] },
+  birch: { h: [8, 13], leaf: [0.088, 0.125, 0.037], bark: [0.42, 0.4, 0.36] },
   pine: { h: [10, 17], leaf: [0.035, 0.07, 0.04], bark: [0.15, 0.095, 0.065] },
   spruce: { h: [9, 17], leaf: [0.028, 0.058, 0.03], bark: [0.08, 0.06, 0.045] },
   thorn: { h: [3.2, 5.6], leaf: [0.06, 0.095, 0.03], bark: [0.07, 0.06, 0.05] },
