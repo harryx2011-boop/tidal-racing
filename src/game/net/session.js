@@ -310,6 +310,7 @@ export class NetSession {
     const slot = (this.raceRoster.get(this.me.id) || this.me).slot;
     g.place(grid(g.course, slot));
     g.progress.slot = slot;
+    if (g.contact) g.contact.lead = INTERP_MS / 1000;   // rivals are drawn (and collided) exactly INTERP_MS in the past
     g.rivals.length = 0; this.remotes.clear();
     for (const p of m.players) {
       if (p.id === this.me.id) continue;

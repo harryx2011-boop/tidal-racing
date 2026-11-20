@@ -27,6 +27,10 @@ export const HUD_CSS = `
 #boost i { width: 5em; height: 5em; background-image: var(--dp4); ${DITHER} }
 #boost i.on { background: ${ACCENT}; }
 #boost.on i.on { background: ${PAPER}; }
+#draft { display: flex; gap: 1em; padding: 1em; background: ${INK}; border: 1em solid ${PAPER}; margin-top: 2em; }
+#draft i { width: 5em; height: 3em; background-image: var(--dp4); ${DITHER} }
+#draft i.on { background: ${PAPER}; }
+#draft.hot i.on { background: ${ACCENT}; }
 #big { position: absolute; left: 0; right: 0; top: 64em; display: grid; place-items: center; }
 #msg { position: absolute; left: 0; right: 0; top: 40em; display: grid; place-items: center; }
 #mark { position: absolute; left: 0; top: 0; width: 0; height: 0; }
@@ -88,7 +92,7 @@ export const fmt = (t) => {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 };
 
-const BOOST_CELLS = 12, MAP = 64;
+const DRAFT_CELLS = 10, BOOST_CELLS = 12, MAP = 64;
 
 export class HUD {
   constructor(game) {
@@ -115,7 +119,7 @@ export class HUD {
         <div id="big"><px-t id="bigt" s="8" o></px-t></div>
         <div id="mark"><div class="col">${T('▼', 'c=accent o')}<px-t id="dist" f="t" o></px-t></div></div>
         <canvas id="map"></canvas>
-        <div id="br" class="col"><px-t id="spd" s="4" o>0</px-t>${T('Knots', 'f=t o')}<div id="boost">${'<i></i>'.repeat(BOOST_CELLS)}</div>${T('Boost', 'f=t o')}</div>
+        <div id="br" class="col"><px-t id="spd" s="4" o>0</px-t>${T('Knots', 'f=t o')}<div id="boost">${'<i></i>'.repeat(BOOST_CELLS)}</div>${T('Boost', 'f=t o')}<div id="draft" class="hide">${'<i></i>'.repeat(DRAFT_CELLS)}</div><px-t id="drl" class="hide" f="t" o>Draft</px-t></div>
         <div id="keys">${T('W/S throttle · A/D steer · Shift boost · C camera · R reset · Esc pause', 'f=t o')}</div>
       </div>
       <div class="wrap left"><div id="menu" class="plate">
@@ -156,7 +160,7 @@ export class HUD {
       </div>`;
     document.body.appendChild(root);
     const $ = (id) => root.querySelector('#' + id);
-    this.el = Object.fromEntries(['race', 'menu', 'pause', 'results', 'time', 'lap', 'gate', 'pb', 'msgt', 'bigt', 'mark', 'dist', 'map', 'spd', 'boost', 'best', 'rtitle', 'rtime', 'rbest', 'rlaps', 'keys', 'place', 'placebox'].map((k) => [k, $(k)]));
+    this.el = Object.fromEntries(['race', 'menu', 'pause', 'results', 'time', 'lap', 'gate', 'pb', 'msgt', 'bigt', 'mark', 'dist', 'map', 'spd', 'boost', 'draft', 'drl', 'best', 'rtitle', 'rtime', 'rbest', 'rlaps', 'keys', 'place', 'placebox'].map((k) => [k, $(k)]));
     this.map = new Bitmap(this.el.map, MAP, MAP);
     this.cells = Array.from(this.el.boost.children);
     this.cellsOn = -1;
@@ -295,6 +299,14 @@ export class HUD {
     const on = Math.round(boat.boost * BOOST_CELLS);
     if (on !== this.cellsOn) { this.cellsOn = on; this.cells.forEach((c, i) => c.classList.toggle('on', i < on)); }
     e.boost.classList.toggle('on', boat.boosting);
+    // draft: shown only while there are rivals; fills with the slipstream, lights the accent after a slingshot or a bump
+    const rv = g.rivals.length > 0;
+    e.draft.classList.toggle('hide', !rv); e.drl.classList.toggle('hide', !rv);
+    if (rv) {
+      const dn = Math.round(Math.max(g.draft.level, g.draft.stored * 0.6, g.contact.bump) * DRAFT_CELLS);
+      if (dn !== this.draftOn) { this.draftOn = dn; this.dcells = this.dcells || Array.from(e.draft.children); this.dcells.forEach((c, i) => c.classList.toggle('on', i < dn)); }
+      e.draft.classList.toggle('hot', g.draft.sling > 0 || g.contact.bump > 0.3);
+    }
     // countdown and flashes
     if (g.state === 'countdown') {
       const left = g.t0 - g.app.time;
