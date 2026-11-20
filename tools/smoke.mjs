@@ -1,5 +1,7 @@
 // Headless smoke test: boots the game in Chromium and drives a lap of every course.
 //   flock /tmp/tidal-shot-2.lock node tools/smoke.mjs        (the shared render queue: at most two browsers)
+// By default a short segment of each course (start and the first gates); --full (or SMOKE_FULL=1) races a lap of
+// each (a circuit's first lap), or every lap with SMOKE_FULL=1 and SMOKE_ALL=1. A wall-clock limit per course fails the run.
 // For each course it starts a race with a fixed seed, runs the autopilot for a full lap with T.sim (the sea and
 // the game, no drawing), then renders two frames, and checks:
 //   - no page errors, no console errors, no shader compile or link failures, no failed requests, no GL errors
@@ -22,7 +24,9 @@ const { chromium } = pw;
 
 const root = join(fileURLToPath(import.meta.url), '..', '..');
 const COURSES = (process.env.SMOKE_COURSES || 'circuit,sprint,oval').split(',');
-const FULL = !!process.env.SMOKE_FULL;
+const FULL = !!process.env.SMOKE_FULL || process.argv.includes('--full');
+const WALL = Number(process.env.SMOKE_WALL || (FULL ? 1800 : 240)) * 1000;   // per course, wall clock: fail loudly rather than hang
+const SEGMENT_GATES = 4;    // the default run: start, then pass gates 0 to 3 (about 20 to 30 s of racing)
 const Q = process.env.SMOKE_Q || 'low';
 const SEED = 20241120;
 const HIT_SPEED = 8;        // m/s: a solid touched faster than this is a hard hit
@@ -66,28 +70,33 @@ function install() {
       app.ocean.setSpectrum(W.spectrum());
       app.ocean.update(app.time, dt, W.foam());
       app.game.update(dt, app.ocean.textures());
-      app.gl.flush();
+      // Wait for the GPU, as a fast card would have by the next frame: the sea probe's answer (read back late, see
+      // probe.js) is then one step old every time. Without this a slow software GPU answers many steps late, the
+      // boat waits for it, and a lap takes ten times as long and is not repeatable.
+      app.gl.finish();
     },
     async frames(n) { for (let i = 0; i < n; i++) { app.frame(1 / 60); await new Promise((r) => setTimeout(r, 0)); } app.gl.finish(); },
     // race one lap and report what happened
-    async lap({ id, seed, maxSteps, full, dt }) {
+    async lap({ id, seed, maxSteps, full, dt, wall, gates, all }) {
       const g = app.game, col = g.collisions;
       for (let i = 0; i < 30 / dt; i++) { T.step(dt); if (i % 20 === 0) await new Promise((r) => setTimeout(r, 0)); }
       g.start(id, 'breeze', 'day', seed);
       T.autopilot();
-      const hits = [], r = { id, steps: 0, hardHits: 0, maxImpact: 0, hits: 0, maxGround: 0, onLand: 0, worstHeight: -1e9, nan: false, lapTimes: null };
+      const hits = [], t0 = performance.now(), r = { id, steps: 0, physSteps: 0, timedOut: false, simSeconds: 0, hardHits: 0, maxImpact: 0, hits: 0, maxGround: 0, onLand: 0, worstHeight: -1e9, nan: false, lapTimes: null };
       const orig = col.step;
       col.step = function (b, d) {
+        r.physSteps++;
         const v0 = Math.hypot(b.vel[0], b.vel[2]);
         orig.call(this, b, d);
         if (this.hits > 0) { r.hits++; if (v0 > r.maxImpact) r.maxImpact = v0; if (v0 > 8) { r.hardHits++; if (hits.length < 5) hits.push({ t: +g.raceTime.toFixed(1), v0: +v0.toFixed(1), x: Math.round(b.pos[0]), z: Math.round(b.pos[2]) }); } }
         if (b.ground > r.maxGround) r.maxGround = b.ground;
       };
       const loop = g.course.loop;
-      const done = () => g.state === 'finished' || (!full && loop && g.laps.length >= 1);
+      const done = () => g.state === 'finished' || (full ? loop && !all && g.laps.length >= 1 : g.progress.next >= gates);
       for (let i = 0; i < maxSteps && !done(); i++) {
+        if (performance.now() - t0 > wall) { r.timedOut = true; break; }
         T.step(dt);
-        r.steps++;
+        r.steps++; r.simSeconds += dt;
         const b = g.boat, h = g.land.field.heightAt(b.pos[0], b.pos[2]);
         if (h > r.worstHeight) r.worstHeight = h;
         if (h > 0) r.onLand++;
@@ -95,7 +104,7 @@ function install() {
         if (i % 15 === 0) await new Promise((x) => setTimeout(x, 0));
       }
       col.step = orig;
-      Object.assign(r, { state: g.state, next: g.progress.next, total: g.course.total, raceTime: +g.raceTime.toFixed(2), laps: g.laps.map((t) => +t.toFixed(2)), lapsDone: g.laps.length, hitList: hits, maxGround: +r.maxGround.toFixed(2), maxImpact: +r.maxImpact.toFixed(1), worstHeight: +r.worstHeight.toFixed(2), finishTime: +g.finishTime.toFixed(2) });
+      Object.assign(r, { physRatio: +(r.physSteps / Math.max(r.simSeconds * 120, 1)).toFixed(2), state: g.state, next: g.progress.next, total: g.course.total, raceTime: +g.raceTime.toFixed(2), laps: g.laps.map((t) => +t.toFixed(2)), lapsDone: g.laps.length, hitList: hits, maxGround: +r.maxGround.toFixed(2), maxImpact: +r.maxImpact.toFixed(1), worstHeight: +r.worstHeight.toFixed(2), finishTime: +g.finishTime.toFixed(2) });
       return r;
     },
     // is the canvas more than one flat colour? returns statistics of a 48x27 reduction
@@ -134,22 +143,24 @@ await page.addInitScript(install);
 const results = [];
 let exit = 0;
 try {
-  console.log(`smoke: ${url} (${Q}), courses ${COURSES.join(', ')}${FULL ? ', full races' : ', one lap'}`);
+  console.log(`smoke: ${url} (${Q}), courses ${COURSES.join(', ')}${FULL ? ', first laps' : `, first ${SEGMENT_GATES} gates`}`);
   await page.goto(`${url}?manual&preserve&q=${Q}&scale=0.5`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction('window.app && window.app.game', null, { timeout: 180000 });
   for (const id of COURSES) {
     const t0 = Date.now();
     console.log(`${id}:`);
-    const maxSteps = id === 'sprint' ? 9000 : 6000 * (FULL ? 2 : 1);
-    const r = await page.evaluate((a) => window.T.lap(a), { id, seed: SEED, maxSteps, full: FULL, dt: 1 / 30 });
+    const maxSteps = FULL ? (id === 'sprint' ? 9000 : 6000) * (process.env.SMOKE_ALL ? 2 : 1) : 1500;
+    const r = await page.evaluate((a) => window.T.lap(a), { id, seed: SEED, maxSteps, full: FULL, dt: 1 / 30, wall: WALL, gates: SEGMENT_GATES, all: !!process.env.SMOKE_ALL });
     await page.evaluate(() => window.T.frames(2));
     const blank = await page.evaluate(() => window.T.blank());
     const glerr = await page.evaluate(() => { const e = window.__glErrors.slice(), gl = app.gl; const codes = []; for (let i = 0; i < 8; i++) { const c = gl.getError(); if (!c) break; codes.push(c); } return { shader: e, codes }; });
     Object.assign(r, { blank, wallSeconds: Math.round((Date.now() - t0) / 1000) });
     results.push(r);
-    console.log(`  ${r.state}, race time ${r.raceTime} s in ${r.steps} steps, gates ${r.next}/${r.total}, laps ${JSON.stringify(r.laps)}, ${r.hits} contacts (fastest ${r.maxImpact} m/s), most aground ${r.maxGround}, highest ground under the hull ${r.worstHeight} m, frame std ${blank.std} (${blank.colours} colours), ${r.wallSeconds} s`);
+    console.log(`  ${r.state}, race time ${r.raceTime} s in ${r.steps} steps, gates ${r.next}/${r.total}, laps ${JSON.stringify(r.laps)}, physics ${r.physRatio}x real time, ${r.hits} contacts (fastest ${r.maxImpact} m/s), most aground ${r.maxGround}, highest ground under the hull ${r.worstHeight} m, frame std ${blank.std} (${blank.colours} colours), ${r.wallSeconds} s`);
     if (r.nan) fail(`${id}: the boat's state went non-finite`);
-    const finished = r.state === 'finished' || (!FULL && r.lapsDone >= 1);
+    const finished = r.state === 'finished' || (FULL ? r.lapsDone >= 1 : r.next >= SEGMENT_GATES);
+    if (r.timedOut) fail(`${id}: wall-clock limit (${WALL / 1000} s) hit after ${r.steps} steps`);
+    if (r.physRatio < 0.8) fail(`${id}: the physics advanced only ${r.physRatio} of the simulated time (the sea probe lagged the harness)`);
     if (!finished) fail(`${id}: the race did not finish (state ${r.state}, gate ${r.next}/${r.total} after ${r.steps} steps)`);
     if (r.hardHits) fail(`${id}: ${r.hardHits} hard hits ${JSON.stringify(r.hitList)}`);
     if (r.maxGround > 0.25) fail(`${id}: the hull ran aground (${r.maxGround})`);
