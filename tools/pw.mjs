@@ -2,8 +2,12 @@
 //   GPU=1  real GPU (the default everywhere except Linux, where the build container has none)
 //   GPU=0  software GL (swiftshader): slow, but the same picture on any machine
 //   HEADED=1  show the browser window (real GPU only)
+//   PW_PROFILE=dir  the browser profile open() keeps (real GPU only). Chrome stores compiled shaders in it, so
+//             only the first load pays the compile (over a minute on Direct3D). One profile per running browser.
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export async function loadPlaywright() {
   const roots = [new URL('..', import.meta.url).href, 'file:///usr/lib/node_modules/'];
@@ -25,4 +29,17 @@ export function launchOptions(extraArgs = []) {
 export async function launch(extraArgs) {
   const { chromium } = await loadPlaywright();
   return chromium.launch(launchOptions(extraArgs));
+}
+
+// One page of the given size, and a close() for everything behind it. On the real GPU the profile is kept.
+export async function open({ width, height, extraArgs } = {}) {
+  const { chromium } = await loadPlaywright();
+  const view = { viewport: { width, height }, deviceScaleFactor: 1 };
+  if (!realGpu) {
+    const browser = await chromium.launch(launchOptions(extraArgs));
+    return { page: await browser.newPage(view), close: () => browser.close() };
+  }
+  const dir = process.env.PW_PROFILE || join(tmpdir(), 'tidal-pw-profile');
+  const ctx = await chromium.launchPersistentContext(dir, { ...launchOptions(extraArgs), ...view });
+  return { page: ctx.pages()[0] || (await ctx.newPage()), close: () => ctx.close() };
 }
