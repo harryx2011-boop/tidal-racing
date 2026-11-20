@@ -1,5 +1,10 @@
 // Minimal WebGL2 toolkit: programs with reflected uniforms, textures, framebuffers, fullscreen passes.
 
+// the machine cannot run the game: `title` and `hint` are shown to the player (index.html window.fatal)
+export class GLUnsupported extends Error {
+  constructor(title, hint) { super(`${title}: ${hint}`); this.title = title; this.hint = hint; }
+}
+
 export function createGL(canvas, { antialias = false, preserve = false } = {}) {
   const gl = canvas.getContext('webgl2', {
     antialias,
@@ -10,13 +15,13 @@ export function createGL(canvas, { antialias = false, preserve = false } = {}) {
     preserveDrawingBuffer: preserve,
     powerPreference: 'high-performance',
   });
-  if (!gl) throw new Error('WebGL2 is not available');
+  if (!gl) throw new GLUnsupported('No WebGL2', 'This game needs WebGL2. Turn on hardware acceleration in the browser settings, update the graphics driver, or try a current desktop Chrome, Edge or Firefox.');
   const ext = {
     cbf: gl.getExtension('EXT_color_buffer_float'),
     fl: gl.getExtension('OES_texture_float_linear'),
     aniso: gl.getExtension('EXT_texture_filter_anisotropic'),
   };
-  if (!ext.cbf) throw new Error('EXT_color_buffer_float is required');
+  if (!ext.cbf) throw new GLUnsupported('Graphics card not supported', 'This game needs to draw to floating-point textures (the WebGL extension EXT_color_buffer_float), which this browser or driver does not offer. Update the graphics driver or try another browser.');
   gl.ext = ext;
   gl.maxAniso = ext.aniso ? gl.getParameter(ext.aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : 1;
   return gl;

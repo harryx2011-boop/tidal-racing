@@ -39,8 +39,8 @@ const mixv = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 //    shadows) are at 0.
 const DEFAULT_TIER = 'medium';
 const QUALITY = {
-  low: { cloudDiv: 2, detailFoot: 50, steps: 80, lightSteps: 5, lightDetail: 2, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400, upSteps: 2 },
-  medium: { cloudDiv: 2, detailFoot: 50, steps: 80, lightSteps: 5, lightDetail: 2, blend: 0.14, msaa: 4, hdr: 'rgba16f', check: true, fft: [512, 256, 256, 256], angular: 640, upSteps: 2 },
+  low: { cloudDiv: 2, detailFoot: 50, steps: 64, lightSteps: 4, lightDetail: 2, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400, upSteps: 2 },
+  medium: { cloudDiv: 2, detailFoot: 50, steps: 64, lightSteps: 4, lightDetail: 2, blend: 0.14, msaa: 4, hdr: 'rgba16f', check: true, fft: [512, 256, 256, 256], angular: 640, upSteps: 2 },
   high: { cloudDiv: 1, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.08, msaa: 4, hdr: 'rgba16f', check: false, fft: [512, 256, 256, 256], angular: 640, upSteps: 4 },
 };
 const TIER = settings.tier(params.get('q'), DEFAULT_TIER);
@@ -67,6 +67,7 @@ export class App {
     this.sky = new Sky(gl);
     this.clouds = new Clouds(gl);
     this.windOffset = [Number(params.get('cx') || 0), 0, Number(params.get('cz') || 0)];
+    this.windBase = [this.windOffset[0], this.windOffset[2]];
     this.post = new Post(gl);
     this.prof = new Profiler(gl, params.has('profile'));
     if (params.has('profile2')) this.ocean.prof = this.prof;
@@ -234,6 +235,17 @@ export class App {
     // clouds advect with the wind aloft (~1.6x surface wind), detail evolves slowly
     const wd0 = (S.windDir * Math.PI) / 180;
     const aloft = 4 + S.wind * 1.6;
+    // A race sets the clock (and snaps the weather). From there the sky is a function of sea time, the
+    // same on every client, as the waves are; between such jumps the drift is integrated, so that a
+    // change of weather bends it instead of sliding the whole sky.
+    if (this.cloudT === undefined || Math.abs(t - dt - this.cloudT) > 1e-6) {
+      const t0 = t - dt;
+      this.windOffset[0] = this.windBase[0] + Math.cos(wd0) * aloft * t0;
+      this.windOffset[2] = this.windBase[1] + Math.sin(wd0) * aloft * t0;
+      this.windOffset[1] = t0 * (3 + S.wind * 0.6);
+      this.clouds.reset = true;
+    }
+    this.cloudT = t;
     this.windOffset[0] += Math.cos(wd0) * aloft * dt;
     this.windOffset[2] += Math.sin(wd0) * aloft * dt;
     this.windOffset[1] += dt * (3 + S.wind * 0.6);
@@ -252,6 +264,19 @@ export class App {
       shapeLod: params.has('shapelod') ? Number(params.get('shapelod')) : -1,
     };
     P.section('clouds');
+    // water-leaving reflectance: deep blue, greyer with bubbles in a high wind, grey-green in rain
+    const rrs = mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], 0.8 * smoothstep(5, 24, S.wind)), [0.0013, 0.0024, 0.0025], smoothstep(0.1, 0.8, L.rain));
+    const envU = () => ({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1, uEnvRrs: rrs });
+    // After a jump (a race start, a change of weather or of the light source) the sky's irradiance is still
+    // that of the sky before it: it is taken from the reflection environment, which holds the clouds, which
+    // are lit by that irradiance. Left to settle over the following frames, a storm deck starts too bright
+    // or too dark and drifts for a second. Three rounds of environment and irradiance bring the loop to
+    // its fixed point before the first frame is drawn (320x160 texels each: a start-of-race cost).
+    if (this.clouds.reset) for (let k = 0; k < 3; k++) {
+      this.clouds.skyInputs(skyU, cloudU, this.cam);
+      this.clouds.renderEnv(skyU, cloudU, this.cam, 1);
+      this.sky.renderEnv(envU());
+    }
     // a flash changes the cloud light within a frame, so most of the history is dropped; the offline
     // tiers then average several independently jittered passes instead of showing one noisy sample
     // (two: a heavier frame risks GPU driver timeouts on integrated GPUs)
@@ -266,9 +291,7 @@ export class App {
       uShaftShadow: this.clouds.shadow, uShaftRect: this.clouds.shadowRect,
       uShaft: [this.atmo.uniforms.uMie[0] * 1e-3, Math.min(S.cloudBase, fOn ? S.sBase : 1e9), S.clouds > 0.05 ? 1.0 : 0.0, (this.time * 0.618) % 1],
     });
-    // water-leaving reflectance: deep blue, greyer with bubbles in a high wind, grey-green in rain
-    const rrs = mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], 0.8 * smoothstep(5, 24, S.wind)), [0.0013, 0.0024, 0.0025], smoothstep(0.1, 0.8, L.rain));
-    this.sky.renderEnv({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1, uEnvRrs: rrs });
+    this.sky.renderEnv(envU());
 
     this.game?.prePass({ sunDir: sun, night });
 
@@ -362,7 +385,8 @@ try {
   app = new App(canvas);
   window.app = app;
 } catch (e) {
-  document.body.insertAdjacentHTML('beforeend', `<pre class="err">${e.message}</pre>`);
+  // a message instead of a blank page (index.html defines window.fatal)
+  if (window.fatal) window.fatal(e.title || 'Tidal Racing could not start', e.hint || 'Reload the page. If it keeps failing, try a current desktop Chrome, Edge or Firefox with hardware acceleration turned on.', e.hint ? '' : e.stack || e.message);
   throw e;
 }
 
@@ -399,7 +423,12 @@ const style = document.createElement('style');
 style.textContent = HUD_CSS + PERF_CSS;
 document.head.appendChild(style);
 audio.engine.volume = settings.volume;
-app.game = new Game(app, audio);
+try {
+  app.game = new Game(app, audio);
+} catch (e) {
+  if (window.fatal) window.fatal('Tidal Racing could not start', 'The game failed to set up (a graphics driver problem is the usual cause). Reload the page, or try another browser.', e.stack || e.message);
+  throw e;
+}
 app.game.livery = settings.livery();
 
 let last = performance.now();
@@ -446,10 +475,11 @@ const loop = (now) => {
   const dt = Math.min(raw, 0.1);
   last = now;
   requestAnimationFrame(loop);
-  const idle = app.game.paused || document.hidden;
+  const frozen = app.game.paused && !app.game.net;   // multiplayer: pausing only opens the menu
+  const idle = frozen || document.hidden;
   app.govern(raw, !idle);
   // paused: the sea, the clock and the race all stand still (the last frame stays on screen)
-  if (app.game.paused) { app.game.update(0, null); return; }
+  if (frozen) { app.game.update(0, null); return; }
   app.frame(Math.max(dt, 1e-3));
   audio.update(app);
   if (!document.hidden && raw < 0.5) perf.frame(raw);

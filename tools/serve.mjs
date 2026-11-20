@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = normalize(join(fileURLToPath(import.meta.url), '..', '..'));
 const port = Number(process.env.PORT || process.argv[2] || 5173);
+// BASE=/tidal-racing/ serves the game under a sub-path, as GitHub Pages does for a project site
+const base = (process.env.BASE || '/').replace(/\/?$/, '/');
 
 const types = {
   '.html': 'text/html; charset=utf-8',
@@ -29,6 +31,10 @@ createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://x');
     let path = decodeURIComponent(url.pathname);
+    if (base !== '/') {
+      if (!path.startsWith(base)) { res.writeHead(404).end('not found'); return; }
+      path = '/' + path.slice(base.length);
+    }
     if (path.endsWith('/')) path += 'index.html';
     const file = normalize(join(root, path));
     if (file !== root && !file.startsWith(root.endsWith(sep) ? root : root + sep)) { res.writeHead(403).end(); return; }
@@ -43,4 +49,4 @@ createServer(async (req, res) => {
   } catch {
     res.writeHead(404).end('not found');
   }
-}).listen(port, () => console.log(`serving ${root} on http://localhost:${port}`));
+}).listen(port, () => console.log(`serving ${root} on http://localhost:${port}${base}`));

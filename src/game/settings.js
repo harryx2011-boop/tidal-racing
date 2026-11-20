@@ -17,6 +17,7 @@ export const STRIPES = ['Plain', 'Stripe 1', 'Stripe 2', 'Stripe 3'];
 const DEFAULTS = {
   quality: null,        // null: the default tier for this build; a tier applies after a reload
   volume: 0.9,
+  engineVol: 0.8, sfxVol: 0.8,   // engine and effects (race cues, water) volumes, under the master volume
   muted: false,
   speedFx: true,        // camera shake and radial blur
   auto: true,           // the frame-rate governor owns the effect levels and the render scale
@@ -41,6 +42,8 @@ export class Settings {
   merge(r) {
     if (TIERS.includes(r.quality)) this.quality = r.quality;
     if ('volume' in r) this.volume = clamp(r.volume, 0, 1, DEFAULTS.volume);
+    if ('engineVol' in r) this.engineVol = clamp(r.engineVol, 0, 1, DEFAULTS.engineVol);
+    if ('sfxVol' in r) this.sfxVol = clamp(r.sfxVol, 0, 1, DEFAULTS.sfxVol);
     if ('muted' in r) this.muted = !!r.muted;
     if ('speedFx' in r) this.speedFx = !!r.speedFx;
     if ('auto' in r) this.auto = !!r.auto;
@@ -62,8 +65,8 @@ export class Settings {
   }
 
   save() {
-    const { quality, volume, muted, speedFx, auto, fx, swatch, stripe, number } = this;
-    try { this.storage?.setItem(KEY, JSON.stringify({ quality, volume, muted, speedFx, auto, fx, swatch, stripe, number })); } catch { /* blocked or full: lasts this session */ }
+    const { quality, volume, engineVol, sfxVol, muted, speedFx, auto, fx, swatch, stripe, number } = this;
+    try { this.storage?.setItem(KEY, JSON.stringify({ quality, volume, engineVol, sfxVol, muted, speedFx, auto, fx, swatch, stripe, number })); } catch { /* blocked or full: lasts this session */ }
   }
 
   onChange(f) { this.listeners.push(f); }

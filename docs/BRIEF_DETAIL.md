@@ -98,3 +98,21 @@ stay at 800x450 low.
 - Do not commit stills. Do not push. Do not open a pull request. Commit to your branch every
   time you reach a working state.
 - Report honestly: what you rendered and looked at, what you did not, what still looks wrong.
+
+## Round of 20 November: what changed
+
+The owner's new answers (do not reopen): finish everything through to release; the saved branches
+were merged first and are fixed in place; **each fidelity stream gets at most two judged rounds**
+(Q has had one; pass is still every score at 7 or more); all builders run at once; Fable builds
+the 3D streams (Q, S, P, R), Sonnet builds the rest (multiplayer, sound, tests and fixes).
+
+- Q round 2, P and S are merged into the dev branch. Every builder starts from that.
+- Each builder has its own worktree under `/home/user/wt/<name>`, its own branch `build3/<name>`
+  and its own port. Start your server from your worktree (`PORT=<port> node tools/serve.mjs &`).
+- **Render through `tools/shot.sh`**, never `drive.mjs` directly: it takes the same arguments and
+  queues renders so that at most two browsers run on the machine. A render can wait many minutes
+  in the queue, so run it in the background and wait for it. Never kill another builder's process.
+- Stills go under `/tmp/claude-0/-home-user-tidal-racing/a31e5a31-6cd0-5b81-a9f4-b9e9d9bad626/scratchpad/review3/<name>/`.
+- Multiplayer contract: `game.rivals` is the list of other players' boats
+  (`{ id, name, pose, livery }`, `pose` a `Boat`). `game.renderBoats()` already includes them, so a
+  system that loops over `renderBoats()` draws wakes, spray, shadows and lights for rivals too.

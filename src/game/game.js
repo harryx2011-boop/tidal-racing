@@ -19,40 +19,25 @@ import { Scenery } from './scenery.js';
 import { Wildlife } from './wildlife.js';
 import { Land } from './land.js';
 import { Collisions } from './collide.js';
+import { Contact } from './contact.js';
+import { Draft } from './draft.js';
+import { DebugRival } from './debugrival.js';
+import { Coastal } from './coastal.js';
+import { GameSound } from './sfx.js';
+import { ghostStore, ghostPose, angDiff, GHOST_HZ } from './ghost.js';
+import { pauseAction } from './pause.js';
 
 const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
 const SEA_T0 = 60;             // every race starts at the same sea time: identical waves, fair ghosts
-const GHOST_HZ = 10;
 const GHOST_LIVERY = { color: [0.6, 0.8, 1], stripe: 0, number: 0 };
 // move a model matrix's origin to a point given in the model's own space (in place)
 function attach(m, p) {
   for (let i = 0; i < 3; i++) m[12 + i] += m[i] * p[0] + m[4 + i] * p[1] + m[8 + i] * p[2];
   return m;
 }
-const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
 
-const store = {
-  key: (c, w) => `tidal.best3.${c}.${w}`,   // 3: the courses moved close to the coast, so older times and ghosts do not apply
-  load(c, w) {
-    try {
-      const o = JSON.parse(localStorage.getItem(this.key(c, w)));
-      if (!o) return null;
-      const bin = atob(o.ghost);
-      const u8 = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-      return { time: o.time, ghost: new Float32Array(u8.buffer) };
-    } catch { return null; }
-  },
-  save(c, w, time, ghost) {
-    try {
-      const u8 = new Uint8Array(ghost.buffer, 0, ghost.length * 4);
-      let bin = '';
-      for (let i = 0; i < u8.length; i += 8192) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
-      localStorage.setItem(this.key(c, w), JSON.stringify({ time, ghost: btoa(bin) }));
-    } catch { /* storage full or blocked: the run still counts for this session */ }
-  },
-};
+const store = ghostStore();
 
 export class Game {
   constructor(app, audio) {
@@ -66,6 +51,10 @@ export class Game {
     this.probe = new MultiProbe(gl);
     this.boat = new Boat();
     this.ghostBoat = new Boat();
+    // Other players' boats this frame (multiplayer). Each: { id, name, pose (a Boat), livery }. The net code
+    // fills it; contact, drafting and every visual system read it (through renderBoats()).
+    this.rivals = [];
+    this.net = null;            // the multiplayer session (src/game/net/session.js), null in solo
     this.input = new Input();
     this.livery = { color: [0.95, 0.42, 0.05], stripe: 0, number: 7 };
     // Visual systems (wake, shadows, lights, ...). Each may implement any of:
@@ -82,6 +71,8 @@ export class Game {
     this.systems.push(new Marks(this));
     this.systems.push(new Scenery(this));
     this.systems.push(new Wildlife(this));
+    this.systems.push(new Coastal(this));
+    this.systems.push(new GameSound(this));   // engine, water and race-cue sound (sfx.js, enginesound.js)
     this.state = 'menu';        // menu | countdown | racing | finished
     this.paused = false;
     this.camMode = 'chase';
@@ -89,6 +80,8 @@ export class Game {
     this.acc = 0;
     this.model = new Float32Array(16);
     this.collisions = new Collisions(this);
+    this.contact = new Contact(this); this.draft = new Draft(this);   // rivals: contact, PIT, bump draft, slipstream
+    const dbg = new URLSearchParams(location.search).get('rival'); if (dbg) this.debugRival = new DebugRival(this, +dbg);   // debug aid: ?rival=1
     this.sample = { h: 0, sx: 0, sz: 0 };
     this.sea = (i, x, z) => {
       const r = this.probe.result[i], s = this.sample;
@@ -142,7 +135,7 @@ export class Game {
     this.setCourse(course);
     app.time = SEA_T0;
     this.t0 = SEA_T0 + COUNTDOWN;
-    this.best = store.load(this.course.id, cond);
+    this.best = this.net ? null : store.load(this.course.id, cond);   // the ghost and best times are solo only
     this.rec = new Float32Array(GHOST_HZ * 60 * 12 * 6); // twelve minutes
     this.recN = 0;
     this.laps = []; this.lapStart = 0; this.finishTime = 0; this.newBest = false;
@@ -153,6 +146,7 @@ export class Game {
   }
 
   quit() {
+    if (this.net) this.net.leave();
     this.state = 'menu';
     this.paused = false;
     this.setCourse(this.course);
@@ -163,14 +157,22 @@ export class Game {
 
   update(dt, ot) {
     const app = this.app, boat = this.boat;
-    const inp = this.input.poll(dt);
+    let inp = this.input.poll(dt);
+    // multiplayer: the pause menu does not stop the world; the boat just gets no input
+    if (this.paused && this.net) inp = { ...inp, throttle: 0, steer: 0, boost: false };
     if (inp.pressed.has('mute')) this.hud.toggleSound();
     if (inp.pressed.has('camera')) this.camMode = this.camMode === 'chase' ? 'helm' : 'chase';
     if (this.state !== 'menu') {
-      if (inp.pressed.has('pause')) { this.paused = !this.paused; this.hud.pause(this.paused); }
-      if (inp.pressed.has('reset') && this.state === 'racing') this.place(this.progress.respawn());
+      if (inp.pressed.has('pause')) {
+        const a = pauseAction({ state: this.state, settingsOpen: this.hud.settingsOpen() });
+        if (a === 'closeSettings') this.hud.closeSettings(true);
+        else if (a === 'toggle') { this.paused = !this.paused; this.hud.pause(this.paused); }
+      }
+      if (inp.pressed.has('reset') && this.state === 'racing' && !this.paused) this.place(this.progress.respawn());
     }
-    if (this.paused || !ot) return;
+    this.net?.pre(dt);
+    if ((this.paused && !this.net) || !ot) return;
+    if (!this.net) this.debugRival?.update(dt);   // (the net session owns game.rivals when in a room)
     if (app.fade < 1) app.fade = Math.min((app.fade ?? 1) + dt * 1.6, 1);
 
     // sea under the hull (and under the camera), a little ahead in time
@@ -184,9 +186,10 @@ export class Game {
     if (ready) {
       const p0 = [boat.pos[0], boat.pos[2]];
       this.acc = Math.min(this.acc + dt, 0.1);
-      while (this.acc >= STEP) { boat.step(STEP, inp, this.sea, drive); this.collisions.step(boat, STEP); this.acc -= STEP; }
+      while (this.acc >= STEP) { this.draft.step(boat, STEP, drive); boat.step(STEP, inp, this.sea, drive); this.collisions.step(boat, STEP); this.contact.step(boat, STEP, drive); this.acc -= STEP; }
       if (drive) this.track(p0, dt);
     }
+    this.net?.post(dt);
     for (const s of this.systems) s.update?.(dt, ot);
     this.camera(dt, res[4]);
     this.hud.update(dt);
@@ -196,6 +199,7 @@ export class Game {
   track(p0, dt) {
     const boat = this.boat, t = this.raceTime;
     const ev = this.progress.advance(p0, [boat.pos[0], boat.pos[2]], dt);
+    if (ev && this.net) this.net.onProgress(this.progress.next, t, ev === 'finish');
     if (ev === 'lap' || ev === 'finish') {
       if (this.course.loop) { this.laps.push(t - this.lapStart); this.lapStart = t; }
       this.hud.flash(ev === 'finish' ? 'FINISH' : `LAP ${this.progress.lap}`);
@@ -208,7 +212,7 @@ export class Game {
     if (ev === 'finish') {
       this.finishTime = t;
       this.state = 'finished';
-      this.newBest = !this.best || t < this.best.time;
+      this.newBest = !this.net && (!this.best || t < this.best.time);
       this.prevBest = this.best ? this.best.time : null;
       if (this.newBest) {
         const ghost = this.rec.slice(0, this.recN * 6);
@@ -222,14 +226,7 @@ export class Game {
   ghostAt(t) {
     const g = this.best && this.best.ghost;
     if (!g || this.state === 'menu') return false;
-    const n = g.length / 6, f = t * GHOST_HZ, i = Math.floor(f);
-    if (i >= n - 1) return false;
-    const k = f - i, a = i * 6, b = a + 6, gb = this.ghostBoat;
-    for (let j = 0; j < 3; j++) gb.pos[j] = g[a + j] + (g[b + j] - g[a + j]) * k;
-    gb.yaw = g[a + 3] + angDiff(g[b + 3], g[a + 3]) * k;
-    gb.pitch = g[a + 4] + (g[b + 4] - g[a + 4]) * k;
-    gb.roll = g[a + 5] + (g[b + 5] - g[a + 5]) * k;
-    return true;
+    return ghostPose(g, t, this.ghostBoat);
   }
 
   camera(dt, seaAtCam) {
@@ -323,6 +320,7 @@ export class Game {
   // Systems loop over this instead of reaching for game.boat, so rivals appear everywhere at once.
   renderBoats() {
     const list = [{ pose: this.boat, livery: this.livery, ghost: false }];
+    for (const r of this.rivals) list.push({ pose: r.pose, livery: r.livery, ghost: false, rival: r });
     if (this.ghostAt(this.raceTime)) list.push({ pose: this.ghostBoat, livery: GHOST_LIVERY, ghost: true });
     return list;
   }

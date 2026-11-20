@@ -4,7 +4,9 @@
 import { COURSES, CONDITIONS, TIMES } from './courses.js';
 import { settings, SWATCHES, STRIPES, TIERS } from './settings.js';
 import { COASTS, rockSpots } from './models/coast.js';
+import { ghostStore } from './ghost.js';
 import { T, dither, unit, Bitmap, PAPER, INK, ACCENT } from './pixel.js';
+import { Lobby } from './lobby.js';
 
 const DITHER = 'background-size: 4em 4em; background-attachment: fixed; image-rendering: pixelated;';
 export const HUD_CSS = `
@@ -26,6 +28,10 @@ export const HUD_CSS = `
 #boost i { width: 5em; height: 5em; background-image: var(--dp4); ${DITHER} }
 #boost i.on { background: ${ACCENT}; }
 #boost.on i.on { background: ${PAPER}; }
+#draft { display: flex; gap: 1em; padding: 1em; background: ${INK}; border: 1em solid ${PAPER}; margin-top: 2em; }
+#draft i { width: 5em; height: 3em; background-image: var(--dp4); ${DITHER} }
+#draft i.on { background: ${PAPER}; }
+#draft.hot i.on { background: ${ACCENT}; }
 #big { position: absolute; left: 0; right: 0; top: 64em; display: grid; place-items: center; }
 #msg { position: absolute; left: 0; right: 0; top: 40em; display: grid; place-items: center; }
 #mark { position: absolute; left: 0; top: 0; width: 0; height: 0; }
@@ -87,7 +93,7 @@ export const fmt = (t) => {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 };
 
-const BOOST_CELLS = 12, MAP = 64;
+const DRAFT_CELLS = 10, BOOST_CELLS = 12, MAP = 64;
 
 export class HUD {
   constructor(game) {
@@ -109,12 +115,12 @@ export class HUD {
     root.innerHTML = `
       <div id="race" class="hide">
         <div id="tl" class="col">${T('Time', 'f=t o')}<px-t id="time" s="2" o>0:00.00</px-t>
-          <div class="row">${stat('Lap', 'lap')}${stat('Gate', 'gate')}${stat('Best', 'pb')}</div></div>
+          <div class="row">${stat('Lap', 'lap')}${stat('Gate', 'gate')}${stat('Best', 'pb')}<div class="col hide" id="placebox">${T('Place', 'f=t o')}<px-t id="place" s="2" c="accent" o></px-t></div></div></div>
         <div id="msg"><px-t id="msgt" c="accent" o></px-t></div>
         <div id="big"><px-t id="bigt" s="8" o></px-t></div>
         <div id="mark"><div class="col">${T('▼', 'c=accent o')}<px-t id="dist" f="t" o></px-t></div></div>
         <canvas id="map"></canvas>
-        <div id="br" class="col"><px-t id="spd" s="4" o>0</px-t>${T('Knots', 'f=t o')}<div id="boost">${'<i></i>'.repeat(BOOST_CELLS)}</div>${T('Boost', 'f=t o')}</div>
+        <div id="br" class="col"><px-t id="spd" s="4" o>0</px-t>${T('Knots', 'f=t o')}<div id="boost">${'<i></i>'.repeat(BOOST_CELLS)}</div>${T('Boost', 'f=t o')}<div id="draft" class="hide">${'<i></i>'.repeat(DRAFT_CELLS)}</div><px-t id="drl" class="hide" f="t" o>Draft</px-t></div>
         <div id="keys">${T('W/S throttle · A/D steer · Shift boost · C camera · R reset · Esc pause', 'f=t o')}</div>
       </div>
       <div class="wrap left"><div id="menu" class="plate">
@@ -140,6 +146,8 @@ export class HUD {
             <div class="srow"><px-t id="set-qnote" f="t" w="176"></px-t><button class="btn hide" id="set-reload">${T('Reload now', 'f=t')}</button></div></div>
           <div class="sec">${T('Sound and effects', 'f=t c=accent')}
             ${row('Volume', `<input type="range" id="set-vol" min="0" max="100" step="1" aria-label="Master volume"><span class="val"><px-t id="set-volv" f="t"></px-t></span><button class="btn" id="set-mute" style="padding:2em 4em"><px-t id="set-mutet" f="t">Mute</px-t></button>`)}
+            ${row('Engine', `<input type="range" id="set-evol" min="0" max="100" step="1" aria-label="Engine volume"><span class="val"><px-t id="set-evolv" f="t"></px-t></span>`)}
+            ${row('Effects', `<input type="range" id="set-svol" min="0" max="100" step="1" aria-label="Effects volume"><span class="val"><px-t id="set-svolv" f="t"></px-t></span>`)}
             ${row('Speed effects', onoff('sfx'), 'Camera shake and edge blur that grow with speed and boost')}</div>
           <div class="sec">${T('Performance', 'f=t c=accent')}
             ${row('Automatic', onoff('auto'))}
@@ -155,7 +163,7 @@ export class HUD {
       </div>`;
     document.body.appendChild(root);
     const $ = (id) => root.querySelector('#' + id);
-    this.el = Object.fromEntries(['race', 'menu', 'pause', 'results', 'time', 'lap', 'gate', 'pb', 'msgt', 'bigt', 'mark', 'dist', 'map', 'spd', 'boost', 'best', 'rtitle', 'rtime', 'rbest', 'rlaps', 'keys'].map((k) => [k, $(k)]));
+    this.el = Object.fromEntries(['race', 'menu', 'pause', 'results', 'time', 'lap', 'gate', 'pb', 'msgt', 'bigt', 'mark', 'dist', 'map', 'spd', 'boost', 'draft', 'drl', 'best', 'rtitle', 'rtime', 'rbest', 'rlaps', 'keys', 'place', 'placebox'].map((k) => [k, $(k)]));
     this.map = new Bitmap(this.el.map, MAP, MAP);
     this.cells = Array.from(this.el.boost.children);
     this.cellsOn = -1;
@@ -170,6 +178,7 @@ export class HUD {
     $('quit').addEventListener('click', () => game.quit());
     $('rquit').addEventListener('click', () => game.quit());
     this.flashT = 0; this.lastCount = '';
+    this.lobby = new Lobby(this);   // multiplayer: host / join buttons on the menu, the lobby and results panels (lobby.js)
     this.sync();
     this.initSettings();
   }
@@ -194,6 +203,8 @@ export class HUD {
     }, true);
     q('#set-q').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (b) { S.update({ quality: b.dataset.q }); this.syncSettings(); } });
     q('#set-vol').addEventListener('input', (e) => { S.update({ volume: e.target.value / 100 }); this.syncSettings(); });
+    q('#set-evol').addEventListener('input', (e) => { S.update({ engineVol: e.target.value / 100 }); this.syncSettings(); });
+    q('#set-svol').addEventListener('input', (e) => { S.update({ sfxVol: e.target.value / 100 }); this.syncSettings(); });
     q('#set-mute').addEventListener('click', () => { S.update({ muted: !S.muted }); this.syncSettings(); });
     for (const b of root.querySelectorAll('[data-sfx]')) b.addEventListener('click', () => { S.update({ speedFx: b.dataset.sfx === '1' }); this.syncSettings(); });
     for (const b of root.querySelectorAll('[data-auto]')) b.addEventListener('click', () => {
@@ -224,6 +235,8 @@ export class HUD {
       : `Running ${S.active}. A change applies after a reload.`;
     q('#set-vol').value = Math.round(S.volume * 100);
     q('#set-volv').textContent = `${Math.round(S.volume * 100)}%`;
+    q('#set-evol').value = Math.round(S.engineVol * 100); q('#set-evolv').textContent = `${Math.round(S.engineVol * 100)}%`;
+    q('#set-svol').value = Math.round(S.sfxVol * 100); q('#set-svolv').textContent = `${Math.round(S.sfxVol * 100)}%`;
     q('#set-mute').classList.toggle('sel', S.muted);
     q('#set-mutet').textContent = S.muted ? 'Muted' : 'Mute';
     for (const b of this.root.querySelectorAll('[data-sfx]')) b.classList.toggle('sel', (b.dataset.sfx === '1') === S.speedFx);
@@ -240,6 +253,8 @@ export class HUD {
     q('#set-num').textContent = String(S.number).padStart(2, '0');
   }
 
+  settingsOpen() { return !this.setEl.classList.contains('hide'); }
+
   closeSettings(restore) {
     if (this.setEl.classList.contains('hide')) return;
     this.setEl.classList.add('hide');
@@ -251,16 +266,17 @@ export class HUD {
     for (const b of this.root.querySelectorAll('[data-cond]')) b.classList.toggle('sel', b.dataset.cond === this.sel.cond);
     for (const b of this.root.querySelectorAll('[data-tod]')) b.classList.toggle('sel', b.dataset.tod === this.sel.tod);
     let best = null;
-    if (this.sel.cond !== 'random') { try { best = JSON.parse(localStorage.getItem(`tidal.best.${this.sel.course}.${this.sel.cond}`)); } catch { /* none */ } }
+    if (this.sel.cond !== 'random') { try { best = JSON.parse(localStorage.getItem(ghostStore().key(this.sel.course, this.sel.cond))); } catch { /* none */ } }
     this.el.best.textContent = this.sel.cond === 'random' ? 'Random rolls the sea for each race. Best times are kept per sea condition, whatever the time of day.' : best ? `Your best: ${fmt(best.time)} (you race its ghost)` : 'No time set in these conditions yet.';
   }
 
   show(state) {
     const g = this.game, e = this.el;
     this.closeSettings(false);
-    e.menu.classList.toggle('hide', state !== 'menu');
+    e.menu.classList.toggle('hide', state !== 'menu' || this.lobby.active);
     e.race.classList.toggle('hide', state === 'menu');
-    e.results.classList.toggle('hide', state !== 'finished');
+    e.results.classList.toggle('hide', state !== 'finished' || !!g.net);
+    e.placebox.classList.toggle('hide', !g.net);
     e.pause.classList.add('hide');
     if (state === 'menu') this.sync();
     if (state === 'countdown') { e.pb.textContent = g.best ? fmt(g.best.time) : '--'; this.lastCount = ''; e.keys.style.visibility = ''; }
@@ -270,10 +286,11 @@ export class HUD {
       e.rbest.setAttribute('c', g.newBest ? 'accent' : 'paper');
       e.rbest.textContent = g.newBest ? `New best${g.prevBest ? `  -${(g.prevBest - g.finishTime).toFixed(2)}s` : ''}` : `Best ${fmt(g.prevBest)}  +${(g.finishTime - g.prevBest).toFixed(2)}s`;
       e.rlaps.textContent = g.laps.map((t, i) => `Lap ${i + 1}  ${fmt(t)}`).join('\n');
+      if (g.net) this.lobby.showResults();
     }
   }
 
-  pause(on) { if (!on) this.closeSettings(false); this.el.pause.classList.toggle('hide', !on || !this.setEl.classList.contains('hide')); }
+  pause(on) { this.lobby.onPause(); if (!on) this.closeSettings(false); this.el.pause.classList.toggle('hide', !on || !this.setEl.classList.contains('hide')); }
   flash(text) { this.big(text, 6); this.flashT = 1.3; }
   big(text, scale) { const b = this.el.bigt; b.setAttribute('s', scale); b.textContent = text; }
   toggleSound() { const a = this.game.audio; a.muted = !a.muted; a.enable(!a.muted).catch(() => {}); settings.update({ muted: a.muted }); if (this.setEl) this.syncSettings(); }
@@ -287,9 +304,18 @@ export class HUD {
     const P = g.progress, n = g.course.gates.length;
     this.text(e.lap, g.course.loop ? `${P.lap}/${g.course.laps}` : '1/1');
     this.text(e.gate, `${Math.min(P.next, g.course.total)}/${g.course.total}`);
+    if (g.net) this.text(e.place, g.net.placeText());
     const on = Math.round(boat.boost * BOOST_CELLS);
     if (on !== this.cellsOn) { this.cellsOn = on; this.cells.forEach((c, i) => c.classList.toggle('on', i < on)); }
     e.boost.classList.toggle('on', boat.boosting);
+    // draft: shown only while there are rivals; fills with the slipstream or the catch-up, lights the accent after a slingshot or a bump
+    const rv = g.rivals.length > 0;
+    e.draft.classList.toggle('hide', !rv); e.drl.classList.toggle('hide', !rv);
+    if (rv) {
+      const dn = Math.round(Math.max(g.draft.level, g.draft.stored * 0.6, g.contact.bump, g.draft.catch * 0.6) * DRAFT_CELLS);
+      if (dn !== this.draftOn) { this.draftOn = dn; this.dcells = this.dcells || Array.from(e.draft.children); this.dcells.forEach((c, i) => c.classList.toggle('on', i < dn)); }
+      e.draft.classList.toggle('hot', g.draft.sling > 0 || g.contact.bump > 0.3);
+    }
     // countdown and flashes
     if (g.state === 'countdown') {
       const left = g.t0 - g.app.time;
