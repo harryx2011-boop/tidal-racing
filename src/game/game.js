@@ -20,40 +20,20 @@ import { Wildlife } from './wildlife.js';
 import { Land } from './land.js';
 import { Collisions } from './collide.js';
 import { Coastal } from './coastal.js';
+import { ghostStore, ghostPose, angDiff, GHOST_HZ } from './ghost.js';
+import { pauseAction } from './pause.js';
 
 const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
 const SEA_T0 = 60;             // every race starts at the same sea time: identical waves, fair ghosts
-const GHOST_HZ = 10;
 const GHOST_LIVERY = { color: [0.6, 0.8, 1], stripe: 0, number: 0 };
 // move a model matrix's origin to a point given in the model's own space (in place)
 function attach(m, p) {
   for (let i = 0; i < 3; i++) m[12 + i] += m[i] * p[0] + m[4 + i] * p[1] + m[8 + i] * p[2];
   return m;
 }
-const angDiff = (a, b) => { let d = (a - b) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
 
-const store = {
-  key: (c, w) => `tidal.best3.${c}.${w}`,   // 3: the courses moved close to the coast, so older times and ghosts do not apply
-  load(c, w) {
-    try {
-      const o = JSON.parse(localStorage.getItem(this.key(c, w)));
-      if (!o) return null;
-      const bin = atob(o.ghost);
-      const u8 = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-      return { time: o.time, ghost: new Float32Array(u8.buffer) };
-    } catch { return null; }
-  },
-  save(c, w, time, ghost) {
-    try {
-      const u8 = new Uint8Array(ghost.buffer, 0, ghost.length * 4);
-      let bin = '';
-      for (let i = 0; i < u8.length; i += 8192) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
-      localStorage.setItem(this.key(c, w), JSON.stringify({ time, ghost: btoa(bin) }));
-    } catch { /* storage full or blocked: the run still counts for this session */ }
-  },
-};
+const store = ghostStore();
 
 export class Game {
   constructor(app, audio) {
@@ -172,8 +152,12 @@ export class Game {
     if (inp.pressed.has('mute')) this.hud.toggleSound();
     if (inp.pressed.has('camera')) this.camMode = this.camMode === 'chase' ? 'helm' : 'chase';
     if (this.state !== 'menu') {
-      if (inp.pressed.has('pause')) { this.paused = !this.paused; this.hud.pause(this.paused); }
-      if (inp.pressed.has('reset') && this.state === 'racing') this.place(this.progress.respawn());
+      if (inp.pressed.has('pause')) {
+        const a = pauseAction({ state: this.state, settingsOpen: this.hud.settingsOpen() });
+        if (a === 'closeSettings') this.hud.closeSettings(true);
+        else if (a === 'toggle') { this.paused = !this.paused; this.hud.pause(this.paused); }
+      }
+      if (inp.pressed.has('reset') && this.state === 'racing' && !this.paused) this.place(this.progress.respawn());
     }
     if (this.paused || !ot) return;
     if (app.fade < 1) app.fade = Math.min((app.fade ?? 1) + dt * 1.6, 1);
@@ -227,14 +211,7 @@ export class Game {
   ghostAt(t) {
     const g = this.best && this.best.ghost;
     if (!g || this.state === 'menu') return false;
-    const n = g.length / 6, f = t * GHOST_HZ, i = Math.floor(f);
-    if (i >= n - 1) return false;
-    const k = f - i, a = i * 6, b = a + 6, gb = this.ghostBoat;
-    for (let j = 0; j < 3; j++) gb.pos[j] = g[a + j] + (g[b + j] - g[a + j]) * k;
-    gb.yaw = g[a + 3] + angDiff(g[b + 3], g[a + 3]) * k;
-    gb.pitch = g[a + 4] + (g[b + 4] - g[a + 4]) * k;
-    gb.roll = g[a + 5] + (g[b + 5] - g[a + 5]) * k;
-    return true;
+    return ghostPose(g, t, this.ghostBoat);
   }
 
   camera(dt, seaAtCam) {

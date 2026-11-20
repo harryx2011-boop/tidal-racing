@@ -193,8 +193,10 @@ export class LandField {
     u -= 0.5; v -= 0.5;
     let i = Math.floor(u), j = Math.floor(v);
     const fu = u - i, fv = v - j;
-    const i1 = i + 1 > nx - 1 ? nx - 1 : i + 1, j1 = j + 1 > nz - 1 ? nz - 1 : j + 1;
-    if (i < 0) i = 0; if (j < 0) j = 0;
+    let i1 = i + 1, j1 = j + 1;
+    // (beyond the field every index clamps to the edge texel)
+    if (i < 0) i = 0; else if (i > nx - 1) i = nx - 1; if (j < 0) j = 0; else if (j > nz - 1) j = nz - 1;
+    if (i1 < 0) i1 = 0; else if (i1 > nx - 1) i1 = nx - 1; if (j1 < 0) j1 = 0; else if (j1 > nz - 1) j1 = nz - 1;
     const a = arr[j * nx + i], b = arr[j * nx + i1], c = arr[j1 * nx + i], d = arr[j1 * nx + i1];
     return (a + (b - a) * fu) + ((c + (d - c) * fu) - (a + (b - a) * fu)) * fv;
   }
@@ -215,8 +217,10 @@ export class LandField {
     u -= 0.5; v -= 0.5;
     let i = Math.floor(u), j = Math.floor(v);
     const fu = u - i, fv = v - j;
-    const i1 = i + 1 > nx - 1 ? nx - 1 : i + 1, j1 = j + 1 > nz - 1 ? nz - 1 : j + 1;
-    if (i < 0) i = 0; if (j < 0) j = 0;
+    let i1 = i + 1, j1 = j + 1;
+    // (beyond the field every index clamps to the edge texel)
+    if (i < 0) i = 0; else if (i > nx - 1) i = nx - 1; if (j < 0) j = 0; else if (j > nz - 1) j = nz - 1;
+    if (i1 < 0) i1 = 0; else if (i1 > nx - 1) i1 = nx - 1; if (j1 < 0) j1 = 0; else if (j1 > nz - 1) j1 = nz - 1;
     const a = arr[j * nx + i], b = arr[j * nx + i1], c = arr[j1 * nx + i], d = arr[j1 * nx + i1];
     const top = a + (b - a) * fu, bot = c + (d - c) * fu;
     out.h = top + (bot - top) * fv;
