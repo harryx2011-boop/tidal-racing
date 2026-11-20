@@ -52,7 +52,7 @@ is no server of ours. A strict firewall or symmetric NAT can block a direct link
 For two tabs on one machine with no network, add `?transport=local` to every tab's address
 (BroadcastChannel). Code: `src/game/net/` (transport, session, protocol, clock, interpolation) and
 `src/game/lobby.js`. Checks: `node --test tests/net/*.test.mjs` and
-`flock /tmp/tidal-shot-2.lock node tools/check-net.mjs` (needs `node tools/serve.mjs 5185`).
+`flock /tmp/tidal-test.lock node tools/check-net.mjs` (needs `node tools/serve.mjs 5185`).
 
 ## Layout
 
