@@ -18,14 +18,8 @@
 // The pages' clocks are virtual (?manual): they advance only when stepped, and each page starts at a
 // different base (?netbase=), so the clock offset estimate has real work to do. The course is cut short
 // (course.total) so a race takes a minute, not twenty.
-import { createRequire } from 'node:module';
-import { execSync } from 'node:child_process';
-let pw;
-for (const dir of ['/usr/lib/node_modules/', (() => { try { return execSync('npm root -g').toString().trim() + '/'; } catch { return '/'; } })()]) {
-  try { pw = createRequire(dir)('playwright'); break; } catch { /* next */ }
-}
-if (!pw) { console.error('playwright not found'); process.exit(2); }
-const { chromium } = pw;
+import { loadPlaywright, launchOptions } from './pw.mjs';
+const { chromium } = await loadPlaywright();
 
 const PORT = process.env.PORT || 5185;
 const N = Math.min(Math.max(Number(process.env.PLAYERS) || 3, 2), 4);
@@ -85,7 +79,7 @@ const HELPERS = `window.T = {
   },
 };`;
 
-const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', ...(PEER ? ['--disable-features=WebRtcHideLocalIpsWithMdns'] : [])] });
+const browser = await chromium.launch(launchOptions(PEER ? ['--disable-features=WebRtcHideLocalIpsWithMdns'] : []));
 const ctx = await browser.newContext({ viewport: { width: 960, height: 540 }, deviceScaleFactor: 1 });
 let abort = false;
 const pages = [];

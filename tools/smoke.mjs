@@ -13,15 +13,13 @@
 // tools/serve.mjs), so absolute URLs that would break on GitHub Pages fail here. Exit status is non-zero on failure.
 // Environment: SMOKE_URL (use a running server, e.g. http://localhost:5188/), SMOKE_COURSES=circuit,oval,
 // SMOKE_FULL=1 (race every lap to the finish), SMOKE_Q=low|medium (default low), SMOKE_JSON=path (write results).
-import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-const require = createRequire('/usr/lib/node_modules/');
-let pw; try { pw = require('playwright'); } catch { pw = (await import('playwright')).default; }
-const { chromium } = pw;
+import { loadPlaywright, launch } from './pw.mjs';
+const { chromium } = await loadPlaywright();
 
 const root = join(fileURLToPath(import.meta.url), '..', '..');
 const COURSES = (process.env.SMOKE_COURSES || 'circuit,sprint,oval').split(',');
@@ -132,7 +130,7 @@ function install() {
 }
 
 // ---- boot ----
-const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launch();
 const page = await browser.newPage({ viewport: { width: 480, height: 270 }, deviceScaleFactor: 1 });
 const warnings = [];
 page.on('pageerror', (e) => fail('page error: ' + e.message.slice(0, 500)));

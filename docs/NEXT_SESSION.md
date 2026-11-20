@@ -116,6 +116,46 @@ storm still taken straight after `game.start` comes out almost black.
 - The container-only conventions in `docs/BRIEF_DETAIL.md` (`tools/shot.sh`, the `/tmp` lock files,
   the worktree paths, the scratchpad paths) do not apply on the owner's PC.
 
+### On the PC so far (20 November)
+
+- Cloned to `C:\tidal-racing` (Windows 11, Node 24.15). `node tools/check-all.mjs` passes: all 4 steps.
+- `tools/check-contact.mjs` skipped its solo baseline on Windows (a URL pathname used as `cwd`). Fixed;
+  it now reports "4800 steps compared on a rough sea, 0 differences".
+- **Step 3 done.** `tools/pw.mjs` finds Playwright (the repo, `/usr/lib/node_modules`, then `npm root -g`)
+  and picks the GL backend: the real GPU by default off Linux, `GPU=0` for software, `HEADED=1` for a
+  window. `drive.mjs`, `smoke.mjs`, `check-net.mjs` and `check-sound.mjs` use it. `LIVE=1` on `drive.mjs`
+  leaves the game's own frame loop running; `T.wait(s)` and `T.report()` (the F3 readout) are new helpers.
+- **Step 1, first real run** (headless Chromium, new headless mode, ANGLE Direct3D 11 on the RTX 2070
+  Super, 1920x1080, `q=medium`). Seen in stills: the menu and a race on each course render correctly.
+  No page error, no console error or warning, no shader compile or link failure, `gl.getError()` 0 after
+  38 s of racing on each course. The "WebGL: too many errors" message and the READ-usage warning did not
+  appear. The sea probe answers every frame (`probe.fresh` true in every sample) and the boat pitches and
+  rolls with the waves at 33 to 37 m/s. Not yet seen: a headed Chrome window, and anything by the owner.
+
+### Step 2: the three readouts (20 November, autopilot, breeze, day, seed 12345, 38 s from the start)
+
+Frame rate is capped at the display's 60 Hz, so read the GPU times: the frame costs 15.6 to 16.3 ms of
+a 16.7 ms budget, and **the clouds are 6.8 to 7.4 ms of it**. Meshes are 1.6 to 3.8 ms and the sea 2.5 to
+3.0 ms. The 1% low is 16 to 18 fps (single frames of 55 to 67 ms): hitches, cause not yet found.
+The governor gave up one step of spray on the sprint.
+
+```
+circuit                                              sprint                                               oval
+56.9 fps   17.6 ms avg                               52.7 fps   19.0 ms avg                               54.4 fps   18.4 ms avg
+1% low 18.0 fps (55.6 ms)  worst 58.2 ms             1% low 16.3 fps (61.2 ms)  worst 66.7 ms             1% low 17.1 fps (58.4 ms)  worst 58.5 ms
+fx spray 1.00 water-shadow 1.00 shadows 1.00         fx spray 0.67 water-shadow 1.00 shadows 1.00         fx spray 1.00 water-shadow 1.00 shadows 1.00
+governor auto rung 0/14 mean 16.8 ms                 governor auto rung 1/14 mean 17.0 ms                 governor auto rung 0/14 mean 17.4 ms
+ocean 1.7 clouds 7.3 sky 1.3 water 2.7 meshes 2.1    ocean 1.7 clouds 7.4 sky 1.3 water 3.0 meshes 1.6    ocean 1.6 clouds 6.8 sky 1.1 water 2.5 meshes 3.8
+env 0.1 rain 0.2 post 0.4  gpu total 15.8 ms         env 0.1 rain 0.1 post 0.4  gpu total 15.6 ms         env 0.1 rain 0.1 post 0.4  gpu total 16.3 ms
+land 42/129k scenery 4/18k                           land 139/191k scenery 9/19k                          land 58/187k scenery 11/20k
+wildlife 5/18k coastal 27/84k                        wildlife 1/5k coastal 45/33k                         wildlife 13/13k coastal 39/106k
+```
+
+All three: `render 1.00x 1920x1080 msaa 4 dpr 1.00`, tier medium, speed fx on, renderer
+`ANGLE (NVIDIA GeForce RTX 2070 SUPER, Direct3D11)`. The menu (circuit backdrop): 52.9 fps, clouds 7.4,
+meshes 3.4, gpu total 16.2 ms, land 62/184k, coastal 44/143k. To repeat:
+`LIVE=1 PAGE=1 node tools/drive.mjs out.png "q=medium&stats" "app.game.start('circuit','breeze','day',12345); T.autopilot(); await T.wait(38); return T.report();" 1920 1080`.
+
 ## What exists
 
 Milestones 1 and 2 (solo time trial), the visual upgrade in `docs/BRIEF_VISUAL_UPGRADE.md` and
