@@ -75,9 +75,23 @@ storm still taken straight after `game.start` comes out almost black.
   (`exposureBias` in `main.js` adds 0.4 EV in storms); near cumulus a little pebbly; cirrus as straight
   scratches in places; grain in dark cloud at sunset; no scud. Its verdict will be
   `docs/verdicts/S-sky-r1.md`.
-- Land and coast, and sea and shore: still building in the cloud. Until their merge commits show in
-  `git log`, leave alone `src/ocean/water.js`, `src/ocean/foam.js`, `src/game/wake.js`,
-  `src/game/boatspray.js`, `src/game/land.js`, `src/game/coastal.js` and the coast models.
+- **Land and coast round 1 is merged; `src/game/land.js`, `coastal.js`, `coastplan.js` and
+  `src/game/models/{rocks,trees}.js` are free to edit** (sea and shore may still add a line to
+  `fixedFor` in `land.js`). Sea stacks rebuilt as bedded pillars; cliffs get a finer skin of beds,
+  ledges and buttresses over steep ground within 420 m of the racing line; boulders bedded with foam
+  rings; spruce in whorls; trees behind quays; terrain chunks one instanced draw per level; level of
+  detail builds on a 4 ms budget, with a rush of builds over the three drawn frames after a camera jump
+  (so a judged still needs at least 3 `T.frames` after placing the camera). Cost counted in Node, not
+  timed: land and coast at medium, median 266k to 362k triangles and 58 to 92 draws along the racing
+  lines, worst 690k and 130; triangles level with before, draws down by a third or more. To watch on
+  the PC: a near cliff tile takes about 20 ms of JavaScript to build (worst 65 ms), which may be one of
+  the hitches; near cliff skins are never evicted (up to about 100 MB on the sprint). The builder's own
+  list of what is still wrong: headlands are still drums with flat tops and the beds read a little
+  like coursed masonry; ledges are soft; trees up close are stylised and lime green in sun; boulders
+  plain under 15 m; moored day boats are boxy, one with a green stern panel; nothing seen in motion,
+  in any weather but breeze, or on the high tier. Its verdict will be `docs/verdicts/P-land-r1.md`.
+- Sea and shore: still building in the cloud. Until its merge commit shows in `git log`, leave alone
+  `src/ocean/water.js`, `src/ocean/foam.js`, `src/game/wake.js` and `src/game/boatspray.js`.
 
 ### What to do, in this order
 
