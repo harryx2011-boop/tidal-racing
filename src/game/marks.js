@@ -9,9 +9,10 @@
 // out of step. The next gate to pass never flashes: its lanterns and top marks burn bright and
 // steady under a large halo, so it reads against the rest at any speed and in any weather.
 //
-// Cost: a buoy is 8.3k triangles near, 1.2k beyond 260 m; a pylon 11k; a tower 3.9k; truss 0.6k +
-// banner 0.4k, or a flag line 1.5k. One draw per mark (two for a gantry span), marks behind the
-// camera or beyond 4 km are skipped, glows are one quad each. No per-frame allocation.
+// Cost (triangles, near / middle / far): a buoy 9.5k / 1.6k / 0.5k (it steps down at 70 and 300 m); a pylon
+// 13k / 2.6k / 1.2k and a tower 6.2k / 1.1k / 0.75k (at 110 and 450 m); truss 0.9k + banner 0.4k, or a flag
+// line 1.7k. One draw per mark (two for a gantry span), marks behind the camera or beyond 4 km are
+// skipped, glows are one quad each. No per-frame allocation.
 import { buoyGeo } from './models/buoy.js';
 import { towerGeo, trussGeo, bannerGeo, flagLineGeo, pylonGeo, TOWER, PYLON, PORT, STBD, LENS_PORT, LENS_STBD } from './models/marks.js';
 import { Texture, Target, Program, bindEmpty, fullscreen, FULLSCREEN_VS } from '../gl.js';
@@ -19,7 +20,7 @@ import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { smoothstep } from '../math.js';
 
 const FAR = 4000;            // marks beyond this are not drawn
-const NEAR_LOD = 260;        // buoys switch to the light model beyond this
+const BUOY_LOD = [70, 300], BIG_LOD = [110, 450];   // where buoys, and towers and pylons, step down a level of detail (m)
 const WIDE = 48;             // gates wider than this get a flag line, narrower ones a truss (metres)
 const FLASH_PERIOD = 4, FLASH_ON = 0.8;
 const ZERO = { dx: 0, dy: 0, dz: 0, sx: 0, sz: 0 };
@@ -63,6 +64,9 @@ function bannerTexture(gl) {
     x.fillStyle = '#101214'; x.textAlign = 'center'; x.textBaseline = 'middle';
     x.font = 'bold 92px "Arial Black", Arial, "DejaVu Sans", sans-serif';
     x.fillText('START  •  FINISH', w / 2, h / 2 + 4);
+    // sponsors' boards either side of the words: a lozenge of colour and a name
+    const board = (cx, bg, ink, word) => { rrectPath(x, cx - 230, 14, 460, h - 28, 22); x.fillStyle = bg; x.fill(); x.fillStyle = ink; x.font = 'italic bold 62px "Arial Black", Arial, "DejaVu Sans", sans-serif'; x.fillText(word, cx, h / 2 + 4); };
+    board(w * 0.2, '#10306e', '#f0f0ea', 'TIDAL RACING'); board(w * 0.8, '#d2600a', '#14161a', 'OPEN WATER');
   });
 }
 
@@ -229,18 +233,14 @@ export class Marks {
     const M = this.meshes || (this.meshes = { buoy: {}, tower: {}, pylon: {}, truss: {}, banner: {}, flags: {} });
     const buoy = (side, variant, lod) => {
       const k = side + variant + lod;
-      if (!M.buoy[k]) { const g = buoyGeo(side, { seed: 1 + variant * 2.3 + (side === 'port' ? 0 : 5), lod }); M.buoy[k] = { mesh: g.build(gl), lamp: g.lamp, tris: g.p.length / 9 }; }
+      if (!M.buoy[k]) { const g = buoyGeo(side, { seed: 1 + variant * 2.3 + (side === 'port' ? 0 : 5), lod }); M.buoy[k] = { mesh: g.build(gl), lamp: g.lamp, tris: g.nv / 3 }; }
       return M.buoy[k];
     };
+    const big = (kind, side, make) => { if (!M[kind][side]) M[kind][side] = [0, 1, 2].map((l) => { const g = make(side, l); return { mesh: g.build(gl), lamp: g.lamp, tris: g.nv / 3 }; }); return M[kind][side]; };
     for (const it of this.items) {
       if (it.kind === 'buoy') { it.lamp = buoy(it.side, it.variant, 0).lamp; }
-      else if (it.kind === 'tower') {
-        if (!M.tower[it.side]) { const g = towerGeo(it.side); M.tower[it.side] = { mesh: g.build(gl), lamp: g.lamp, tris: g.p.length / 9 }; }
-        it.lamp = M.tower[it.side].lamp;
-      } else if (it.kind === 'pylon') {
-        if (!M.pylon[it.side]) { const g = pylonGeo(it.side); M.pylon[it.side] = { mesh: g.build(gl), lamp: g.lamp, tris: g.p.length / 9 }; }
-        it.lamp = M.pylon[it.side].lamp;
-      }
+      else if (it.kind === 'tower') { it.lods = big('tower', it.side, towerGeo); it.lamp = it.lods[0].lamp; }
+      else if (it.kind === 'pylon') { it.lods = big('pylon', it.side, pylonGeo); it.lamp = it.lods[0].lamp; }
       const key = it.kind + (it.kind === 'tower' ? '' : it.number) + it.side;
       if (!this.tex[key]) {
         const col = it.side === 'port' ? PORT : STBD;
@@ -250,7 +250,7 @@ export class Marks {
       it.tex = this.tex[key];
     }
     // lod 1 buoys
-    for (const it of this.items) if (it.kind === 'buoy') it.near = buoy(it.side, it.variant, 0), it.far = buoy(it.side, it.variant, 1);
+    for (const it of this.items) if (it.kind === 'buoy') it.lods = [0, 1, 2].map((l) => buoy(it.side, it.variant, l));
     for (const s of this.spans) {
       if (s.kind === 'truss') {
         const k = s.L.toFixed(1);
@@ -285,14 +285,14 @@ export class Marks {
     const next = it.gate === this.next;
     if (next) {
       const p = 0.5 + 0.5 * Math.sin(t * 5);
-      out.glow = 1.6 + 0.5 * p; out.gain = 3.2 + 1.2 * p; out.size = 0.062;
+      out.glow = 1.6 + 0.5 * p; out.gain = 3.2 + 1.2 * p; out.size = 0.02 + 0.042 * dark;
       return out;
     }
     const ph = ((t + it.gate * 0.7 + (it.side === 'port' ? 0 : FLASH_PERIOD / 2)) % FLASH_PERIOD + FLASH_PERIOD) % FLASH_PERIOD;
     const on = smoothstep(0.0, 0.1, ph) * (1 - smoothstep(FLASH_ON, FLASH_ON + 0.2, ph));
     out.glow = 0.3 + dark * (on * 2.0 - 0.2);
     out.gain = 0.16 + dark * on * 7;
-    out.size = 0.016 + 0.01 * dark * on;
+    out.size = 0.004 + 0.012 * dark + 0.01 * dark * on;
     return out;
   }
 
@@ -323,10 +323,10 @@ export class Marks {
       this.lit(it, t, dark, lit);
       rotY(mat, it.yaw, it.x, it.z);
       const d = Math.hypot(it.x - cam[0], it.z - cam[2]);
-      let mesh, tex = null;
-      if (it.kind === 'buoy') { const lod = d < NEAR_LOD ? it.near : it.far; mesh = lod.mesh; if (lod === it.near) tex = it.tex; }
-      else { mesh = M[it.side].mesh; tex = it.tex; }
-      m.draw(mesh, mat, { glow: lit.glow, float: 1, texture: tex });
+      // (number plates are textured on the near level, and on a pylon's middle level; elsewhere they are plain)
+      const T = it.kind === 'buoy' ? BUOY_LOD : BIG_LOD, l = d < T[0] ? 0 : d < T[1] ? 1 : 2;
+      void M;
+      m.draw(it.lods[l].mesh, mat, { glow: lit.glow, float: 1, texture: l === 0 || (l === 1 && it.kind === 'pylon') ? it.tex : null });
       const L = this.lamps[this.lampN] || (this.lamps[this.lampN] = { x: 0, z: 0, h: 0, side: 0, gain: 0, size: 0, sx: 0, sz: 0, it: null });
       L.it = it; L.gain = lit.gain; L.size = lit.size;
       this.lampN++;
@@ -367,7 +367,7 @@ export class Marks {
       if (d > FAR || !this.visible(wx, wy, wz, 2)) continue;
       const k = 0.2 / d;
       pos[0] = wx + dx * k; pos[1] = wy + dy * k; pos[2] = wz + dz * k;
-      const sy = Math.max(0.9 * (0.4 + L.size * 12) / (d * tanHalf), L.size);
+      const sy = Math.max(0.9 * (0.14 + L.size * 12) / (d * tanHalf), L.size);
       half[0] = sy / aspect; half[1] = sy;
       this.prog.set('uPos', pos);
       this.prog.set('uHalf', half);
