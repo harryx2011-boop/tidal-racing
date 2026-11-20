@@ -70,6 +70,7 @@ out vec3 vNrm;
 out vec3 vTint;
 out float vKind;
 out float vScale;
+out float vBed;
 void main() {
   vec4 ch = uInst > 0.5 ? iChunk : uChunk;
   vec2 xz = ch.xy + aG.xy * ch.zw;
@@ -78,7 +79,7 @@ void main() {
   vec3 P = vec3(xz.x, h, xz.y);
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
-  vWorld = P; vNrm = vec3(0.0, 1.0, 0.0); vTint = vec3(1.0); vKind = 0.0; vScale = 1.0;
+  vWorld = P; vNrm = vec3(0.0, 1.0, 0.0); vTint = vec3(1.0); vKind = 0.0; vScale = 1.0; vBed = 0.0;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
@@ -96,11 +97,12 @@ out vec3 vNrm;
 out vec3 vTint;
 out float vKind;
 out float vScale;                     // rock: how much finer than a cliff's its beds and joints are (a boulder is a small thing)
+out float vBed;                       // rock: 1 where the mesh has the great beds' ledges built into it (a cliff's skin)
 void main() {
   vec3 P = aPos + uOrigin;
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
-  vWorld = P; vNrm = aN; vTint = aCol; vKind = aMat.x; vScale = max(aMat.y, 1.0);
+  vWorld = P; vNrm = aN; vTint = aCol; vKind = aMat.x; vScale = max(aMat.y, 1.0); vBed = aMat.z;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
@@ -110,6 +112,7 @@ in vec3 vNrm;
 in vec3 vTint;
 in float vKind;
 in float vScale;
+in float vBed;
 out vec4 oColor;
 uniform vec3 uCamPos;
 uniform float uFar;
@@ -227,7 +230,7 @@ vec3 lampLight(vec3 P, vec3 N) {
 // streaked down from the ledges of the higher beds. crev: how deep in a joint, a gully or under a ledge the
 // point lies (it takes less light there). bump: how the beds and ribs turn the surface (ledge tops look up).
 // P is the point in space, so a cliff is not a stretched map.
-vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, out float crev, out vec3 bump) {
+vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, float bedded, out float crev, out vec3 bump) {
   float fo1 = 1.0 - smoothstep(0.3, 0.8, fp * 0.55);      // the thin beds resolve
   float fo2 = 1.0 - smoothstep(0.08, 0.3, fp);            // joints, laminations
   float fo0 = 1.0 - smoothstep(0.3, 0.8, fp * 0.16);      // the great beds
@@ -241,6 +244,13 @@ vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, out float crev, out
   float s = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 2.2 * wv + 0.25 * n2 + 0.9 * (vn3(P * 0.19 + 11.0) - 0.5) + 0.35 * (vn3(P * 0.6 + 5.0) - 0.5) * fo1;
   // great beds of uneven thickness (3 to 9 m), each stepping back from the one below: these carry the ledges
   float s0 = s * 0.3 + 0.9 * vn(vec2(s * 0.23, 7.0));
+  if (bedded > 0.5) {
+    // a cliff's skin has these beds built into it as ledges (models/rocks.js, bedU: the same formula, and no
+    // noise in it that the two sides could disagree on): a bed's seam lies along the foot of its riser
+    float sA = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 1.1 * sin(P.x * 0.031 + 1.3) * sin(P.z * 0.027 + 0.4);
+    s0 = sA * 0.4 + 0.2 * sin(sA * 0.9 + 1.0);
+    s = sA + 0.25 * n2 + 0.35 * (vn3(P * 0.6 + 5.0) - 0.5) * fo1;
+  }
   float B0 = floor(s0), bf0 = s0 - B0;
   float tone0 = h11f(B0 * 1.7 + 0.3);
   // thin beds within them: tone only, and a fine line
@@ -270,7 +280,8 @@ vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, out float crev, out
   float gs = smoothstep(0.6, 0.8, vn(vec2(al * 0.7, B0 * 3.1 + 1.0))) * smoothstep(0.1, 0.9, bf0) * smoothstep(6.0, 11.0, P.y) * face * fo0;
   c = mix(c, vec3(0.6, 0.6, 0.56), gs * 0.5);
   crev = max(max(under * 0.85, joint), gully * fr * face);
-  bump = (vec3(tdir.x, 0.0, tdir.y) * rg * -2.6 * fr + vec3(0.0, ledge * 1.6 - 0.3 * fo0 * (1.0 - bf0), 0.0)) * face;
+  // (where the ledges are real the shading does not fake them)
+  bump = (vec3(tdir.x, 0.0, tdir.y) * rg * -2.6 * fr + vec3(0.0, ledge * 1.6 - 0.3 * fo0 * (1.0 - bf0), 0.0) * (1.0 - bedded)) * face;
   return c;
 }
 
@@ -445,7 +456,7 @@ void main() {
   // ---- rock, and the zones of a rocky shore ----
   float crev;
   vec3 rbump;
-  vec3 rockC = rockLook(P3 * vScale, Ng, fp * vScale, n1, n2, crev, rbump);
+  vec3 rockC = rockLook(P3 * vScale, Ng, fp * vScale, n1, n2, vBed, crev, rbump);
   if (kind == 3) {
     // weathered concrete (a slipway, steps): cast in bays, ribbed across for grip
     rockC = vec3(0.27, 0.265, 0.25) * (0.85 + 0.3 * n2 + 0.3 * n1) * (1.0 - 0.25 * (1.0 - smoothstep(0.02, 0.05 + fp, abs(fract(dot(p, uQuayA[0].zw) / 0.5) - 0.5) * 0.5)) * (1.0 - smoothstep(0.1, 0.3, fp)));

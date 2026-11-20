@@ -1,8 +1,8 @@
 // The coast as a lived-in place: everything on the land and along the shore that is not height field.
 // One system; the plan of a course is plain data (models/coastplan.js), a pure function of the course.
 //
-//   ground    quay decks, slipways, the boulders of the `rocks` features, the shells of the sea stacks, loose
-//             blocks and outcrops on cliffs: meshes handed to the terrain (land.js draws them with its own
+//   ground    quay decks, slipways, the boulders of the `rocks` features, the shells of the sea stacks, the
+//             bedded skins of the cliffs and the loose blocks under them: meshes handed to the terrain (land.js draws them with its own
 //             shading, so rock is one rock everywhere and paving takes shadows)
 //   fixed     quay walls and their furniture, piers, and the buildings in chunks: meshes for the mesh pass
 //   afloat    a small craft and a buoy at every mooring spot, riding the sea by the mesh pass's float mode
@@ -33,7 +33,7 @@ import { planCoast } from './models/coastplan.js';
 import { Geo } from './models/kit.js';
 import { quayGeo, deckGeo, pierGeo, slipGeo } from './models/harbour.js';
 import { buildingGeo } from './models/village.js';
-import { rockFieldGeo, stackGeo, looseRockGeo, rockSet } from './models/rocks.js';
+import { rockFieldGeo, stackGeo, looseRockGeo, rockSet, cliffGeo, CLIFF_TILE } from './models/rocks.js';
 import { packLevel, FLOATS } from './models/trees.js';
 import { openBoatGeo, dayBoatGeo, mooringBuoyGeo } from './models/smallcraft.js';
 import { ribGeo } from './models/vessels.js';
@@ -304,6 +304,8 @@ export class Coastal {
       const tr = (th, y) => { let r = 0; for (let d = 0.5; d < s.r * 1.7; d += 0.5) if (field.heightAt(s.x + Math.cos(th) * d, s.z + Math.sin(th) * d) >= y) r = d; return r; };
       item(G.ground, { make: (l) => ({ g: stackGeo(s, tr, l) }), n: 3, at: [170, 650], origin: [s.x, 0, s.z], box: [s.x - s.r * 1.9, -6, s.z - s.r * 1.9, s.x + s.r * 1.9, s.h + 3, s.z + s.r * 1.9], cull: 9000 });
     }
+    // the cliffs' skins, a tile each (they go as far as the loose rock does: beyond, a cliff is the terrain's own shape)
+    for (const t of P.cliffs) { const o = [t.x0 + CLIFF_TILE / 2, 0, t.z0 + CLIFF_TILE / 2]; item(G.ground, { make: (l) => ({ g: cliffGeo(field, t, o, l) }), n: 3, at: [170, 520], origin: o, box: [t.x0 - 1, t.y0, t.z0 - 1, t.x0 + CLIFF_TILE + 1, t.y1, t.z0 + CLIFF_TILE + 1], cull: this.tier.rocks }); }
     const cells = new Map();
     for (const r of P.rocks) { const k = Math.floor(r.x / 192) + ':' + Math.floor(r.z / 192); let c = cells.get(k); if (!c) cells.set(k, c = []); c.push(r); }
     const sets = [0, 1, 2].map((l) => ({ block: rockSet('block', 4, l, 'land', 101), boulder: rockSet('boulder', 3, l, 'land', 131) }));

@@ -226,9 +226,119 @@ export function stackGeo(f, terrainR, lod = 0) {
   return g;
 }
 
+// ---- cliffs: the steep faces of the height field, rebuilt as bedded rock ----
+// The height field is a smooth sheet a few metres a texel: its cliffs are ramps. Over every steep face near the
+// course lies a skin of finer mesh that gives the face its build: the great beds of the rock (3 to 8 m thick)
+// each end in a sheer riser and a ledge, so the profile is a flight of steps and not a slope; joints running
+// down the face part each bed into blocks, some standing out to the full ledge, some weathered back, with a
+// groove between; ledge and face are rough. The skin never lies below the ground it covers (the cliff grows
+// outward by up to a bed), sinks under it where the slope eases, and stays out of the water (the hull's
+// grounding is the height field's, so no rock may stand where the field says sea).
+// The beds are the ones the terrain shader paints on such a mesh (land.js, rockLook, `bedded`): the same
+// formula here and there, so a seam of colour runs along the foot of a real riser.
+export const CLIFF_TILE = 96;
+const bedS = (x, y, z) => y * 0.55 + x * 0.07 - z * 0.04 + 1.1 * Math.sin(x * 0.031 + 1.3) * Math.sin(z * 0.027 + 0.4);
+// the bed a point lies in (whole part) and how far up it (fraction); the beds' thickness there in metres
+export const bedU = (x, y, z) => { const sA = bedS(x, y, z); return sA * 0.4 + 0.2 * Math.sin(sA * 0.9 + 1.0); };
+export const bedT = (x, y, z) => 1 / (0.55 * (0.4 + 0.18 * Math.cos(bedS(x, y, z) * 0.9 + 1.0)));
+const TREAD = 0.9, RISER = 0.12;     // a ledge lies this far up its bed; the riser takes this share of the bed's run
+
+// the tiles of a course that hold steep ground within `reach` of the line: [{ x0, z0, y0, y1 }]
+export function placeCliffs(field, segs, reach = 420) {
+  const out = [], sm = { h: 0, gx: 0, gz: 0 }, T = CLIFF_TILE;
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  for (const s of segs) { x0 = Math.min(x0, s[0], s[2]); x1 = Math.max(x1, s[0], s[2]); z0 = Math.min(z0, s[1], s[3]); z1 = Math.max(z1, s[1], s[3]); }
+  x0 = Math.max(x0 - reach, field.x0 + 8); x1 = Math.min(x1 + reach, field.x1 - 8); z0 = Math.max(z0 - reach, field.z0 + 8); z1 = Math.min(z1 + reach, field.z1 - 8);
+  const near = (x, z) => {
+    for (const s of segs) {
+      const dx = s[2] - s[0], dz = s[3] - s[1];
+      let t = ((x - s[0]) * dx + (z - s[1]) * dz) / (dx * dx + dz * dz || 1); t = t < 0 ? 0 : t > 1 ? 1 : t;
+      if (Math.hypot(s[0] + dx * t - x, s[1] + dz * t - z) < reach + T * 0.7) return true;
+    }
+    return false;
+  };
+  for (let j = Math.floor(z0 / T); j <= Math.floor(z1 / T); j++) for (let i = Math.floor(x0 / T); i <= Math.floor(x1 / T); i++) {
+    if (!near((i + 0.5) * T, (j + 0.5) * T)) continue;
+    let n = 0, lo = 1e9, hi = -1e9;
+    for (let b = 0; b <= T; b += 3) for (let a = 0; a <= T; a += 3) {
+      field.sample(i * T + a, j * T + b, sm);
+      if (sm.h > -0.3 && sm.h < 180 && Math.hypot(sm.gx, sm.gz) > 0.62) { n++; if (sm.h < lo) lo = sm.h; if (sm.h > hi) hi = sm.h; }
+    }
+    if (n >= 3) out.push({ x0: i * T, z0: j * T, y0: lo - 3, y1: hi + 12 });
+  }
+  return out;
+}
+
+// one tile's skin about `origin`, at a level of detail (cells of 1, 2 or 4 m)
+export function cliffGeo(field, t, origin, lod = 0) {
+  const c = [1, 2, 4][lod], n = CLIFF_TILE / c, N1 = n + 1, sm = { h: 0, gx: 0, gz: 0 };
+  const P = new Float32Array(N1 * N1 * 3), W = new Float32Array(N1 * N1), F = new Float32Array(N1 * N1);
+  for (let j = 0; j < N1; j++) for (let i = 0; i < N1; i++) {
+    let x = t.x0 + i * c, z = t.z0 + j * c;
+    field.sample(x, z, sm);
+    const h = sm.h, gr = Math.hypot(sm.gx, sm.gz), q = (j * N1 + i);
+    const w = smooth(0.48, 0.8, gr) * smooth(-0.3, 0.25, h) * (1 - smooth(150, 180, h));
+    let y = h - 0.6, turf = 0;
+    if (w > 0) {
+      const u = bedU(x, h, z) + 1 - TREAD, k = Math.floor(u), tk = bedT(x, h, z), run = tk / gr;
+      let tt = u - k;                                   // 0 at the foot of this bed's riser .. 1 at the foot of the next
+      // joints down the face: the bed is in blocks, a few metres long, staggered from bed to bed
+      const al = Math.abs(sm.gx) > Math.abs(sm.gz) ? z : x, jsp = 3.5 + 4.5 * hash1(k * 7 + 1, 5), ja = al / jsp + 7.3 * hash1(k, 9), cell = Math.floor(ja), fr = ja - cell;
+      const hb = hash1(cell * 3 + 1, k * 5 + 2), m = (hb < 0.22 ? 0.3 : 0.62 + 0.38 * hash1(cell * 11 + 5, k * 3 + 7)) * (1 - 0.45 * smooth(0.5 / jsp, 0, Math.min(fr, 1 - fr)));
+      // a node in a riser goes to its foot or its head, one just under the next riser to that one's foot: the
+      // risers are walls and the ledges' edges run true, whatever way the mesh lies
+      let dt = 0;
+      if (tt < RISER) dt = tt < RISER / 2 ? -tt : RISER - tt;
+      else if ((1 - tt) * run < 0.5 * c) dt = 1 - tt;
+      const mv = clamp(dt * run, -0.5 * c, 0.5 * c);
+      x += (sm.gx / gr) * mv; z += (sm.gz / gr) * mv; tt += mv / run;
+      const lift = (Math.min(1, Math.max(tt, 0) / RISER) - tt) * tk * m;
+      const rough = 0.5 * (vn(x * 0.83 + 3.1, h * 0.83, z * 0.83) - 0.5) + 0.3 * (vn(x * 2.3, h * 2.3 + 5.7, z * 2.3) - 0.5);
+      y = field.heightAt(x, z) + (Math.max(lift, 0) + rough * Math.min(1, c)) * w - 0.6 * (1 - w);
+      // (never above the ground a few metres up the slope: at the brow the last ledge runs into the turf, and no
+      // block stands up over the cliff top like a tooth)
+      const ux = sm.gx / gr, uz = sm.gz / gr;
+      y = Math.min(y, Math.max(field.heightAt(x + ux * 3, z + uz * 3), field.heightAt(x + ux * 6, z + uz * 6)) + 0.15);
+      // grass and thrift take the ledges above the splash
+      turf = tt >= RISER && lift * w > 0.4 ? smooth(4, 9, y) * smooth(0.35, 0.6, vn(x * 0.21 + 9.0, k * 1.7, z * 0.21)) : 0;
+    }
+    P[q * 3] = x - origin[0]; P[q * 3 + 1] = y - origin[1]; P[q * 3 + 2] = z - origin[2]; W[q] = w; F[q] = turf;
+  }
+  // smooth normals from the grid
+  const Nn = new Float32Array(N1 * N1 * 3);
+  for (let j = 0; j < N1; j++) for (let i = 0; i < N1; i++) {
+    const a = (j * N1 + Math.min(i + 1, n)) * 3, b = (j * N1 + Math.max(i - 1, 0)) * 3, d = (Math.min(j + 1, n) * N1 + i) * 3, e = (Math.max(j - 1, 0) * N1 + i) * 3;
+    const ux = P[a] - P[b], uy = P[a + 1] - P[b + 1], uz = P[a + 2] - P[b + 2], vx = P[d] - P[e], vy = P[d + 1] - P[e + 1], vz = P[d + 2] - P[e + 2];
+    let nx = vy * uz - vz * uy, ny = vz * ux - vx * uz, nz = vx * uy - vy * ux;
+    const l = Math.hypot(nx, ny, nz) || 1, q = (j * N1 + i) * 3;
+    Nn[q] = nx / l; Nn[q + 1] = ny / l; Nn[q + 2] = nz / l;
+  }
+  const g = new Geo(lod ? 4096 : 16384), BED = [GROUND.ROCK, 1, 1, 0];
+  const pt = (q) => [P[q * 3], P[q * 3 + 1], P[q * 3 + 2]];
+  const tri = (a, b, d) => {
+    const pa = pt(a), pb = pt(b), pd = pt(d);
+    // (half faceted: a riser and its ledge do not shade into one another)
+    let fx = (pb[1] - pa[1]) * (pd[2] - pa[2]) - (pb[2] - pa[2]) * (pd[1] - pa[1]), fy = (pb[2] - pa[2]) * (pd[0] - pa[0]) - (pb[0] - pa[0]) * (pd[2] - pa[2]), fz = (pb[0] - pa[0]) * (pd[1] - pa[1]) - (pb[1] - pa[1]) * (pd[0] - pa[0]);
+    const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
+    const nn = (q) => { const x = lerp(Nn[q * 3], fx, 0.7), y = lerp(Nn[q * 3 + 1], fy, 0.7), z = lerp(Nn[q * 3 + 2], fz, 0.7), l = Math.hypot(x, y, z) || 1; return [x / l, y / l, z / l]; };
+    const i0 = g.nv;
+    g.tri(pa, pb, pd, nn(a), nn(b), nn(d), [1, 1, 1], BED);
+    [a, b, d].forEach((q, k) => {
+      const o = (i0 + k) * 3, tone = 0.86 + 0.28 * fb(P[q * 3] * 0.4 + 1.7, P[q * 3 + 1] * 0.4, P[q * 3 + 2] * 0.4), f = F[q] * smooth(0.55, 0.85, fy);
+      g.C[o] = lerp(tone, 0.4 * tone, f); g.C[o + 1] = lerp(tone, 0.7 * tone, f); g.C[o + 2] = lerp(tone, 0.22 * tone, f);
+    });
+  };
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    const a = j * N1 + i, b = a + 1, d = a + N1, e = d + 1;
+    if (Math.max(W[a], W[b], W[d], W[e]) < 0.02) continue;
+    if ((i + j) & 1) { tri(a, d, b); tri(b, d, e); } else { tri(a, d, e); tri(a, e, b); }
+  }
+  return g;
+}
+
 // ---- loose rock on the land: blocks under cliffs, outcrops on their faces, boulders along a rocky shore ----
 // Where they go is a pure function of the height field. Steep ground is sampled on a jittered grid: a face
-// (very steep) gets outcrops standing out of it, the ground at its foot and a rocky shore get blocks.
+// is the cliffs' own business (cliffGeo); the ground at its foot and a rocky shore get blocks.
 // Returns [{ x, y, z, s, sy, yaw, kind, id }], kept to within `reach` of the course's line (segs: [x0, z0, x1, z1]...).
 export function placeRocks(field, segs, reach = 420, step = 7) {
   const out = [], sm = { h: 0, gx: 0, gz: 0 };
@@ -255,7 +365,6 @@ export function placeRocks(field, segs, reach = 420, step = 7) {
     if (g > 0.05) { const ux = sm.gx / g, uz = sm.gz / g; const a = field.heightAt(x + ux * 8, z + uz * 8) - h; foot = a / 8; }
     let kind = null, p = 0;
     if (h < 3.5 && (g > 0.45 || foot > 0.6)) { kind = 'foot'; p = 0.85; }
-    else if (g > 0.75) { kind = 'outcrop'; p = 0.7; }
     else if (g > 0.28 && foot > 0.7) { kind = 'scree'; p = 0.35; }
     else if (h < 2.2 && g > 0.22) { kind = 'shore'; p = 0.4; }
     if (!kind || q > p) continue;
