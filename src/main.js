@@ -458,10 +458,11 @@ const loop = (now) => {
   const dt = Math.min(raw, 0.1);
   last = now;
   requestAnimationFrame(loop);
-  const idle = app.game.paused || document.hidden;
+  const frozen = app.game.paused && !app.game.net;   // multiplayer: pausing only opens the menu
+  const idle = frozen || document.hidden;
   app.govern(raw, !idle);
   // paused: the sea, the clock and the race all stand still (the last frame stays on screen)
-  if (app.game.paused) { app.game.update(0, null); return; }
+  if (frozen) { app.game.update(0, null); return; }
   app.frame(Math.max(dt, 1e-3));
   audio.update(app);
   if (!document.hidden && raw < 0.5) perf.frame(raw);

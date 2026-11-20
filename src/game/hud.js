@@ -5,6 +5,7 @@ import { COURSES, CONDITIONS, TIMES } from './courses.js';
 import { settings, SWATCHES, STRIPES, TIERS } from './settings.js';
 import { COASTS, rockSpots } from './models/coast.js';
 import { T, dither, unit, Bitmap, PAPER, INK, ACCENT } from './pixel.js';
+import { Lobby } from './lobby.js';
 
 const DITHER = 'background-size: 4em 4em; background-attachment: fixed; image-rendering: pixelated;';
 export const HUD_CSS = `
@@ -109,7 +110,7 @@ export class HUD {
     root.innerHTML = `
       <div id="race" class="hide">
         <div id="tl" class="col">${T('Time', 'f=t o')}<px-t id="time" s="2" o>0:00.00</px-t>
-          <div class="row">${stat('Lap', 'lap')}${stat('Gate', 'gate')}${stat('Best', 'pb')}</div></div>
+          <div class="row">${stat('Lap', 'lap')}${stat('Gate', 'gate')}${stat('Best', 'pb')}<div class="col hide" id="placebox">${T('Place', 'f=t o')}<px-t id="place" s="2" c="accent" o></px-t></div></div></div>
         <div id="msg"><px-t id="msgt" c="accent" o></px-t></div>
         <div id="big"><px-t id="bigt" s="8" o></px-t></div>
         <div id="mark"><div class="col">${T('▼', 'c=accent o')}<px-t id="dist" f="t" o></px-t></div></div>
@@ -155,7 +156,7 @@ export class HUD {
       </div>`;
     document.body.appendChild(root);
     const $ = (id) => root.querySelector('#' + id);
-    this.el = Object.fromEntries(['race', 'menu', 'pause', 'results', 'time', 'lap', 'gate', 'pb', 'msgt', 'bigt', 'mark', 'dist', 'map', 'spd', 'boost', 'best', 'rtitle', 'rtime', 'rbest', 'rlaps', 'keys'].map((k) => [k, $(k)]));
+    this.el = Object.fromEntries(['race', 'menu', 'pause', 'results', 'time', 'lap', 'gate', 'pb', 'msgt', 'bigt', 'mark', 'dist', 'map', 'spd', 'boost', 'best', 'rtitle', 'rtime', 'rbest', 'rlaps', 'keys', 'place', 'placebox'].map((k) => [k, $(k)]));
     this.map = new Bitmap(this.el.map, MAP, MAP);
     this.cells = Array.from(this.el.boost.children);
     this.cellsOn = -1;
@@ -170,6 +171,7 @@ export class HUD {
     $('quit').addEventListener('click', () => game.quit());
     $('rquit').addEventListener('click', () => game.quit());
     this.flashT = 0; this.lastCount = '';
+    this.lobby = new Lobby(this);   // multiplayer: host / join buttons on the menu, the lobby and results panels (lobby.js)
     this.sync();
     this.initSettings();
   }
@@ -258,9 +260,10 @@ export class HUD {
   show(state) {
     const g = this.game, e = this.el;
     this.closeSettings(false);
-    e.menu.classList.toggle('hide', state !== 'menu');
+    e.menu.classList.toggle('hide', state !== 'menu' || this.lobby.active);
     e.race.classList.toggle('hide', state === 'menu');
-    e.results.classList.toggle('hide', state !== 'finished');
+    e.results.classList.toggle('hide', state !== 'finished' || !!g.net);
+    e.placebox.classList.toggle('hide', !g.net);
     e.pause.classList.add('hide');
     if (state === 'menu') this.sync();
     if (state === 'countdown') { e.pb.textContent = g.best ? fmt(g.best.time) : '--'; this.lastCount = ''; e.keys.style.visibility = ''; }
@@ -270,10 +273,11 @@ export class HUD {
       e.rbest.setAttribute('c', g.newBest ? 'accent' : 'paper');
       e.rbest.textContent = g.newBest ? `New best${g.prevBest ? `  -${(g.prevBest - g.finishTime).toFixed(2)}s` : ''}` : `Best ${fmt(g.prevBest)}  +${(g.finishTime - g.prevBest).toFixed(2)}s`;
       e.rlaps.textContent = g.laps.map((t, i) => `Lap ${i + 1}  ${fmt(t)}`).join('\n');
+      if (g.net) this.lobby.showResults();
     }
   }
 
-  pause(on) { if (!on) this.closeSettings(false); this.el.pause.classList.toggle('hide', !on || !this.setEl.classList.contains('hide')); }
+  pause(on) { this.lobby.onPause(); if (!on) this.closeSettings(false); this.el.pause.classList.toggle('hide', !on || !this.setEl.classList.contains('hide')); }
   flash(text) { this.big(text, 6); this.flashT = 1.3; }
   big(text, scale) { const b = this.el.bigt; b.setAttribute('s', scale); b.textContent = text; }
   toggleSound() { const a = this.game.audio; a.muted = !a.muted; a.enable(!a.muted).catch(() => {}); settings.update({ muted: a.muted }); if (this.setEl) this.syncSettings(); }
@@ -287,6 +291,7 @@ export class HUD {
     const P = g.progress, n = g.course.gates.length;
     this.text(e.lap, g.course.loop ? `${P.lap}/${g.course.laps}` : '1/1');
     this.text(e.gate, `${Math.min(P.next, g.course.total)}/${g.course.total}`);
+    if (g.net) this.text(e.place, g.net.placeText());
     const on = Math.round(boat.boost * BOOST_CELLS);
     if (on !== this.cellsOn) { this.cellsOn = on; this.cells.forEach((c, i) => c.classList.toggle('on', i < on)); }
     e.boost.classList.toggle('on', boat.boosting);

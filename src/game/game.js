@@ -70,6 +70,7 @@ export class Game {
     // Other players' boats this frame (multiplayer). Each: { id, name, pose (a Boat), livery }. The net code
     // fills it; contact, drafting and every visual system read it (through renderBoats()).
     this.rivals = [];
+    this.net = null;            // the multiplayer session (src/game/net/session.js), null in solo
     this.input = new Input();
     this.livery = { color: [0.95, 0.42, 0.05], stripe: 0, number: 7 };
     // Visual systems (wake, shadows, lights, ...). Each may implement any of:
@@ -147,7 +148,7 @@ export class Game {
     this.setCourse(course);
     app.time = SEA_T0;
     this.t0 = SEA_T0 + COUNTDOWN;
-    this.best = store.load(this.course.id, cond);
+    this.best = this.net ? null : store.load(this.course.id, cond);   // the ghost and best times are solo only
     this.rec = new Float32Array(GHOST_HZ * 60 * 12 * 6); // twelve minutes
     this.recN = 0;
     this.laps = []; this.lapStart = 0; this.finishTime = 0; this.newBest = false;
@@ -158,6 +159,7 @@ export class Game {
   }
 
   quit() {
+    if (this.net) this.net.leave();
     this.state = 'menu';
     this.paused = false;
     this.setCourse(this.course);
@@ -168,14 +170,17 @@ export class Game {
 
   update(dt, ot) {
     const app = this.app, boat = this.boat;
-    const inp = this.input.poll(dt);
+    let inp = this.input.poll(dt);
+    // multiplayer: the pause menu does not stop the world; the boat just gets no input
+    if (this.paused && this.net) inp = { ...inp, throttle: 0, steer: 0, boost: false };
     if (inp.pressed.has('mute')) this.hud.toggleSound();
     if (inp.pressed.has('camera')) this.camMode = this.camMode === 'chase' ? 'helm' : 'chase';
     if (this.state !== 'menu') {
       if (inp.pressed.has('pause')) { this.paused = !this.paused; this.hud.pause(this.paused); }
       if (inp.pressed.has('reset') && this.state === 'racing') this.place(this.progress.respawn());
     }
-    if (this.paused || !ot) return;
+    this.net?.pre(dt);
+    if ((this.paused && !this.net) || !ot) return;
     if (app.fade < 1) app.fade = Math.min((app.fade ?? 1) + dt * 1.6, 1);
 
     // sea under the hull (and under the camera), a little ahead in time
@@ -192,6 +197,7 @@ export class Game {
       while (this.acc >= STEP) { boat.step(STEP, inp, this.sea, drive); this.collisions.step(boat, STEP); this.acc -= STEP; }
       if (drive) this.track(p0, dt);
     }
+    this.net?.post(dt);
     for (const s of this.systems) s.update?.(dt, ot);
     this.camera(dt, res[4]);
     this.hud.update(dt);
@@ -201,6 +207,7 @@ export class Game {
   track(p0, dt) {
     const boat = this.boat, t = this.raceTime;
     const ev = this.progress.advance(p0, [boat.pos[0], boat.pos[2]], dt);
+    if (ev && this.net) this.net.onProgress(this.progress.next, t, ev === 'finish');
     if (ev === 'lap' || ev === 'finish') {
       if (this.course.loop) { this.laps.push(t - this.lapStart); this.lapStart = t; }
       this.hud.flash(ev === 'finish' ? 'FINISH' : `LAP ${this.progress.lap}`);
@@ -213,7 +220,7 @@ export class Game {
     if (ev === 'finish') {
       this.finishTime = t;
       this.state = 'finished';
-      this.newBest = !this.best || t < this.best.time;
+      this.newBest = !this.net && (!this.best || t < this.best.time);
       this.prevBest = this.best ? this.best.time : null;
       if (this.newBest) {
         const ghost = this.rec.slice(0, this.recN * 6);
