@@ -149,7 +149,7 @@ for (const course of COURSES) {
       lowT = Math.min(lowT, h);
       if (h < 2) wetT++;
       if (onPier(x, z, 2)) pierT++;
-      if (P.quays.some((q) => q.inside(x, z, 1))) quayT++;
+      if (P.quays.some((q) => q.inside(x, z, 1) && q.local(x, z)[1] < q.paved + 12)) quayT++;      // (the paved apron; the block behind it is ground)
     }
     if (wetT) fail(`${course.id} ${wetT} trees stand in the water or on the beach`);
     if (pierT) fail(`${course.id} ${pierT} trees stand on a pier`);

@@ -215,13 +215,7 @@ float remapc(float x, float a, float b, float c, float d) { return c + (x - a) /
 // the squall line meanders (frontCurve is shared with the fog in SKY_LOOKUP_GLSL and the CPU)
 float frontDist(vec2 xz) { return dot(xz, uFront.xy) - uFront.z - frontCurve(dot(xz, vec2(-uFront.y, uFront.x))); }
 float frontMask(vec2 xz) { return uFront.w > 0.0 ? smoothstep(-uFront.w, uFront.w, frontDist(xz)) : 0.0; }
-const float SCUD_BASE = 260.0;
-float shellBase() {
-  float b = uFront.w > 0.0 ? min(uBase, uStormA.w) : uBase;
-  // (only once scud is visible: a lowered shell with no cloud in it is pure cost)
-  bool storm = smoothstep(0.5, 0.9, uDark) > 0.02 || (uFront.w > 0.0 && uStormA.y > 0.5);
-  return storm ? min(b, SCUD_BASE) : b;
-}
+float shellBase() { return uFront.w > 0.0 ? min(uBase, uStormA.w) : uBase; }
 float shellTop() { return uFront.w > 0.0 ? max(uTop, uStormTop) : uTop; }
 float maxCoverage() { return uFront.w > 0.0 ? max(uCoverage, uStormA.x) : uCoverage; }
 
@@ -269,43 +263,15 @@ float gRelief = 0.0;  // deckRelief there
 float gCrev = 0.25;   // erosion noise there: 0 on the crown of a billow, 1 in the crease between two
 float gLump = 0.5;    // deck base: 0 in a recess, 1 where a mass hangs lowest
 float gMass = 0.5;    // deck: 0 in a light region of it, 1 in a heavy one
+float gBig = 0.5;     // deck base: 1 under one of the masses kilometres across that hang lowest
+float gPouch = 0.5;   // deck base: 0 in a crease between pouches, 1 on the belly of one
 float gTopF = 1.0;    // local cloud top (fraction of the shell)
 float gBaseF = 0.0;   // local cloud base (fraction of the shell)
 // mean of the erosion noise (inverted Worley, one feature point per cell: 1 - E[d^2] = 0.70)
 const float DETAIL_MEAN = 0.7;
 
 float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top) {
-  // scud (fractus): ragged low fragments racing under a storm deck
-  if (h < base) {
-    float sg = uFront.w > 0.0 ? smoothstep(0.5, 0.85, R.w) * (1.0 - smoothstep(5000.0, 9000.0, frontDist(p.xz))) : smoothstep(0.5, 0.9, R.y);
-    if (sg < 0.02 || h < SCUD_BASE) return 0.0;
-    vec3 sp2 = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z) * 1.8) / vec3(1900.0, 600.0, 1900.0);
-    // (two mips down: the fragments are tens of metres wide at their finest; at full resolution the Perlin octaves
-    // are a few metres across, each pixel's ray then crosses a different random scatter, and it prints as grain)
-    vec4 n2 = textureLod(uShape, sp2, lodFor(1900.0 / 128.0) + 2.0);
-    float sb = SCUD_BASE + n2.b * 300.0;
-    float sh = (h - sb) / max(base - sb, 1.0);
-    if (sh <= 0.0) return 0.0;
-    float frag = n2.r * 0.7 + n2.g * 0.3;
-    // (the blurred noise keeps close to its mean, about 0.73: the cut sits above it, so that the scud is
-    // separate fragments. Cut below the mean, as it was, it is one thin veil that hides the deck's relief)
-    float d2 = smoothstep(0.77, 0.88, frag) * (0.4 + 0.6 * n2.b) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
-    // (a near-field feature: at the horizon it would read as flat slabs under the storm)
-    d2 *= 1.0 - smoothstep(3000.0, 8000.0, gFoot / max(uPixelAngle, 1e-6));
-    if (d2 <= 0.0) return 0.0;
-    // torn edges: the fragments are eroded by strands of the detail noise (one mip down at least, where its
-    // finest cells are still several march steps wide; the 12 m step under a deck is set for this)
-    // (a probe reads the uneroded fragment, which is a little larger: a probe that lands in a gap between
-    // strands would miss the fragment in one frame and catch it in the next, and its edge would be stipple)
-    if (detail) {
-      vec3 dn = textureLod(uDetail, (p + uWindOffset * vec3(1.8, 1.0, 1.8)) / vec3(520.0, 260.0, 520.0), max(lodFor(520.0 / 64.0), 1.0)).rgb;
-      float df = dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125;
-      d2 = clamp(remapc(d2, df * 0.45, df * 0.45 + 0.55, 0.0, 1.0), 0.0, 1.0);
-    }
-    // (thin: a fragment fades out at its edge. Dense, a ray either hits the edge or misses, which is grain)
-    return d2 * min(R.z, 0.07) * sg * 0.3;
-  }
-  if (h > top) return 0.0;
+  if (h < base || h > top) return 0.0;
   float H = max(top - base, 100.0);
   float hf = (h - base) / (top - base);
   float cov = R.x, dark = R.y;
@@ -345,7 +311,9 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // (the largest mound's tallest turret, 1.28 times its top, stays under the shell's ceiling: nothing is cut flat)
   float topCu = mix(mix(0.45, 0.12, cu), mix(1.0, 0.76, cu), wm.g) * mix(0.62, 1.0, smoothstep(0.1, 0.5, cov));
   // cumulus tops dome over the core of the coverage cell instead of a flat slab
-  topCu *= mix(mix(0.55, 1.0, smoothstep(0.0, 0.85, c)), clamp(0.16 + 5.0 * ex * ex, 0.16, 1.0), cu);
+  // (steep at the rim and broad on top, a dome: rising with the square of the field a cloud is a flat
+  // skirt with a cone in the middle, a hat)
+  topCu *= mix(mix(0.55, 1.0, smoothstep(0.0, 0.85, c)), 0.14 + 0.86 * smoothstep(0.0, 0.45, ex), cu);
   // (above every turret this cloud could have, or above the thickest a stratocumulus layer gets: no shape
   // noise is read. Most of a fair-weather shell is empty air)
   if (hf > 1.2 * min(mix(topCu, 1.0, dark), mix(1.0, 0.34, strat))) return 0.0;
@@ -365,6 +333,8 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   float m1 = smoothstep(0.5, 0.64, wm.r), m2 = smoothstep(0.56, 0.86, n.r);
   // (and whole regions of the deck, ten kilometres and more across, are heavier and darker than others)
   gLump = 0.6 * m1 + 0.4 * m2;
+  gBig = m1;
+  gPouch = (130.0 * m2 + 70.0 * n.b + 35.0 * n.a) / 235.0;
   gMass = smoothstep(0.3, 0.7, wm.b);
   gRelief = deckRelief(wm, n);
   // (a stratocumulus layer has the same relief on its underside, shallower)
@@ -447,17 +417,31 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     // (a fair-weather base is flat: the detail erodes it only a little)
     thr *= mix(mix(0.35, 1.0, smoothstep(0.02, 0.12, hf)), 1.0, dark);
     thr *= mix(1.0, 0.7, stormy);
-    // (the underside of a storm deck is ragged: its lowest hundred metres fray)
-    thr *= 1.0 + 2.0 * stormy * (1.0 - smoothstep(0.0, 150.0 / H, hf - baseFrac));
+    // (the underside of a storm deck is ragged: its lowest hundred metres fray; but not into strands so
+    // thin that a ray's few samples through them are grain)
+    thr *= 1.0 + 1.0 * stormy * (1.0 - smoothstep(0.0, 150.0 / H, hf - baseFrac));
     // (the soft edge of the light march is centred on the hard one: the same cloud, on average)
     if (gSoft) d = clamp((d - thr + 0.25) / 0.75, 0.0, 1.0);
-    else d = clamp(remapc(d, thr, thr + (1.0 - thr) * mix(mix(0.24, 0.7, wsp), 0.36, dark), 0.0, 1.0), 0.0, 1.0);
+    else {
+      // The rim of a cumulus is torn at every scale down to metres. Where a pixel no longer resolves
+      // that, what it sees is the average: cloud thinning out over the depth of the torn zone. So the
+      // density rises from the edge over a width that grows with the pixel's footprint, slowly at first.
+      // Left hard, the edge is either hit or missed by each ray: stair steps along every outline, and
+      // toward a low sun the lit lining, a few metres deep, is a row of sparks.
+      float es = cu * smoothstep(4.0, 40.0, gFoot);
+      d = clamp(remapc(d, thr, thr + (1.0 - thr) * mix(mix(mix(0.24, 0.9, es), 0.7, wsp), 0.36, dark), 0.0, 1.0), 0.0, 1.0);
+      d *= mix(1.0, d, es);
+    }
   }
   // a storm deck seen from below is mottled because its optical thickness varies 2-3x over a few km
   // (the base radiance goes ~1/tau): thicker, darker masses beside thinner, brighter patches
   float thick = mix(1.0, 0.5 + 1.2 * smoothstep(0.15, 0.85, wm.b * 0.6 + n.g * 0.6 - 0.1), smoothstep(0.3, 0.7, dark));
   // (a stratocumulus layer is optically thick for its depth: dense, so its base is grey and not white)
-  return max(d, 0.0) * R.z * thick * mix(1.0, 1.7, strat);
+  // A scrap of cumulus is thin stuff, on its way out: it holds a fraction of the water of a growing
+  // cloud, and so does the outermost skirt of any cumulus. (At a growing cloud's density the smallest
+  // scraps are opaque white pills and specks.)
+  float thin = mix(1.0, mix(0.12, 1.0, smoothstep(0.1, 0.42, wm.g)) * mix(0.3, 1.0, smoothstep(0.3, 0.6, c)), cu);
+  return max(d, 0.0) * R.z * thick * mix(1.0, 1.7, strat) * thin;
 }
 float cloudDensity(vec3 p, float h, bool detail) {
   float base, top;
@@ -561,7 +545,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
     // distance LOD: long light paths are sub-pixel far away (the erosion detail fades out by itself)
     bool nearField = t * uPixelAngle < uDetailFoot;
     float sigma = cloudDensityR(p, h, true, R, base, top);
-    float crev = gCrev, lump = gLump, topF = gTopF, baseF = gBaseF, relief = gRelief, mass = gMass;
+    float crev = gCrev, lump = gLump, topF = gTopF, baseF = gBaseF, relief = gRelief, mass = gMass, big = gBig, pouch = gPouch;
     // Entering a cloud: its surface lies somewhere in the step just taken, and what a pixel shows is the
     // light of the first few metres under it. Left there, the first sample lands anywhere up to a step
     // deep, where the light is anything from the lit skin's to the shade's, and the lit side is grain.
@@ -579,18 +563,18 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
         float sb = cloudDensityR(pb, hb, true, Rb, bb, tb);
         if (sb > 0.0) {
           t -= back; p = pb; h = hb; R = Rb; base = bb; top = tb; sigma = sb;
-          crev = gCrev; lump = gLump; topF = gTopF; baseF = gBaseF; relief = gRelief; mass = gMass;
+          crev = gCrev; lump = gLump; topF = gTopF; baseF = gBaseF; relief = gRelief; mass = gMass; big = gBig; pouch = gPouch;
         }
       }
     }
     float stepLen = max(fine, min(max(t - 15000.0, 0.0) * 0.005, 150.0) * (64.0 / float(steps))) * (1.0 + t * 0.00004);
     if (sigma > 0.0 && T > 0.05) stepLen = min(stepLen, max(1.2 / sigma, 8.0));
-    // scud fragments are thin along a ray: a coarse step takes a third of the light at once, so which
-    // pixels catch a fragment in two samples and which in three shows as contour rings (and grain)
+    // the frayed base of a deck is thin along a ray: a coarse step takes a third of the light at once, so
+    // which pixels cross a strand in two samples and which in three shows as contour rings (and grain)
     // (12 m, or a quarter of an optical depth where the cloud is thinner than that: at 12 m through the faint
     // fringe of a deck's base the march ran out of steps before the deck was opaque, and the sun's disc
     // showed through six kilometres of storm as a speckled glare)
-    if (sigma > 0.0 && (h < base || R.y > 0.5)) stepLen = min(stepLen, max(12.0, 0.25 / sigma));
+    if (sigma > 0.0 && R.y > 0.5) stepLen = min(stepLen, max(12.0, 0.25 / sigma));
     if (sigma > 0.0) {
       miss = 0;
       float hf = clamp((h - base) / (top - base), 0.0, 1.0);
@@ -601,10 +585,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // to the next (the extrapolated remainder multiplies the error), and prints as pixel speckle.
       // Here the estimate is continuous in the sample's height and position, so it is smooth.
       float tauUp = 0.0;
-      bool scud = h < base;
-      if (scud) {
-        tauUp = R.z * (top - base) * 0.5;
-      } else if (R.x > 0.55 && R.y > 0.5) {
+      if (R.x > 0.55 && R.y > 0.5) {
         int nU = uUpSteps + 1;
         for (int j = 0; j < 5; j++) {
           if (j >= nU) break;
@@ -620,15 +601,14 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
         tauUp = sigma * max(topF - hf, 0.0) * colH * 0.6;
       }
       // a closed deck is a slab: the sun's slant path is the column over the sine of its elevation
-      // (scud, and decks with sky showing between them, keep the marched estimate)
-      bool slabLit = !scud && R.y > 0.5 && R.x > 0.8;
+      // (decks with sky showing between them keep the marched estimate)
+      bool slabLit = R.y > 0.5 && R.x > 0.8;
       // light march towards the sun (geometric step growth)
       float tau = 0.0;
       // far away the light path must still span the cloud (few long steps), or shading follows noise
       // the march spans the same ~2.6 km whatever the step count (env, far field, quality tier),
       // so coarse passes don't see thick decks as thin and sunlit inside
-      // scud under a deck is lit analytically: the column above it is opaque to the sun anyway
-      int nL = (scud || slabLit) ? 0 : ((nearField || R.y > 0.5) ? lightSteps : 4);
+      int nL = slabLit ? 0 : ((nearField || R.y > 0.5) ? lightSteps : 4);
       // Up close the first step is about 50 m: the billow next door, which is what shades a crease, is
       // that near. (At twice the reach the first sample overshoots it and every lobe is lit alike.)
       float lgrow = nearField ? 0.88 * pow(52.0, 1.0 / float(max(nL - 1, 1))) : 2.0;
@@ -655,8 +635,6 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
         tau += tau / marched * rest;
       }
       if (slabLit) tau = tauUp / max(uSunDir.y, 0.12);
-      // scud sits under the deck: sunlight must cross the whole layer above it
-      if (scud) tau += R.z * (top - base) * 0.8 / max(uSunDir.y, 0.1);
       // (a deck is a slab lit from above: E mu0 T_d / pi; an isolated cumulus is lit on its sunward side)
       float slab = smoothstep(0.75, 0.95, R.x);
       float iso = 1.0 - slab;
@@ -717,25 +695,30 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // camera that meters the shaded sea would otherwise see every base as white as the gaps)
       amb *= mix(1.0, 0.55, greyDay);
       sun = (sunD * mix(1.0, 0.8, greyDay) + sunF * mix(1.0, 0.5, greyDay));
-      // scud hangs in the dim light under the deck, lit from all round by it: darker than the recesses
-      // of the base above, about as dark as its lowest masses
-      if (scud) amb = ambFace * mix(0.5, 0.8, smoothstep(1500.0, 6000.0, t));
-      // The underside of a closed deck is lit from above, through it: what hangs lowest (see gLump) has
-      // the most cloud over it and is darkest, the recesses between are brightest. The relief and its
-      // shading come from the same fields, so the dark masses overlap and slide with the view.
-      // And it is lit from the side, by the open strip along the horizon, brightest under the sun: the
-      // flank of a mass or a pouch that faces that way is light, the far flank dark. That slope (the
-      // relief 120 m towards the sun's azimuth against the relief here) is what makes it read as relief.
-      // (the underside of a broken layer the same, less strongly: it has the sun through its gaps as well)
-      if (slabLit || (layer > 0.5 && !scud)) {
+      // The underside of a deck has relief (deckRelief) and is shaded from the same fields, so that the
+      // masses overlap and slide with the view. It is lit from the side as well, by the open strip along
+      // the horizon, brightest under the sun: the flank of a mass or a pouch that faces that way is
+      // light, the far flank dark. That slope (the relief 120 m towards the sun's azimuth against the
+      // relief here) is what makes it read as relief.
+      if (slabLit || layer > 0.5) {
         vec2 lh = normalize(uSunDir.xz + vec2(1e-5, 0.0));
         float slope = (deckReliefAt(p + vec3(lh.x, 0.0, lh.y) * 120.0) - relief) / 120.0;
-        // (most of a storm's underside is dark: only a flank turned well towards the light is bright; and
-        // the erosion's creases are darker again, the fine grain of the base)
-        // (and most of it is dark for another reason: only the recesses between the masses and between the
-        // pouches, a fifth of the deck, are thin enough to be rifts of light)
-        float dv = mix(1.7, 0.5, smoothstep(0.1, 0.65, lump)) * mix(1.25, 0.6, mass) * mix(0.75, 1.4, smoothstep(0.0, 0.8, slope)) * (1.0 - 0.5 * min(crev, 1.0));
-        dv = slabLit ? dv : mix(1.0, dv, 0.6 * (1.0 - smoothstep(0.25, 0.6, hfl)));
+        float dv;
+        if (slabLit) {
+          // Hardly any light comes down through a storm: its underside is lit from below and from the
+          // side, by the sea and the open strip. The belly of a pouch stands out into that light, the
+          // crease between two pouches is shut off from it by both: bright bellies and dark creases are
+          // what the eye reads as things that hang. (Lit the other way round, bright creases, it reads
+          // as a flat ceiling with a pattern on it.) Only the masses kilometres across, and the heavy
+          // regions of the deck, are darker for their depth: a storm's base runs from slate to pale.
+          dv = 0.75 * mix(1.3, 0.62, big) * mix(1.35, 0.5, mass) * mix(0.5, 1.45, smoothstep(0.3, 0.75, pouch)) * mix(0.6, 1.5, smoothstep(-0.5, 0.8, slope)) * (1.0 - 0.5 * min(crev, 1.0));
+        } else {
+          // A broken layer is thin enough to be lit from above, through it: what hangs lowest (gLump) has
+          // the most cloud over it and is darkest, the recesses between are brightest; and it has the
+          // sun through its gaps, so the shading is weaker and fades upwards.
+          dv = mix(1.7, 0.5, smoothstep(0.1, 0.65, lump)) * mix(1.25, 0.6, mass) * mix(0.75, 1.4, smoothstep(0.0, 0.8, slope)) * (1.0 - 0.5 * min(crev, 1.0));
+          dv = mix(1.0, dv, 0.6 * (1.0 - smoothstep(0.25, 0.6, hfl)));
+        }
         sun *= dv; amb *= dv;
       }
       vec3 S = (sun + amb) * sigma;

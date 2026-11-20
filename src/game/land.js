@@ -4,8 +4,8 @@
 //
 // Mesh. The racing area (the near field, a 3-4 m texel) is cut into 256 m chunks, each drawn at one of four
 // levels of detail by distance (a grid of 64, 32, 16 or 8 cells a side: 4, 8, 16, 32 m), every level one
-// shared vertex grid placed by uniforms; heights come from the height texture in the vertex shader, so a
-// chunk is one draw and costs no vertex memory. A skirt round each chunk hides the cracks between levels.
+// shared vertex grid placed per instance; heights come from the height texture in the vertex shader, so the
+// chunks cost no vertex memory and all those at one level are one instanced draw. A skirt round each chunk hides the cracks between levels.
 // Beyond the near field two rings of coarse blocks (64 m and 256 m cells, out to 20 km) read the far field
 // (64 m per texel), so distant hills stand on the horizon. Chunks and blocks that lie wholly under 4 m of
 // water are not drawn (the sea covers them), and the rest are culled against the view.
@@ -35,16 +35,17 @@
 // ground, contact darkening round whatever stands on it, the pools under the nearest lamp posts at dusk;
 // then aerial perspective and fog as everything.
 //
-// Cost (unmeasured; software GL only): triangles per chunk 8.7k / 2.3k / 0.6k / 0.2k at the four levels; a
-// typical view draws 6-12 chunks at the top level, 10-20 at the next and a few dozen coarser ones, so on the
-// order of 100-200k triangles and 30-100 draws; the two rings are eight strips of 90-100k triangles in all,
-// drawn only when in view. A terrain fragment: 5 height taps, 12 more for the terrain shadow below about 35
+// Cost (counted, not timed: software GL only). Triangles per chunk 8.7k / 2.3k / 0.6k / 0.2k at the four levels;
+// the chase camera's view along a course draws 170-270k triangles of terrain and cliff in at most four draws for the
+// chunks, up to eight for the rings (strips of 90-100k triangles in all, drawn only when in view) and one for
+// each ground mesh in view. A terrain fragment: 5 height taps, 12 more for the terrain shadow below about 35
 // degrees of sun within 4 km, 22 taps of the object map inside its rectangle only, and some 60 hashed noise
 // lookups (none of them a texture).
 import { Program, Texture, makeMesh } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { LAND_COMMON_GLSL, LAND_COVER_GLSL } from './landgl.js';
 import { landFor, waveAtt } from './landfield.js';
+import { featureColliders } from './models/coast.js';
 export { GROUND } from './models/cover.js';
 
 const CHUNK = 256;
@@ -55,7 +56,9 @@ export const LAMPS = 8;    // lamp posts whose light falls on the ground at once
 
 const VS = `
 layout(location = 0) in vec3 aG;      // grid x, z in 0..1, skirt flag
-uniform vec4 uChunk;                  // x0, z0, size x, size z
+layout(location = 1) in vec4 iChunk;  // the near chunks, instanced: x0, z0, size x, size z
+uniform vec4 uChunk;                  // the far blocks, one a draw: the same
+uniform float uInst;                  // 1: the rectangle is the instance's
 uniform float uSkirt;
 uniform float uFar;                   // 1: height from the far field
 uniform sampler2D uHN;
@@ -68,14 +71,16 @@ out vec3 vNrm;
 out vec3 vTint;
 out float vKind;
 out float vScale;
+out float vBed;
 void main() {
-  vec2 xz = uChunk.xy + aG.xy * uChunk.zw;
+  vec4 ch = uInst > 0.5 ? iChunk : uChunk;
+  vec2 xz = ch.xy + aG.xy * ch.zw;
   float h = uFar > 0.5 ? textureLod(uHF, (xz - uRectF.xy) * uRectF.zw, 0.0).r : textureLod(uHN, (xz - uRectN.xy) * uRectN.zw, 0.0).r;
   h -= aG.z * uSkirt;
   vec3 P = vec3(xz.x, h, xz.y);
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
-  vWorld = P; vNrm = vec3(0.0, 1.0, 0.0); vTint = vec3(1.0); vKind = 0.0; vScale = 1.0;
+  vWorld = P; vNrm = vec3(0.0, 1.0, 0.0); vTint = vec3(1.0); vKind = 0.0; vScale = 1.0; vBed = 0.0;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
@@ -93,11 +98,12 @@ out vec3 vNrm;
 out vec3 vTint;
 out float vKind;
 out float vScale;                     // rock: how much finer than a cliff's its beds and joints are (a boulder is a small thing)
+out float vBed;                       // rock: 1 where the mesh has the great beds' ledges built into it (a cliff's skin)
 void main() {
   vec3 P = aPos + uOrigin;
   float dr = length(P.xz - uCamPos.xz);
   P.y -= dr * dr / (2.0 * 6360000.0);
-  vWorld = P; vNrm = aN; vTint = aCol; vKind = aMat.x; vScale = max(aMat.y, 1.0);
+  vWorld = P; vNrm = aN; vTint = aCol; vKind = aMat.x; vScale = max(aMat.y, 1.0); vBed = aMat.z;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
 
@@ -107,6 +113,7 @@ in vec3 vNrm;
 in vec3 vTint;
 in float vKind;
 in float vScale;
+in float vBed;
 out vec4 oColor;
 uniform vec3 uCamPos;
 uniform float uFar;
@@ -224,7 +231,7 @@ vec3 lampLight(vec3 P, vec3 N) {
 // streaked down from the ledges of the higher beds. crev: how deep in a joint, a gully or under a ledge the
 // point lies (it takes less light there). bump: how the beds and ribs turn the surface (ledge tops look up).
 // P is the point in space, so a cliff is not a stretched map.
-vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, out float crev, out vec3 bump) {
+vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, float bedded, out float crev, out vec3 bump) {
   float fo1 = 1.0 - smoothstep(0.3, 0.8, fp * 0.55);      // the thin beds resolve
   float fo2 = 1.0 - smoothstep(0.08, 0.3, fp);            // joints, laminations
   float fo0 = 1.0 - smoothstep(0.3, 0.8, fp * 0.16);      // the great beds
@@ -238,6 +245,14 @@ vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, out float crev, out
   float s = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 2.2 * wv + 0.25 * n2 + 0.9 * (vn3(P * 0.19 + 11.0) - 0.5) + 0.35 * (vn3(P * 0.6 + 5.0) - 0.5) * fo1;
   // great beds of uneven thickness (3 to 9 m), each stepping back from the one below: these carry the ledges
   float s0 = s * 0.3 + 0.9 * vn(vec2(s * 0.23, 7.0));
+  if (bedded > 0.5) {
+    // a cliff's skin has these beds built into it as ledges (models/rocks.js, bedU: the same formula, and no
+    // noise in it that the two sides could disagree on): a bed's seam lies along the foot of its riser
+    float sA = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 1.1 * sin(P.x * 0.031 + 1.3) * sin(P.z * 0.027 + 0.4) + 0.45 * sin(P.x * 0.093 + 2.1) * sin(P.z * 0.081 + 1.7);
+    s0 = sA * 0.4 + 0.2 * sin(sA * 0.9 + 1.0);
+    // (the thin beds within them of very unequal thickness: evenly ruled, a cliff reads as coursed masonry)
+    s = sA + 0.5 * sin(sA * 1.7 + 0.5) + 0.25 * n2 + 0.35 * (vn3(P * 0.6 + 5.0) - 0.5) * fo1;
+  }
   float B0 = floor(s0), bf0 = s0 - B0;
   float tone0 = h11f(B0 * 1.7 + 0.3);
   // thin beds within them: tone only, and a fine line
@@ -267,7 +282,8 @@ vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, out float crev, out
   float gs = smoothstep(0.6, 0.8, vn(vec2(al * 0.7, B0 * 3.1 + 1.0))) * smoothstep(0.1, 0.9, bf0) * smoothstep(6.0, 11.0, P.y) * face * fo0;
   c = mix(c, vec3(0.6, 0.6, 0.56), gs * 0.5);
   crev = max(max(under * 0.85, joint), gully * fr * face);
-  bump = (vec3(tdir.x, 0.0, tdir.y) * rg * -2.6 * fr + vec3(0.0, ledge * 1.6 - 0.3 * fo0 * (1.0 - bf0), 0.0)) * face;
+  // (where the ledges are real the shading does not fake them)
+  bump = (vec3(tdir.x, 0.0, tdir.y) * rg * -2.6 * fr + vec3(0.0, ledge * 1.6 - 0.3 * fo0 * (1.0 - bf0), 0.0) * (1.0 - bedded)) * face;
   return c;
 }
 
@@ -408,7 +424,8 @@ void main() {
   float earth = steep * smoothstep(0.45, 0.7, vnf(p + 91.0, 0.33, fp));
   grass = mix(grass, vec3(0.115, 0.082, 0.052) * (0.8 + 0.5 * n1), earth * 0.8);
   float scree = smoothstep(0.14, 0.22, sl + 0.08 * n2) * (1.0 - rock) * smoothstep(0.3, 0.6, vnf(p + 57.0, 0.12, fp));
-  vec3 screeC = vec3(0.2, 0.185, 0.16) * (0.7 + 0.6 * mix(0.5, h12(floor(p * 2.2)), 1.0 - smoothstep(0.1, 0.35, fp * 2.2)));
+  // (stones in space, not squares in plan: a plan pattern smears down a bank)
+  vec3 screeC = vec3(0.2, 0.185, 0.16) * (0.7 + 0.6 * mix(0.5, smoothstep(0.3, 0.7, vn3(P3 * 2.9) * 0.6 + vn3(P3 * 7.3 + 5.0) * 0.4), 1.0 - smoothstep(0.1, 0.35, fp * 2.9)));
   grass = mix(grass, screeC, scree * 0.8);
   grass *= 1.0 - 0.12 * steep * (0.5 + 0.5 * sin(h * 5.0 + n2 * 6.0)) * (1.0 - smoothstep(0.15, 0.5, fp));
 
@@ -430,7 +447,7 @@ void main() {
   vec3 sandC = mix(vec3(0.3, 0.245, 0.15), vec3(0.37, 0.31, 0.2), smoothstep(-0.2, 0.2, n2)) * (0.88 + 0.5 * n1);
   sandC *= mix(0.92, 1.08, smoothstep(0.9, 1.6, h));
   float sh = smoothstep(0.5, 0.62, vnf(p + 19.0, 0.045, fp) * 0.7 + vnf(p + 3.0, 0.31, fp) * 0.3) * smoothstep(0.5, 1.1, h);
-  float peb = mix(0.5, h12(floor(p * 7.0)), 1.0 - smoothstep(0.1, 0.3, fp * 7.0)) * 0.6 + mix(0.5, h12(floor(p * 2.3 + 0.5)), 1.0 - smoothstep(0.1, 0.3, fp * 2.3)) * 0.4;
+  float peb = mix(0.5, smoothstep(0.25, 0.75, vn(p * 9.0)), 1.0 - smoothstep(0.1, 0.3, fp * 9.0)) * 0.6 + mix(0.5, smoothstep(0.3, 0.7, vn(p * 3.1 + 0.5)), 1.0 - smoothstep(0.1, 0.3, fp * 3.1)) * 0.4;
   sandC = mix(sandC, mix(vec3(0.13, 0.125, 0.12), vec3(0.34, 0.32, 0.29), peb), sh * 0.9);
   // the wrack line: weed and litter left at the top of the last tide, and a fainter older one above
   float wl = h + 0.25 * n2 + 0.1 * n1;
@@ -442,7 +459,7 @@ void main() {
   // ---- rock, and the zones of a rocky shore ----
   float crev;
   vec3 rbump;
-  vec3 rockC = rockLook(P3 * vScale, Ng, fp * vScale, n1, n2, crev, rbump);
+  vec3 rockC = rockLook(P3 * vScale, Ng, fp * vScale, n1, n2, vBed, crev, rbump);
   if (kind == 3) {
     // weathered concrete (a slipway, steps): cast in bays, ribbed across for grip
     rockC = vec3(0.27, 0.265, 0.25) * (0.85 + 0.3 * n2 + 0.3 * n1) * (1.0 - 0.25 * (1.0 - smoothstep(0.02, 0.05 + fp, abs(fract(dot(p, uQuayA[0].zw) / 0.5) - 0.5) * 0.5)) * (1.0 - smoothstep(0.1, 0.3, fp)));
@@ -454,15 +471,17 @@ void main() {
   vec3 albedo = mix(mix(grass, sandC, sand), rockC, rock);
   float hard = rock;
   float zn = (h + 0.5 * (vnf(p, 0.6, fp) - 0.5) + 0.25 * n1) / (1.0 + 0.25 * uHs);
+  // (a boulder stands a metre or two out of the water: on it the zones lie closer, and its crown is above them)
+  zn *= vScale;
   float lich = 1.0 - smoothstep(0.4, 1.5, fp);
   float weed = 1.0 - smoothstep(0.1, 0.7, zn);
   float barn = smoothstep(0.45, 0.8, zn) * (1.0 - smoothstep(1.1, 1.6, zn)) * (0.35 + 0.65 * vnf(p + 9.0, 3.1, fp));
-  float tar = smoothstep(1.0, 1.5, zn) * (1.0 - smoothstep(2.2, 3.4, zn));
+  float tar = smoothstep(1.0, 1.5, zn) * (1.0 - smoothstep(1.9, 2.9, zn));
   float xan = smoothstep(2.4, 3.2, zn) * (1.0 - smoothstep(4.5, 7.5, zn)) * mix(0.25, smoothstep(0.5, 0.64, vn3(P3 * 0.55 + 3.0) * 0.6 + vn3(P3 * 2.1) * 0.4), lich);
   float grey = smoothstep(3.5, 6.0, zn) * mix(0.3, smoothstep(0.5, 0.64, vn3(P3 * 0.8 + 17.0)), lich);
   albedo = mix(albedo, vec3(0.31, 0.3, 0.24), grey * 0.4 * hard);
   albedo = mix(albedo, vec3(0.38, 0.27, 0.07), xan * 0.42 * hard);
-  albedo = mix(albedo, vec3(0.03, 0.03, 0.03), tar * 0.75 * hard);
+  albedo = mix(albedo, vec3(0.035, 0.035, 0.035), tar * 0.62 * hard);
   albedo = mix(albedo, vec3(0.3, 0.285, 0.24), barn * 0.6 * hard);
   albedo = mix(albedo, mix(vec3(0.028, 0.03, 0.014), vec3(0.085, 0.07, 0.022), vnf(p + 5.0, 2.3, fp)), weed * 0.9 * hard);
   if (kind >= 2) albedo *= vTint;
@@ -500,8 +519,10 @@ void main() {
   vec3 bump = vec3(bg.x, 0.0, bg.y) * 0.35 * bf * (kind == 1 ? 0.2 : 1.0);
   if (rock > 0.01) {
     float rf2 = 1.0 - smoothstep(0.2, 0.6, fp * 3.1);
-    vec3 q3 = P3 * 3.1 + 5.0;
-    bump += rbump * rock + (vec3(vn3(q3), vn3(q3 + 17.0), vn3(q3 + 41.0)) - 0.5) * 0.5 * rock * rf2;
+    // (the lattice of this noise is turned out of the world's axes: on a face the sun grazes each cell of it is lit
+    // or not, and cells that lay square to the ground read as a chequer of pixels)
+    vec3 q3 = mat3(0.80, 0.36, -0.48, -0.60, 0.48, -0.64, 0.0, 0.80, 0.60) * P3 * 3.1 + 5.0;
+    bump += rbump * rock + (vec3(vn3(q3), vn3(q3 + 17.0), vn3(q3 + 41.0)) - 0.5) * 0.4 * rock * rf2;
   }
   if (canopy > 0.01) bump += vec3(vnf(p + 61.0, 0.14, fp) - 0.5, 0.0, vnf(p + 137.0, 0.14, fp) - 0.5) * 1.5 * canopy;
   vec3 N = normalize(Ng + bump);
@@ -680,6 +701,19 @@ export class Land {
     const n2 = [f.fx0, f.fz0, f.fx0 + fn * f.fd, f.fz0 + fn * f.fd];
     ring(n0, n1, RING1.cell);
     ring(n1, n2, RING2.cell);
+    // every near chunk at one level of detail is one instanced draw: a buffer of rectangles per level
+    const cap = Math.max(G.chunks.length, 1);
+    if (!this.inst || this.inst.cap < cap) {
+      this.inst = { cap, data: new Float32Array(cap * 4), n: [0, 0, 0, 0], bufs: this.lods.map((mesh) => {
+        const buf = gl.createBuffer();
+        gl.bindVertexArray(mesh.vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, cap * 16, gl.DYNAMIC_DRAW);
+        gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(1, 1);
+        gl.bindVertexArray(null);
+        return buf;
+      }) };
+    }
     this.gpu = G;
   }
 
@@ -697,7 +731,7 @@ export class Land {
   }
 
   // The fixed structures nearest the point just ahead of the camera, as foam rings for the sea shader:
-  // x, z, radius, strength. A breakwater is a chain of circles, a platform four legs, a beacon one pile.
+  // x, z, radius, strength. A breakwater is a chain of circles, a platform four legs, a beacon one pile, a boulder itself.
   fixedFor() {
     const sc = this.scenery || (this.scenery = this.game.systems.find((s) => s.colliders && s.models));
     const out = this.fixed, cam = this.game.app.cam;
@@ -729,6 +763,8 @@ export class Land {
           default:
         }
       }
+      // the boulders of the course's rock fields break the swell too (a stack is in the height field: the shore's own foam finds it)
+      for (const c of featureColliders(this.course.id)) if (c.kind === 'rock') put(c.x, c.z, c.r * 0.95, 0.85);
       for (let k = 0; k < n; k++) { const b = best[k]; out[k * 4] = b.x; out[k * 4 + 1] = b.z; out[k * 4 + 2] = b.r; out[k * 4 + 3] = b.w; }
     }
     this.fixedN = n;
@@ -755,19 +791,29 @@ export class Land {
     common(p);
     gl.disable(gl.CULL_FACE);
     st.drawn = 0; st.tris = 0; st.culled = 0; st.chunks = G.chunks.length;
-    // near chunks
-    p.set('uFar', 0); p.set('uTexel', f.dx);
+    // near chunks: sorted by level of detail, each level one instanced draw
+    p.set('uFar', 0); p.set('uTexel', f.dx); p.set('uInst', 1);
+    const I = this.inst, D = I.data;
     for (const c of G.chunks) {
+      c.lod = -1;
       if (!boxVisible(c.x0, c.lo - 8, c.z0, c.x1, c.hi + 40, c.z1)) { st.culled++; continue; }
       const dx = Math.max(c.x0 - cam[0], 0, cam[0] - c.x1), dz = Math.max(c.z0 - cam[2], 0, cam[2] - c.z1), d = Math.hypot(dx, dz);
       let l = 0; while (l < 3 && d > LODS[l].to) l++;
-      const mesh = this.lods[l];
-      u[0] = c.x0; u[1] = c.z0; u[2] = CHUNK; u[3] = CHUNK;
-      p.set('uChunk', u); p.set('uSkirt', 3 + CHUNK / LODS[l].n * 0.7);
-      gl.bindVertexArray(mesh.vao);
-      gl.drawElements(gl.TRIANGLES, mesh.count, mesh.itype, 0);
-      st.drawn++; st.tris += mesh.tris;
+      c.lod = l;
     }
+    for (let l = 0; l < 4; l++) {
+      let n = 0;
+      for (const c of G.chunks) if (c.lod === l) { D[n * 4] = c.x0; D[n * 4 + 1] = c.z0; D[n * 4 + 2] = CHUNK; D[n * 4 + 3] = CHUNK; n++; }
+      if (!n) continue;
+      const mesh = this.lods[l];
+      p.set('uSkirt', 3 + CHUNK / LODS[l].n * 0.7);
+      gl.bindBuffer(gl.ARRAY_BUFFER, I.bufs[l]);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, D, 0, n * 4);
+      gl.bindVertexArray(mesh.vao);
+      gl.drawElementsInstanced(gl.TRIANGLES, mesh.count, mesh.itype, 0, n);
+      st.drawn++; st.tris += mesh.tris * n;
+    }
+    p.set('uInst', 0);
     // the rings read the far field
     p.set('uFar', 1); p.set('uTexel', f.fd);
     for (const b of G.blocks) {

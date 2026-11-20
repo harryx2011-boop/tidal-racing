@@ -62,6 +62,37 @@ and sea and shore, each with one verdict. If a verdict is missing for a stream, 
 before fixing. Storm stills need a few half-second frames first: auto-exposure adapts over time and a
 storm still taken straight after `game.start` comes out almost black.
 
+**From the cloud session, as it lands (latest first):**
+
+- **Sky round 1 is merged (be096a9); `src/sky/` and the cloud lines of `src/main.js` are free to edit.**
+  Soft cumulus rims by pixel footprint, domed cumulus, thin scraps, the storm deck lit as relief, the
+  scud layer removed, the sky's light primed at a reset (three environment rounds before the first
+  frame after a race start or weather jump). Cost, unmeasured on a GPU: low and medium march 64 steps
+  (was 80) and 4 light steps (was 5), with fine steps 1.25 times longer; high is unchanged; a storm no
+  longer marches the 260 to 650 m scud shell. Nobody compared 64/4 against 80/5 side by side, so take
+  a readout before and after (`git diff e339932 be096a9 -- src/main.js`). The builder's own list of
+  what is still wrong: the storm deck is smooth ("whipped cream") and reads light grey, not slate
+  (`exposureBias` in `main.js` adds 0.4 EV in storms); near cumulus a little pebbly; cirrus as straight
+  scratches in places; grain in dark cloud at sunset; no scud. Its verdict will be
+  `docs/verdicts/S-sky-r1.md`.
+- **Land and coast round 1 is merged; `src/game/land.js`, `coastal.js`, `coastplan.js` and
+  `src/game/models/{rocks,trees}.js` are free to edit** (sea and shore may still add a line to
+  `fixedFor` in `land.js`). Sea stacks rebuilt as bedded pillars; cliffs get a finer skin of beds,
+  ledges and buttresses over steep ground within 420 m of the racing line; boulders bedded with foam
+  rings; spruce in whorls; trees behind quays; terrain chunks one instanced draw per level; level of
+  detail builds on a 4 ms budget, with a rush of builds over the three drawn frames after a camera jump
+  (so a judged still needs at least 3 `T.frames` after placing the camera). Cost counted in Node, not
+  timed: land and coast at medium, median 266k to 362k triangles and 58 to 92 draws along the racing
+  lines, worst 690k and 130; triangles level with before, draws down by a third or more. To watch on
+  the PC: a near cliff tile takes about 20 ms of JavaScript to build (worst 65 ms), which may be one of
+  the hitches; near cliff skins are never evicted (up to about 100 MB on the sprint). The builder's own
+  list of what is still wrong: headlands are still drums with flat tops and the beds read a little
+  like coursed masonry; ledges are soft; trees up close are stylised and lime green in sun; boulders
+  plain under 15 m; moored day boats are boxy, one with a green stern panel; nothing seen in motion,
+  in any weather but breeze, or on the high tier. Its verdict will be `docs/verdicts/P-land-r1.md`.
+- Sea and shore: still building in the cloud. Until its merge commit shows in `git log`, leave alone
+  `src/ocean/water.js`, `src/ocean/foam.js`, `src/game/wake.js` and `src/game/boatspray.js`.
+
 ### What to do, in this order
 
 1. **First real run.** `node tools/serve.mjs 5173`, open http://localhost:5173 in Chrome at 1080p.
