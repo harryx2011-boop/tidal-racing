@@ -19,6 +19,8 @@ import { Scenery } from './scenery.js';
 import { Wildlife } from './wildlife.js';
 import { Land } from './land.js';
 import { Collisions } from './collide.js';
+import { Contact } from './contact.js';
+import { Draft } from './draft.js';
 import { Coastal } from './coastal.js';
 
 const STEP = 1 / 120;          // physics step (s)
@@ -94,6 +96,7 @@ export class Game {
     this.acc = 0;
     this.model = new Float32Array(16);
     this.collisions = new Collisions(this);
+    this.contact = new Contact(this); this.draft = new Draft(this);   // rivals: contact, PIT, bump draft, slipstream
     this.sample = { h: 0, sx: 0, sz: 0 };
     this.sea = (i, x, z) => {
       const r = this.probe.result[i], s = this.sample;
@@ -189,7 +192,7 @@ export class Game {
     if (ready) {
       const p0 = [boat.pos[0], boat.pos[2]];
       this.acc = Math.min(this.acc + dt, 0.1);
-      while (this.acc >= STEP) { boat.step(STEP, inp, this.sea, drive); this.collisions.step(boat, STEP); this.acc -= STEP; }
+      while (this.acc >= STEP) { this.draft.step(boat, STEP, drive); boat.step(STEP, inp, this.sea, drive); this.collisions.step(boat, STEP); this.contact.step(boat, STEP, drive); this.acc -= STEP; }
       if (drive) this.track(p0, dt);
     }
     for (const s of this.systems) s.update?.(dt, ot);
