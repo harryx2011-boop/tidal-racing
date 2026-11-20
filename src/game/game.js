@@ -67,6 +67,9 @@ export class Game {
     this.probe = new MultiProbe(gl);
     this.boat = new Boat();
     this.ghostBoat = new Boat();
+    // Other players' boats this frame (multiplayer). Each: { id, name, pose (a Boat), livery }. The net code
+    // fills it; contact, drafting and every visual system read it (through renderBoats()).
+    this.rivals = [];
     this.input = new Input();
     this.livery = { color: [0.95, 0.42, 0.05], stripe: 0, number: 7 };
     // Visual systems (wake, shadows, lights, ...). Each may implement any of:
@@ -325,6 +328,7 @@ export class Game {
   // Systems loop over this instead of reaching for game.boat, so rivals appear everywhere at once.
   renderBoats() {
     const list = [{ pose: this.boat, livery: this.livery, ghost: false }];
+    for (const r of this.rivals) list.push({ pose: r.pose, livery: r.livery, ghost: false, rival: r });
     if (this.ghostAt(this.raceTime)) list.push({ pose: this.ghostBoat, livery: GHOST_LIVERY, ghost: true });
     return list;
   }
