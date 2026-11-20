@@ -1,8 +1,8 @@
 // The coast as a lived-in place: everything on the land and along the shore that is not height field.
 // One system; the plan of a course is plain data (models/coastplan.js), a pure function of the course.
 //
-//   ground    quay decks, slipways, the boulders of the `rocks` features, the shells of the sea stacks, loose
-//             blocks and outcrops on cliffs: meshes handed to the terrain (land.js draws them with its own
+//   ground    quay decks, slipways, the boulders of the `rocks` features, the shells of the sea stacks, the
+//             bedded skins of the cliffs and the loose blocks under them: meshes handed to the terrain (land.js draws them with its own
 //             shading, so rock is one rock everywhere and paving takes shadows)
 //   fixed     quay walls and their furniture, piers, and the buildings in chunks: meshes for the mesh pass
 //   afloat    a small craft and a buoy at every mooring spot, riding the sea by the mesh pass's float mode
@@ -22,8 +22,12 @@
 // Quality. The tier (settings.active) sets the trees' range and scales the distances the levels change at; app.fx.shadows scales those again as the governor sheds load, and at 0 the
 // object shadows are off.
 //
-// Cost (software GL only; nothing measured on a GPU). A close pass along a harbour at the medium tier draws
-// about 250k triangles in 60 to 110 draws for this system; see the report for views per course.
+// Cost (counted, not timed here: software GL only). In the chase camera's view along the three racing lines,
+// sampled every 25 m, this system and the terrain together draw at the medium tier a median of 270 to 360
+// thousand triangles (nine views in ten under 500 thousand, the worst 690 thousand) in 60 to 90 draws (worst
+// 130); at the high tier a median of 310 to 450 thousand (worst 720 thousand) in at most 155 draws; at the low
+// tier a median of 200 to 290 thousand (worst 630 thousand). Trees are the larger part of the worst views: up to
+// 18 thousand drawn at once, nearly all at the farthest level (8 triangles) and a few hundred at the nearer ones.
 import { Program, Texture, Target } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { smoothstep } from '../math.js';
@@ -33,7 +37,7 @@ import { planCoast } from './models/coastplan.js';
 import { Geo } from './models/kit.js';
 import { quayGeo, deckGeo, pierGeo, slipGeo } from './models/harbour.js';
 import { buildingGeo } from './models/village.js';
-import { rockFieldGeo, stackGeo, looseRockGeo, rockSet } from './models/rocks.js';
+import { rockFieldGeo, stackGeo, looseRockGeo, rockSet, cliffGeo, CLIFF_TILE } from './models/rocks.js';
 import { packLevel, FLOATS } from './models/trees.js';
 import { openBoatGeo, dayBoatGeo, mooringBuoyGeo } from './models/smallcraft.js';
 import { ribGeo } from './models/vessels.js';
@@ -44,7 +48,7 @@ const TIERS = {
   high: { treeFar: 1650, lod: 1.3, rocks: 1800 },
 };
 // where a cell of trees steps down a level (m to the cell)
-const TREE_LOD = [42, 170, 520];
+const TREE_LOD = [48, 180, 520];
 const CHUNK = 96;              // buildings are built in chunks this size, so only the near ones are fine
 
 // ---- trees ----
@@ -122,15 +126,18 @@ void main() {
     albedo = mix(albedo, albedo.grb * vec3(1.25, 0.8, 0.6), smoothstep(0.9, 1.0, t) * 0.55);
     float n1 = mix(0.5, vnoise(vWorld * 1.7), 1.0 - smoothstep(0.2, 0.6, fp * 1.7));
     float n2 = mix(0.5, vnoise(vWorld * 9.0), 1.0 - smoothstep(0.03, 0.1, fp));
-    float cut = vnoise(vWorld * 5.0) * 0.6 + vnoise(vWorld * 13.0) * 0.4;
+    // (the leaves themselves, where a pixel is small enough to show one)
+    float fine = 1.0 - smoothstep(0.012, 0.04, fp);
+    float n3 = mix(0.5, vnoise(vWorld * 31.0), fine);
+    float cut = vnoise(vWorld * 5.0) * 0.6 + vnoise(vWorld * 13.0) * 0.4 + (n3 - 0.5) * 0.3;
     // a ragged outline: leaves against the sky, not the edge of a balloon (only where a pixel can show it)
     // (the rim is the lump's own, from the surface as drawn: toward its edge more and more of it is sky)
     vec3 Ng = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
     float rim = 1.0 - abs(dot(Ng, V));
     float near = 1.0 - smoothstep(0.08, 0.22, fp);
-    if (cut < (0.16 + rim * sqrt(rim) * 0.95) * near) discard;
+    if (cut < (0.24 + rim * sqrt(rim) * 0.95) * near) discard;
     float gap = mix(1.0, smoothstep(0.3, 0.6, cut), near);
-    albedo *= (0.68 + 0.64 * n1) * (0.66 + 0.68 * n2);
+    albedo *= (0.68 + 0.64 * n1) * (0.66 + 0.68 * n2) * (0.78 + 0.44 * n3);
     shade *= (0.5 + 0.5 * gap) * (gl_FrontFacing ? 1.0 : 0.6);
   } else {
     albedo *= 0.7 + 0.6 * vnoise(vWorld * vec3(11.0, 2.5, 11.0));
@@ -245,11 +252,11 @@ export class Coastal {
     this.opt = { float: 0 };
     this.view = new Float32Array(3);
     this.top = new Float32Array(4);
-    this.stats = { draws: 0, tris: 0, trees: 0, treeTris: 0, glows: 0, built: 0, buildMs: 0 };
+    this.stats = { draws: 0, tris: 0, trees: 0, treeTris: 0, treeLod: [0, 0, 0, 0], glows: 0, built: 0, buildMs: 0 };
     this.prog = null;
     this.levels = null;              // the trees' meshes as textures, shared by every course
     this.vid = null;
-    this.queue = [];
+    this.rush = 0;                   // frames left in which every level asked for is built at once (see update)
     this.tier = TIERS[settings.active] || TIERS.medium;
     this.foot = 0;
     this.best = Array.from({ length: LAMPS }, () => ({ d: 0, l: null }));
@@ -266,7 +273,7 @@ export class Coastal {
     C.quayA.fill(0); C.quayB.fill(0);
     G.P.quays.slice(0, 2).forEach((q, i) => { C.quayA.set([q.x, q.z, q.ox, q.oz], i * 4); C.quayB.set([q.hw, q.depth, q.flare, q.paved], i * 4); });
     C.objTex = G.objTex; C.objRect.set(G.objRect); C.objTexel = G.objSize ? G.objSize[2] : 1;
-    this.queue.length = 0;
+    this.rush = 3;
   }
 
   plan(course) {
@@ -304,6 +311,8 @@ export class Coastal {
       const tr = (th, y) => { let r = 0; for (let d = 0.5; d < s.r * 1.7; d += 0.5) if (field.heightAt(s.x + Math.cos(th) * d, s.z + Math.sin(th) * d) >= y) r = d; return r; };
       item(G.ground, { make: (l) => ({ g: stackGeo(s, tr, l) }), n: 3, at: [170, 650], origin: [s.x, 0, s.z], box: [s.x - s.r * 1.9, -6, s.z - s.r * 1.9, s.x + s.r * 1.9, s.h + 3, s.z + s.r * 1.9], cull: 9000 });
     }
+    // the cliffs' skins, a tile each (they go as far as the loose rock does: beyond, a cliff is the terrain's own shape)
+    for (const t of P.cliffs) { const o = [t.x0 + CLIFF_TILE / 2, 0, t.z0 + CLIFF_TILE / 2]; item(G.ground, { make: (l) => ({ g: cliffGeo(field, t, o, l) }), n: 3, at: [110, 400], origin: o, box: [t.x0 - 1, t.y0, t.z0 - 1, t.x0 + CLIFF_TILE + 1, t.y1, t.z0 + CLIFF_TILE + 1], cull: this.tier.rocks }); }
     const cells = new Map();
     for (const r of P.rocks) { const k = Math.floor(r.x / 192) + ':' + Math.floor(r.z / 192); let c = cells.get(k); if (!c) cells.set(k, c = []); c.push(r); }
     const sets = [0, 1, 2].map((l) => ({ block: rockSet('block', 4, l, 'land', 101), boulder: rockSet('boulder', 3, l, 'land', 131) }));
@@ -509,11 +518,18 @@ export class Coastal {
       }
       for (let k = 0; k < n; k++) { const l = best[k].l; C.lampP[k * 4] = l.x; C.lampP[k * 4 + 1] = l.y; C.lampP[k * 4 + 2] = l.z; C.lampP[k * 4 + 3] = l.size; }
     }
-    // finer levels asked for by the last frame: one a frame
-    let done = false;
-    for (const it of G.ground) if (it.want !== undefined) { if (!done && !it.lods[it.want]) { this.build(G, it, it.want); done = true; } if (it.lods[it.want]) it.want = undefined; }
-    for (const it of G.fixed) if (it.want !== undefined) { if (!done && !it.lods[it.want]) { this.build(G, it, it.want); done = true; } if (it.lods[it.want]) it.want = undefined; }
-    for (const m of G.models.values()) if (m.want !== undefined) { if (!done && !m.lods[m.want]) { this.buildModel(m, m.want); done = true; } if (m.lods[m.want]) m.want = undefined; }
+    // Finer levels asked for by the last frame: as many as fit in a few milliseconds, and at least one. Where the
+    // camera has just arrived somewhere (a start, a reset, another course) everything it asks for is built at once,
+    // behind the fade, so a place is never first seen at its coarse level.
+    const cp = app.cam.pos, lp = this.lastCam || (this.lastCam = [1e9, 0, 1e9]);
+    if (Math.hypot(cp[0] - lp[0], cp[2] - lp[2]) > 30) this.rush = 3;
+    lp[0] = cp[0]; lp[2] = cp[2];
+    const t0 = now(), ok = () => this.rush > 0 || now() - t0 < 4;
+    let built = 0;
+    const serve = (list, build) => { for (const it of list) if (it.want !== undefined) { if (!it.lods[it.want] && (!built || ok())) { build(it); built++; } if (it.lods[it.want]) it.want = undefined; } };
+    serve(G.ground, (it) => this.build(G, it, it.want));
+    serve(G.fixed, (it) => this.build(G, it, it.want));
+    serve(G.models.values(), (m) => this.buildModel(m, m.want));
     if (G.glowDirty) this.glowBuffer(G);
   }
 
@@ -529,7 +545,9 @@ export class Coastal {
     const G = this.G;
     if (!G) return;
     const gl = this.gl, app = this.game.app, cam = app.cam.pos, mat = this.mat, st = this.stats, t = app.time;
-    st.draws = 0; st.tris = 0; st.trees = 0; st.treeTris = 0;
+    st.draws = 0; st.tris = 0; st.trees = 0; st.treeTris = 0; st.treeLod.fill(0);
+    // (the rush after a jump is counted in frames drawn: it is a frame that asks for levels, and the update after it that builds them)
+    if (this.rush > 0) this.rush--;
     // ---- fixed things: quays, piers, buildings ----
     const o = this.opt;
     o.float = 0;
@@ -579,7 +597,7 @@ export class Coastal {
         gl.vertexAttribPointer(1, 4, gl.FLOAT, false, FLOATS * 4, c.start * FLOATS * 4);
         gl.vertexAttribPointer(2, 4, gl.FLOAT, false, FLOATS * 4, c.start * FLOATS * 4 + 16);
         gl.drawArraysInstanced(gl.TRIANGLES, 0, L.verts, c.count);
-        st.draws++; st.trees += c.count; st.treeTris += c.count * L.tris;
+        st.draws++; st.trees += c.count; st.treeTris += c.count * L.tris; st.treeLod[l] += c.count;
       };
       const far3 = TREE_LOD[2] * k;
       for (const B of T.blocks) {

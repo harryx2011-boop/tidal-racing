@@ -2,14 +2,15 @@
 // GL in it (tools/check-land.mjs reads the same plan to check that nothing stands in the water or on a pier).
 //   quays, piers, slips   measured from the height field (models/harbour.js)
 //   buildings             the harbour rows, the village, boathouses, farms (models/village.js), in groups
-//   rocks                 loose blocks and outcrops on steep ground near the line (models/rocks.js)
+//   rocks, cliffs         loose blocks under steep ground near the line, and the tiles of cliff that are rebuilt
+//                         as bedded rock (models/rocks.js)
 //   trees                 every tree and bush (models/trees.js)
 //   moorings              a small craft and its buoy at each mooring spot of the course's features
 import { COASTS, mooringSpots, rockSpots } from './coast.js';
 import { landFor } from '../landfield.js';
 import { planQuay, planPier, findSlip } from './harbour.js';
 import { placeBuildings } from './village.js';
-import { placeRocks } from './rocks.js';
+import { placeRocks, placeCliffs } from './rocks.js';
 import { plantTrees } from './trees.js';
 import { hash1 } from './kit.js';
 
@@ -28,7 +29,7 @@ export function planCoast(course) {
   const slips = quays.map((q) => findSlip(field, q)).filter(Boolean);
   const buildings = placeBuildings(field, def, quays, piers, slips, segs, seed);
   const t1 = now();
-  const rocks = placeRocks(field, segs);
+  const rocks = placeRocks(field, segs), cliffs = placeCliffs(field, segs);
   const t2 = now();
   const avoid = buildings.map((b) => ({ x: b.x, z: b.z, r: b.r * 0.92, house: b.type !== 'barn' && b.type !== 'shed' }));
   for (const s of slips) for (let t = -8; t <= s.len; t += 4) avoid.push({ x: s.x + s.dx * t, z: s.z + s.dz * t, r: 6 });
@@ -37,11 +38,12 @@ export function planCoast(course) {
   // moored craft: a kind and a seed for each spot; the buoy lies ahead of the bow
   const moorings = [];
   for (const f of feats) if (f.kind === 'moorings') mooringSpots(f).forEach((s, i) => {
-    const h = hash1(Math.round(s.x * 3), Math.round(s.z * 3) + i), kind = h < 0.45 ? 'open' : h < 0.7 ? 'day' : 'rib', len = kind === 'open' ? 4.4 : kind === 'day' ? 5.7 : 6.8;
+    // (a mixed mooring: mostly open boats and day boats, a rib or two)
+    const h = hash1(Math.round(s.x * 3), Math.round(s.z * 3) + i), kind = ['open', 'day', 'open', 'day', 'rib', 'open', 'day', 'open', 'open'][(i + Math.floor(hash1(Math.round(f.x), Math.round(f.z)) * 9)) % 9], len = kind === 'open' ? 4.4 : kind === 'day' ? 5.7 : 6.8;
     moorings.push({ x: s.x, z: s.z, yaw: s.yaw, kind, seed: 1 + Math.floor(h * 97) + i, crew: h > 0.3 && h < 0.4 ? 1 : 0, buoy: { x: s.x + Math.cos(s.yaw) * (len / 2 + 1.4), z: s.z + Math.sin(s.yaw) * (len / 2 + 1.4), seed: i } });
   });
   P = {
-    id: course.id, field, def, segs, quays, piers, slips, buildings, rocks, trees, moorings,
+    id: course.id, field, def, segs, quays, piers, slips, buildings, rocks, cliffs, trees, moorings,
     stacks: feats.filter((f) => f.kind === 'stack'), rockFields: feats.filter((f) => f.kind === 'rocks').map((f) => ({ f, spots: rockSpots(f) })),
     ms: { layout: t1 - t0, rocks: t2 - t1, trees: t3 - t2, total: t3 - t0 },
   };

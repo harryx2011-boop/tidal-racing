@@ -18,15 +18,15 @@
 // thorn and smaller trees near the sea; along the hedges of the fields; scattered thorn and gorse on rough
 // ground; and among the houses. Never in water, on a quay, a building's plot, a lane or a pier.
 //
-// Triangles a tree (near / middle / far / farthest): 1100 / 260 / 64 / 14 (every kind padded to the largest).
+// Triangles a tree (near / middle / far / farthest): 1520 / 300 / 52 / 8 (every kind padded to the largest).
 import { Geo, rng, TAU, lerp, smooth, clamp, hash1, vn, fb, sheet, tube } from './kit.js';
 import { woodsAt, woodsGate, fieldAt, fieldMask, fieldGate, trackD, lvn } from './cover.js';
 
 export const SPECIES = ['oak', 'birch', 'pine', 'spruce', 'thorn', 'bush'];
 // height range (m), width relative to the unit tree, leaf and bark colours
 const KIND = {
-  oak: { h: [8, 14], leaf: [0.07, 0.115, 0.03], bark: [0.085, 0.07, 0.055] },
-  birch: { h: [8, 13], leaf: [0.105, 0.15, 0.04], bark: [0.42, 0.4, 0.36] },
+  oak: { h: [8, 14], leaf: [0.06, 0.098, 0.028], bark: [0.085, 0.07, 0.055] },
+  birch: { h: [8, 13], leaf: [0.088, 0.125, 0.037], bark: [0.42, 0.4, 0.36] },
   pine: { h: [10, 17], leaf: [0.035, 0.07, 0.04], bark: [0.15, 0.095, 0.065] },
   spruce: { h: [9, 17], leaf: [0.028, 0.058, 0.03], bark: [0.08, 0.06, 0.045] },
   thorn: { h: [3.2, 5.6], leaf: [0.06, 0.095, 0.03], bark: [0.07, 0.06, 0.05] },
@@ -71,11 +71,11 @@ export function treeGeo(kind, lod = 0, seed = 1) {
     trunk([[0, -0.03, 0], [0.01, tb * 0.5, 0.01], [0.0, tb, 0], [0.02, cy, 0.01]], oak ? 0.05 : 0.028, oak ? 0.022 : 0.012);
     // puffs spread through the head on a spiral, smaller toward the outside and the top, so the outline is broken
     // and there are gaps into the dark inside
-    const n = lod === 0 ? (oak ? 19 : 15) : lod === 1 ? 8 : 3;
+    const n = lod === 0 ? (oak ? 19 : 15) : lod === 1 ? (oak ? 10 : 9) : 3;
     for (let k = 0; k < n; k++) {
       const u = (k + 0.5) / n, yy = 1 - 2 * u, rr = Math.sqrt(Math.max(1 - yy * yy, 0)), a = k * 2.39996 + R() * 0.5, d = 0.62 + 0.3 * R();
       const c = [Math.cos(a) * rr * rx * d, cy + yy * ry * 0.8 * (yy < 0 ? 0.6 : 1) + (R() - 0.5) * 0.05, Math.sin(a) * rr * rx * d];
-      const pr = (oak ? 0.165 : 0.115) * (0.75 + 0.6 * R()) * (lod === 2 ? 2.0 : lod === 1 ? 1.45 : 1);
+      const pr = (oak ? 0.165 : 0.115) * (0.75 + 0.6 * R()) * (lod === 2 ? 2.0 : lod === 1 ? 1.22 : 1);
       puff(g, c, pr * 1.2, pr * (oak ? 0.82 : 1.05), pr * 1.2, lod, seed + k * 3.7, tone(0.75 + 0.5 * R()));
       if (lod === 0 && k % 2 === 0 && yy < 0.6) trunk([[0, tb * (0.75 + 0.35 * R()), 0], [c[0] * 0.45, lerp(tb, c[1], 0.55), c[2] * 0.45], [c[0] * 0.9, c[1] - pr * 0.3, c[2] * 0.9]], oak ? 0.02 : 0.011, 0.005);
     }
@@ -83,30 +83,31 @@ export function treeGeo(kind, lod = 0, seed = 1) {
   } else if (kind === 'pine') {
     trunk([[0, -0.03, 0], [0.015, 0.3, 0.0], [0.0, 0.62, 0.01], [0.02, 0.9, 0.0]], 0.035, 0.012);
     // pads of needles on the ends of a few boughs, flat-topped, the crown open between them
-    const n = lod === 0 ? 11 : lod === 1 ? 6 : 3;
+    const n = lod === 0 ? 11 : lod === 1 ? 8 : 3;
     for (let k = 0; k < n; k++) {
       const t = k / (n - 1), a = k * 2.4 + R(), d = k === n - 1 ? 0 : 0.2 * (1 - t * 0.55) * (0.5 + 0.9 * R()), y = lerp(0.58, 0.95, t) + (R() - 0.5) * 0.04;
-      const c = [Math.cos(a) * d, y, Math.sin(a) * d], pr = 0.15 * (1 - 0.3 * t) * (0.75 + 0.5 * R()) * (lod === 2 ? 1.7 : lod === 1 ? 1.3 : 1);
+      const c = [Math.cos(a) * d, y, Math.sin(a) * d], pr = 0.15 * (1 - 0.3 * t) * (0.75 + 0.5 * R()) * (lod === 2 ? 1.7 : lod === 1 ? 1.15 : 1);
       puff(g, c, pr, pr * 0.46, pr, lod, seed + k * 5.1, tone(0.75 + 0.5 * R()));
       if (lod === 0 && d > 0) trunk([[0.01, y - 0.09, 0], [c[0] * 0.6, y - 0.05, c[2] * 0.6], [c[0], y - 0.01, c[2]]], 0.012, 0.005);
     }
     crown = [0, 0.78, 0, 0.3, 0.22, 0.3];
   } else if (kind === 'spruce') {
     trunk([[0, -0.03, 0], [0, 0.5, 0], [0, 0.97, 0]], 0.028, 0.004);
-    // tiers of skirts, each drooping at its edge, smaller toward the tip
-    const n = lod === 0 ? 7 : lod === 1 ? 4 : 2, m = lod === 0 ? 9 : lod === 1 ? 7 : 5;
+    // whorls of boughs: each a skirt whose rim runs out to the tips of its boughs and back between them, drooping
+    // at the tips; smaller and closer toward the leader, none two alike, so the outline is a saw's and not a cone's
+    const n = lod === 0 ? 11 : lod === 1 ? 7 : 2, m = lod === 0 ? 12 : lod === 1 ? 10 : 5;
     for (let k = 0; k < n; k++) {
-      const t0 = k / n, y0 = lerp(0.1, 0.92, t0), y1 = lerp(0.1, 0.92, (k + 1.35) / n), r0 = 0.25 * (1 - t0 * 0.86) * (0.9 + 0.2 * R()), sd = seed + k * 2.3, col = tone(0.8 + 0.4 * R());
+      const t0 = k / n, y0 = lerp(0.1, 0.93, Math.pow(t0, 0.9)), y1 = lerp(0.1, 0.93, Math.pow((k + 1.45) / n, 0.9)), r0 = 0.235 * (1 - t0 * 0.88) * (0.82 + 0.36 * R()), sd = seed + k * 2.3, col = tone(0.78 + 0.44 * R()), tw = R() * TAU;
       sheet(g, 3, m + 1, (i, j, out) => {
-        const th = ((j % m) / m) * TAU + k * 0.7, kk = 0.8 + 0.4 * vn(Math.cos(th) * 2 + sd, k, Math.sin(th) * 2), r = i === 0 ? r0 * kk : i === 1 ? r0 * 0.45 : 0.004;
-        out[0] = Math.cos(th) * r; out[1] = i === 0 ? y0 - 0.02 * kk : i === 1 ? lerp(y0, y1, 0.42) : Math.min(y1, 1); out[2] = Math.sin(th) * r;
+        const jj = j % m, th = (jj / m) * TAU + tw, tip = lod < 2 && (jj & 1) ? 0.58 : 1.08, kk = tip * (0.8 + 0.4 * vn(Math.cos(th) * 2 + sd, k, Math.sin(th) * 2)), r = i === 0 ? r0 * kk : i === 1 ? r0 * 0.42 : 0.004;
+        out[0] = Math.cos(th) * r; out[1] = i === 0 ? y0 - 0.035 * kk * (1 - t0 * 0.6) : i === 1 ? lerp(y0, y1, 0.42) : Math.min(y1, 1); out[2] = Math.sin(th) * r;
       }, col, LEAF, { wrap: true });
     }
     crown = [0, 0.52, 0, 0.24, 0.5, 0.24];
   } else if (kind === 'thorn') {
     // the trunk leans downwind (+x) and the head is swept out that way, low to windward
     trunk([[0, -0.03, 0], [0.05, 0.22, 0.01], [0.16, 0.42, 0], [0.3, 0.55, 0.01]], 0.05, 0.02);
-    const n = lod === 0 ? 9 : lod === 1 ? 5 : 3;
+    const n = lod === 0 ? 9 : lod === 1 ? 7 : 3;
     for (let k = 0; k < n; k++) {
       const t = k / (n - 1), x = lerp(-0.1, 0.78, t), y = 0.52 + 0.22 * Math.sin(t * 2.6) + (R() - 0.5) * 0.06, z = (R() - 0.5) * 0.36 * Math.sin(t * Math.PI + 0.4);
       const pr = (0.15 + 0.12 * Math.sin(t * Math.PI)) * (0.85 + 0.3 * R()) * (lod === 2 ? 1.4 : 1);
@@ -229,7 +230,8 @@ export function plantTrees(field, segs, avoid, quays, piers, reach = TREE_REACH)
       else if (q1 < 0.1 && ny > 0.85 && nearHouse(x, z)) { kind = r2 < 0.35 ? 0 : r2 < 0.6 ? 1 : r2 < 0.8 ? 5 : 4; sizeK = 0.8; }
       if (kind < 0) continue;
       if (trackD(x, z) < 3.2 || blocked(x, z)) continue;
-      if (quays.some((qq) => qq.inside(x, z, 3)) || piers.some((p) => { const dx = x - p.x, dz = z - p.z, t = dx * p.cx + dz * p.cz, s = -dx * p.cz + dz * p.cx; return t > -3 && t < p.len + 3 && Math.abs(s) < p.w / 2 + 3; })) continue;
+      // (a quay keeps its apron and the row behind it clear; further back its block is ground like any other)
+      if (quays.some((qq) => qq.inside(x, z, 3) && qq.local(x, z)[1] < qq.paved + 16) || piers.some((p) => { const dx = x - p.x, dz = z - p.z, t = dx * p.cx + dz * p.cz, s = -dx * p.cz + dz * p.cx; return t > -3 && t < p.len + 3 && Math.abs(s) < p.w / 2 + 3; })) continue;
       const H = TREE_H[kind], hgt = lerp(H[0], H[1], r3) * sizeK * big * (kind < 4 ? 1 - 0.4 * exposed : 1);
       list.push(x, h - 0.1, z, hgt, kind, kind === 4 ? WIND_YAW + (r2 - 0.5) * 0.5 : r2 * 39.7, 0.85 + 0.4 * hash1(gi, gj * 3 + 1), hash1(gi * 5 + 2, gj));
       if (h < y0) y0 = h; if (h + hgt > y1) y1 = h + hgt;
