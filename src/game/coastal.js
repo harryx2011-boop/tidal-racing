@@ -530,7 +530,6 @@ export class Coastal {
     serve(G.ground, (it) => this.build(G, it, it.want));
     serve(G.fixed, (it) => this.build(G, it, it.want));
     serve(G.models.values(), (m) => this.buildModel(m, m.want));
-    if (this.rush > 0) this.rush--;
     if (G.glowDirty) this.glowBuffer(G);
   }
 
@@ -547,6 +546,8 @@ export class Coastal {
     if (!G) return;
     const gl = this.gl, app = this.game.app, cam = app.cam.pos, mat = this.mat, st = this.stats, t = app.time;
     st.draws = 0; st.tris = 0; st.trees = 0; st.treeTris = 0; st.treeLod.fill(0);
+    // (the rush after a jump is counted in frames drawn: it is a frame that asks for levels, and the update after it that builds them)
+    if (this.rush > 0) this.rush--;
     // ---- fixed things: quays, piers, buildings ----
     const o = this.opt;
     o.float = 0;

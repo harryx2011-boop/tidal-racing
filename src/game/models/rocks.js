@@ -9,7 +9,8 @@
 // low skerry awash, tall fin, angular block). A stack is a sheer pillar of flat-lying beds on a rubble foot
 // (see stackGeo), always wider than the terrain pillar inside it (it is measured from the height field).
 //
-// Triangles: a lump 940 / 216 / 70 at the three levels; a stack 7-9k / 3k / 0.3k.
+// Triangles: a lump 940 / 216 / 70 at the three levels; a stack 7-10k / 3k / 0.3k; a cliff's skin 4-20k / 1-5k /
+// 0.2-0.7k a tile of 96 m (cells of 0.5, 1 and 3 m over the steep ground only).
 import { Geo, sheet, stamp, frame, rng, vn, fb, TAU, lerp, smooth, clamp, paint, hash1 } from './kit.js';
 import { GROUND } from './cover.js';
 

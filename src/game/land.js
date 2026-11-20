@@ -250,7 +250,8 @@ vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, float bedded, out f
     // noise in it that the two sides could disagree on): a bed's seam lies along the foot of its riser
     float sA = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 1.1 * sin(P.x * 0.031 + 1.3) * sin(P.z * 0.027 + 0.4) + 0.45 * sin(P.x * 0.093 + 2.1) * sin(P.z * 0.081 + 1.7);
     s0 = sA * 0.4 + 0.2 * sin(sA * 0.9 + 1.0);
-    s = sA + 0.25 * n2 + 0.35 * (vn3(P * 0.6 + 5.0) - 0.5) * fo1;
+    // (the thin beds within them of very unequal thickness: evenly ruled, a cliff reads as coursed masonry)
+    s = sA + 0.5 * sin(sA * 1.7 + 0.5) + 0.25 * n2 + 0.35 * (vn3(P * 0.6 + 5.0) - 0.5) * fo1;
   }
   float B0 = floor(s0), bf0 = s0 - B0;
   float tone0 = h11f(B0 * 1.7 + 0.3);
