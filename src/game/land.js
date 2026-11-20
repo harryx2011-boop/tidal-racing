@@ -36,7 +36,7 @@
 // then aerial perspective and fog as everything.
 //
 // Cost (counted, not timed: software GL only). Triangles per chunk 8.7k / 2.3k / 0.6k / 0.2k at the four levels;
-// the chase camera's view along a course draws 170-270k triangles of terrain in at most four draws for the
+// the chase camera's view along a course draws 170-270k triangles of terrain and cliff in at most four draws for the
 // chunks, up to eight for the rings (strips of 90-100k triangles in all, drawn only when in view) and one for
 // each ground mesh in view. A terrain fragment: 5 height taps, 12 more for the terrain shadow below about 35
 // degrees of sun within 4 km, 22 taps of the object map inside its rectangle only, and some 60 hashed noise

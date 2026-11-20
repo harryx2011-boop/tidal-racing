@@ -18,7 +18,7 @@
 // thorn and smaller trees near the sea; along the hedges of the fields; scattered thorn and gorse on rough
 // ground; and among the houses. Never in water, on a quay, a building's plot, a lane or a pier.
 //
-// Triangles a tree (near / middle / far / farthest): 1520 / 670 / 52 / 8 (every kind padded to the largest).
+// Triangles a tree (near / middle / far / farthest): 1520 / 300 / 52 / 8 (every kind padded to the largest).
 import { Geo, rng, TAU, lerp, smooth, clamp, hash1, vn, fb, sheet, tube } from './kit.js';
 import { woodsAt, woodsGate, fieldAt, fieldMask, fieldGate, trackD, lvn } from './cover.js';
 
@@ -35,7 +35,7 @@ const KIND = {
 export const TREE_H = SPECIES.map((s) => KIND[s].h);
 const BARK = [0, 0, 0], LEAF = [1, 0, 0];
 // puff detail by level: latitude rows, longitude columns
-const PUFF = [[5, 8], [4, 7], [2, 5], [0, 0]];
+const PUFF = [[5, 8], [3, 6], [2, 5], [0, 0]];
 
 // a lump of foliage: an ellipsoid whose radius wanders
 function puff(g, c, rx, ry, rz, lod, seed, col) {
@@ -71,7 +71,7 @@ export function treeGeo(kind, lod = 0, seed = 1) {
     trunk([[0, -0.03, 0], [0.01, tb * 0.5, 0.01], [0.0, tb, 0], [0.02, cy, 0.01]], oak ? 0.05 : 0.028, oak ? 0.022 : 0.012);
     // puffs spread through the head on a spiral, smaller toward the outside and the top, so the outline is broken
     // and there are gaps into the dark inside
-    const n = lod === 0 ? (oak ? 19 : 15) : lod === 1 ? (oak ? 12 : 10) : 3;
+    const n = lod === 0 ? (oak ? 19 : 15) : lod === 1 ? (oak ? 10 : 9) : 3;
     for (let k = 0; k < n; k++) {
       const u = (k + 0.5) / n, yy = 1 - 2 * u, rr = Math.sqrt(Math.max(1 - yy * yy, 0)), a = k * 2.39996 + R() * 0.5, d = 0.62 + 0.3 * R();
       const c = [Math.cos(a) * rr * rx * d, cy + yy * ry * 0.8 * (yy < 0 ? 0.6 : 1) + (R() - 0.5) * 0.05, Math.sin(a) * rr * rx * d];

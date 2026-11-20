@@ -22,12 +22,12 @@
 // Quality. The tier (settings.active) sets the trees' range and scales the distances the levels change at; app.fx.shadows scales those again as the governor sheds load, and at 0 the
 // object shadows are off.
 //
-// Cost (counted, not timed: software GL only, nothing measured on a GPU). In the chase camera's view along the
-// three racing lines, sampled every 25 m, this system and the terrain together draw at the medium tier a median
-// of 280 to 390 thousand triangles (worst view 760 thousand) in 60 to 90 draws (worst 135); at the high tier a
-// median of 330 to 520 thousand (worst 960 thousand) in at most 160 draws; at the low tier a median of 210 to 320
-// thousand (worst 680 thousand). Trees are the larger part of the worst views: up to 18 thousand drawn at once,
-// nearly all at the farthest level (8 triangles) and a few hundred at the nearer ones.
+// Cost (counted, not timed here: software GL only). In the chase camera's view along the three racing lines,
+// sampled every 25 m, this system and the terrain together draw at the medium tier a median of 270 to 360
+// thousand triangles (nine views in ten under 500 thousand, the worst 690 thousand) in 60 to 90 draws (worst
+// 130); at the high tier a median of 310 to 450 thousand (worst 720 thousand) in at most 155 draws; at the low
+// tier a median of 200 to 290 thousand (worst 630 thousand). Trees are the larger part of the worst views: up to
+// 18 thousand drawn at once, nearly all at the farthest level (8 triangles) and a few hundred at the nearer ones.
 import { Program, Texture, Target } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { smoothstep } from '../math.js';
@@ -48,7 +48,7 @@ const TIERS = {
   high: { treeFar: 1650, lod: 1.3, rocks: 1800 },
 };
 // where a cell of trees steps down a level (m to the cell)
-const TREE_LOD = [60, 230, 560];
+const TREE_LOD = [48, 180, 520];
 const CHUNK = 96;              // buildings are built in chunks this size, so only the near ones are fine
 
 // ---- trees ----
@@ -312,7 +312,7 @@ export class Coastal {
       item(G.ground, { make: (l) => ({ g: stackGeo(s, tr, l) }), n: 3, at: [170, 650], origin: [s.x, 0, s.z], box: [s.x - s.r * 1.9, -6, s.z - s.r * 1.9, s.x + s.r * 1.9, s.h + 3, s.z + s.r * 1.9], cull: 9000 });
     }
     // the cliffs' skins, a tile each (they go as far as the loose rock does: beyond, a cliff is the terrain's own shape)
-    for (const t of P.cliffs) { const o = [t.x0 + CLIFF_TILE / 2, 0, t.z0 + CLIFF_TILE / 2]; item(G.ground, { make: (l) => ({ g: cliffGeo(field, t, o, l) }), n: 3, at: [170, 520], origin: o, box: [t.x0 - 1, t.y0, t.z0 - 1, t.x0 + CLIFF_TILE + 1, t.y1, t.z0 + CLIFF_TILE + 1], cull: this.tier.rocks }); }
+    for (const t of P.cliffs) { const o = [t.x0 + CLIFF_TILE / 2, 0, t.z0 + CLIFF_TILE / 2]; item(G.ground, { make: (l) => ({ g: cliffGeo(field, t, o, l) }), n: 3, at: [110, 400], origin: o, box: [t.x0 - 1, t.y0, t.z0 - 1, t.x0 + CLIFF_TILE + 1, t.y1, t.z0 + CLIFF_TILE + 1], cull: this.tier.rocks }); }
     const cells = new Map();
     for (const r of P.rocks) { const k = Math.floor(r.x / 192) + ':' + Math.floor(r.z / 192); let c = cells.get(k); if (!c) cells.set(k, c = []); c.push(r); }
     const sets = [0, 1, 2].map((l) => ({ block: rockSet('block', 4, l, 'land', 101), boulder: rockSet('boulder', 3, l, 'land', 131) }));
