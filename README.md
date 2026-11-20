@@ -6,8 +6,8 @@ dependencies, no art files: the sea, sky, land, boat and everything on the water
 Status: **solo time trial is playable** on three courses that run along a coast, with a detailed
 code-built boat and driver, wake and spray, navigation buoys and a start gantry, lighthouses,
 breakwaters and other vessels, seabirds and dolphins, sunrise and sunset, and a pixel-art
-interface. Multiplayer is next; see [`docs/NEXT_SESSION.md`](docs/NEXT_SESSION.md). It has not
-yet been run on a real GPU.
+interface. Multiplayer (up to four players, peer to peer) is built; see "Multiplayer" below and
+[`docs/NEXT_SESSION.md`](docs/NEXT_SESSION.md). It has not yet been run on a real GPU or over a real network.
 
 ## Run
 
@@ -36,6 +36,23 @@ default quality. Quality, sound, livery and performance options are in Settings;
 Pass between each pair of marks (red to port, green to starboard) in order. Three courses, four
 sea states, and day, sunrise or sunset. Every race in the same conditions runs on the same waves,
 so your best run races beside you as a ghost. Land, marks and anchored boats are solid.
+
+## Multiplayer
+
+Host game or Join game on the main menu. The host gets a five-character room code and a share link
+(`?room=CODE`); opening the link joins straight away, or type the code under Join game. Up to four players,
+the host picks the course and conditions (or random, rolled from a seed), then presses Start. Everyone
+races on the same waves (the host sends the seed and a start instant; no wave data is sent). Each player
+simulates only their own boat; poses go out 20 times a second and other boats are drawn about 100 ms in the
+past. The host decides the places and the results table. Esc opens the menu without stopping the race.
+
+Signalling uses the free PeerJS broker, then the players talk directly over WebRTC (the host relays). There
+is no server of ours. A strict firewall or symmetric NAT can block a direct link; the game then says so.
+
+For two tabs on one machine with no network, add `?transport=local` to every tab's address
+(BroadcastChannel). Code: `src/game/net/` (transport, session, protocol, clock, interpolation) and
+`src/game/lobby.js`. Checks: `node --test tests/net/*.test.mjs` and
+`flock /tmp/tidal-test.lock node tools/check-net.mjs` (needs `node tools/serve.mjs 5185`).
 
 ## Test
 
@@ -74,6 +91,7 @@ src/game/scenery.js    lighthouses, breakwaters, beacons, platforms, anchored an
 src/game/land.js   coastline terrain from a baked height field (landfield.js); collide.js: collisions
 src/game/wildlife.js   seabirds, dolphins, fish, flotsam, people and flags
 src/game/hud.js    menus and HUD as pixel art (pixel.js: bitmap fonts, dither patterns)
+src/game/lobby.js, src/game/net/   multiplayer: lobby panels; transports, session, wire format, clocks
 src/game/settings.js, src/perf.js   saved settings, frame-rate governor, performance overlay
 src/ocean/         FFT wave cascades, foam, sea surface shading               (open-water)
 src/sky/           atmosphere, volumetric clouds, cirrus                      (open-water)
@@ -88,3 +106,8 @@ tests/             unit tests (node --test)
 The ocean, sky, weather and audio engine is [Open Water](https://github.com/Leonxlnx/open-water)
 by Leonxlnx, MIT licensed (see `LICENSE-open-water`). The audio recordings keep their Creative
 Commons licenses; see `assets/audio/CREDITS.md`.
+
+Multiplayer signalling uses [PeerJS](https://peerjs.com) 1.5.5 (MIT, Copyright (c) 2015 Michelle Bu and
+Eric Zhang), vendored as `src/vendor/peerjs.min.js` (the browser bundle from the npm package `peerjs`,
+unchanged apart from dropping its source-map comment); its licence is `src/vendor/LICENSE-peerjs`. It is
+loaded only when a multiplayer game is opened.

@@ -50,7 +50,7 @@ export const COURSES = [
 
 // Which gate comes next, lap counting and line crossing.
 export class Progress {
-  constructor(course) { this.course = course; this.next = 0; this.missed = 0; }
+  constructor(course) { this.course = course; this.next = 0; this.missed = 0; this.slot = 0; }   // slot: the grid slot a reset returns to (multiplayer)
   get gate() { return this.course.gates[this.next % this.course.gates.length]; }
   get lap() { return this.course.loop ? Math.min(Math.floor(Math.max(this.next - 1, 0) / this.course.gates.length) + 1, this.course.laps) : 1; }
   get done() { return this.next >= this.course.total; }
@@ -74,7 +74,7 @@ export class Progress {
   // where a reset puts the boat: the last gate passed (or the grid)
   respawn() {
     const gs = this.course.gates;
-    if (this.next === 0) return grid(this.course);
+    if (this.next === 0) return grid(this.course, this.slot);
     const g = gs[(this.next - 1) % gs.length];
     return { x: g.c[0], z: g.c[1], yaw: Math.atan2(g.dir[1], g.dir[0]) };
   }
