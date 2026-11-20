@@ -160,7 +160,8 @@ export class Lobby {
   name() {
     let n = '';
     try { n = localStorage.getItem(NAME_KEY) || ''; } catch { /* */ }
-    return cleanName(n, 'Racer' + (10 + Math.floor(Math.random() * 90)));
+    if (!this.dflt) this.dflt = 'Racer' + (10 + Math.floor(Math.random() * 90));
+    return cleanName(n, this.dflt);
   }
   profile() {
     const S = settings;
