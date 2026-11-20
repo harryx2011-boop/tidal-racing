@@ -519,8 +519,10 @@ void main() {
   vec3 bump = vec3(bg.x, 0.0, bg.y) * 0.35 * bf * (kind == 1 ? 0.2 : 1.0);
   if (rock > 0.01) {
     float rf2 = 1.0 - smoothstep(0.2, 0.6, fp * 3.1);
-    vec3 q3 = P3 * 3.1 + 5.0;
-    bump += rbump * rock + (vec3(vn3(q3), vn3(q3 + 17.0), vn3(q3 + 41.0)) - 0.5) * 0.5 * rock * rf2;
+    // (the lattice of this noise is turned out of the world's axes: on a face the sun grazes each cell of it is lit
+    // or not, and cells that lay square to the ground read as a chequer of pixels)
+    vec3 q3 = mat3(0.80, 0.36, -0.48, -0.60, 0.48, -0.64, 0.0, 0.80, 0.60) * P3 * 3.1 + 5.0;
+    bump += rbump * rock + (vec3(vn3(q3), vn3(q3 + 17.0), vn3(q3 + 41.0)) - 0.5) * 0.4 * rock * rf2;
   }
   if (canopy > 0.01) bump += vec3(vnf(p + 61.0, 0.14, fp) - 0.5, 0.0, vnf(p + 137.0, 0.14, fp) - 0.5) * 1.5 * canopy;
   vec3 N = normalize(Ng + bump);

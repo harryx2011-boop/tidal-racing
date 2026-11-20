@@ -345,15 +345,26 @@ export function cliffGeo(field, t, origin, lod = 0) {
     // (turf lies where the ground is level enough to hold it)
     F[q / 3] *= smooth(0.72, 0.9, ny / l);
   }
+  // (a riser is a run of slivers between nodes that were moved to its foot and its head: node by node the normals
+  // of such a wall swing widely, and lit at a grazing angle it shades as a chequer of cells. The wall is shaded by
+  // the normals of its neighbourhood instead: averaged over the nodes around)
+  for (let pass = 0; pass < 2; pass++) {
+    const S = Nn.slice();
+    for (let j = 0; j < N1; j++) for (let i = 0; i < N1; i++) {
+      let x = 0, y = 0, z = 0;
+      for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) { const q = (Math.min(Math.max(j + b, 0), n) * N1 + Math.min(Math.max(i + a, 0), n)) * 3; x += S[q]; y += S[q + 1]; z += S[q + 2]; }
+      const l = Math.hypot(x, y, z) || 1, q = (j * N1 + i) * 3;
+      Nn[q] = x / l; Nn[q + 1] = y / l; Nn[q + 2] = z / l;
+    }
+  }
   const g = new Geo(lod ? 4096 : 32768), BED = [GROUND.ROCK, 1, 1, 0];
   const pt = (q) => [P[q * 3], P[q * 3 + 1], P[q * 3 + 2]];
   const tri = (a, b, d) => {
     const pa = pt(a), pb = pt(b), pd = pt(d);
-    // (smooth where the surface runs on, creased where it turns: a riser and its ledge do not shade into one
-    // another, and a rough wall is not a chequer of facets)
+    // (smooth where the surface runs on, its own facet only where it turns right away from its neighbourhood)
     let fx = (pb[1] - pa[1]) * (pd[2] - pa[2]) - (pb[2] - pa[2]) * (pd[1] - pa[1]), fy = (pb[2] - pa[2]) * (pd[0] - pa[0]) - (pb[0] - pa[0]) * (pd[2] - pa[2]), fz = (pb[0] - pa[0]) * (pd[1] - pa[1]) - (pb[1] - pa[1]) * (pd[0] - pa[0]);
     const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
-    const nn = (q) => { const k = 1 - smooth(0.72, 0.9, Nn[q * 3] * fx + Nn[q * 3 + 1] * fy + Nn[q * 3 + 2] * fz), x = lerp(Nn[q * 3], fx, k), y = lerp(Nn[q * 3 + 1], fy, k), z = lerp(Nn[q * 3 + 2], fz, k), l = Math.hypot(x, y, z) || 1; return [x / l, y / l, z / l]; };
+    const nn = (q) => { const k = 1 - smooth(0.3, 0.6, Nn[q * 3] * fx + Nn[q * 3 + 1] * fy + Nn[q * 3 + 2] * fz), x = lerp(Nn[q * 3], fx, k), y = lerp(Nn[q * 3 + 1], fy, k), z = lerp(Nn[q * 3 + 2], fz, k), l = Math.hypot(x, y, z) || 1; return [x / l, y / l, z / l]; };
     const i0 = g.nv;
     g.tri(pa, pb, pd, nn(a), nn(b), nn(d), [1, 1, 1], BED);
     [a, b, d].forEach((q, k) => {
