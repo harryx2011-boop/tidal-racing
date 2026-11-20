@@ -374,7 +374,8 @@ try {
   app = new App(canvas);
   window.app = app;
 } catch (e) {
-  document.body.insertAdjacentHTML('beforeend', `<pre class="err">${e.message}</pre>`);
+  // a message instead of a blank page (index.html defines window.fatal)
+  if (window.fatal) window.fatal(e.title || 'Tidal Racing could not start', e.hint || 'Reload the page. If it keeps failing, try a current desktop Chrome, Edge or Firefox with hardware acceleration turned on.', e.hint ? '' : e.stack || e.message);
   throw e;
 }
 
@@ -411,7 +412,12 @@ const style = document.createElement('style');
 style.textContent = HUD_CSS + PERF_CSS;
 document.head.appendChild(style);
 audio.engine.volume = settings.volume;
-app.game = new Game(app, audio);
+try {
+  app.game = new Game(app, audio);
+} catch (e) {
+  if (window.fatal) window.fatal('Tidal Racing could not start', 'The game failed to set up (a graphics driver problem is the usual cause). Reload the page, or try another browser.', e.stack || e.message);
+  throw e;
+}
 app.game.livery = settings.livery();
 
 let last = performance.now();

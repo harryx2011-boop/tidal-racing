@@ -199,7 +199,7 @@ Facts worth knowing:
 - Wake physics: the CPU and GPU wake fields agree numerically, but no second boat has ridden a
   wake yet. The wake uses the nearest path segment, so a boat crossing its own loop is approximate.
 - True night is untuned (lights, glow); races run in daylight conditions.
-- The driver casts no shadow. The gamepad Start button resumes the race while Settings is open.
+- The driver casts no shadow.
 - Chrome logs a "READ-usage buffer was written, then fenced" performance warning from the probe
   readback. Results are correct; the readback may be taking a slower path.
 - The headless driver renders slowly and several at once can exhaust the container's memory.
