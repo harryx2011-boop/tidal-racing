@@ -38,7 +38,8 @@ export function planCoast(course) {
   // moored craft: a kind and a seed for each spot; the buoy lies ahead of the bow
   const moorings = [];
   for (const f of feats) if (f.kind === 'moorings') mooringSpots(f).forEach((s, i) => {
-    const h = hash1(Math.round(s.x * 3), Math.round(s.z * 3) + i), kind = h < 0.45 ? 'open' : h < 0.7 ? 'day' : 'rib', len = kind === 'open' ? 4.4 : kind === 'day' ? 5.7 : 6.8;
+    // (a mixed mooring: mostly open boats and day boats, a rib or two)
+    const h = hash1(Math.round(s.x * 3), Math.round(s.z * 3) + i), kind = ['open', 'day', 'open', 'rib', 'day', 'open', 'day', 'open', 'rib'][(i + Math.floor(hash1(Math.round(f.x), Math.round(f.z)) * 9)) % 9], len = kind === 'open' ? 4.4 : kind === 'day' ? 5.7 : 6.8;
     moorings.push({ x: s.x, z: s.z, yaw: s.yaw, kind, seed: 1 + Math.floor(h * 97) + i, crew: h > 0.3 && h < 0.4 ? 1 : 0, buoy: { x: s.x + Math.cos(s.yaw) * (len / 2 + 1.4), z: s.z + Math.sin(s.yaw) * (len / 2 + 1.4), seed: i } });
   });
   P = {

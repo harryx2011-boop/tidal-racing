@@ -468,15 +468,17 @@ void main() {
   vec3 albedo = mix(mix(grass, sandC, sand), rockC, rock);
   float hard = rock;
   float zn = (h + 0.5 * (vnf(p, 0.6, fp) - 0.5) + 0.25 * n1) / (1.0 + 0.25 * uHs);
+  // (a boulder stands a metre or two out of the water: on it the zones lie closer, and its crown is above them)
+  zn *= vScale;
   float lich = 1.0 - smoothstep(0.4, 1.5, fp);
   float weed = 1.0 - smoothstep(0.1, 0.7, zn);
   float barn = smoothstep(0.45, 0.8, zn) * (1.0 - smoothstep(1.1, 1.6, zn)) * (0.35 + 0.65 * vnf(p + 9.0, 3.1, fp));
-  float tar = smoothstep(1.0, 1.5, zn) * (1.0 - smoothstep(2.2, 3.4, zn));
+  float tar = smoothstep(1.0, 1.5, zn) * (1.0 - smoothstep(1.9, 2.9, zn));
   float xan = smoothstep(2.4, 3.2, zn) * (1.0 - smoothstep(4.5, 7.5, zn)) * mix(0.25, smoothstep(0.5, 0.64, vn3(P3 * 0.55 + 3.0) * 0.6 + vn3(P3 * 2.1) * 0.4), lich);
   float grey = smoothstep(3.5, 6.0, zn) * mix(0.3, smoothstep(0.5, 0.64, vn3(P3 * 0.8 + 17.0)), lich);
   albedo = mix(albedo, vec3(0.31, 0.3, 0.24), grey * 0.4 * hard);
   albedo = mix(albedo, vec3(0.38, 0.27, 0.07), xan * 0.42 * hard);
-  albedo = mix(albedo, vec3(0.03, 0.03, 0.03), tar * 0.75 * hard);
+  albedo = mix(albedo, vec3(0.035, 0.035, 0.035), tar * 0.62 * hard);
   albedo = mix(albedo, vec3(0.3, 0.285, 0.24), barn * 0.6 * hard);
   albedo = mix(albedo, mix(vec3(0.028, 0.03, 0.014), vec3(0.085, 0.07, 0.022), vnf(p + 5.0, 2.3, fp)), weed * 0.9 * hard);
   if (kind >= 2) albedo *= vTint;

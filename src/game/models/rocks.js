@@ -202,7 +202,7 @@ export function stackGeo(f, terrainR, lod = 0) {
     if (yy > -0.5 && yy < H - 0.5) { const tr = terrainR(th, b ? b.y0 : yy); if (tr > 0) rr = Math.max(rr, tr + 0.7 + Math.hypot(ox, oz)); }
     const l = lean * Math.max(yy, 0);
     out[0] = c * rr + ox + Math.cos(leanA) * l; out[1] = yy; out[2] = s * rr + oz + Math.sin(leanA) * l;
-  }, [1, 1, 1], ROCK, { wrap: true, flat: 0.6 });
+  }, [1, 1, 1], ROCK, { wrap: true, flat: 0.93 });
   // tone; guano on the ledges where birds sit; turf on the cap and the ledges of the crown
   paint(g, 0, (P, N, C, i) => {
     const y = P[i + 1], t = y / H;

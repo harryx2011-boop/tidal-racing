@@ -44,7 +44,7 @@ const TIERS = {
   high: { treeFar: 1650, lod: 1.3, rocks: 1800 },
 };
 // where a cell of trees steps down a level (m to the cell)
-const TREE_LOD = [42, 170, 520];
+const TREE_LOD = [60, 230, 560];
 const CHUNK = 96;              // buildings are built in chunks this size, so only the near ones are fine
 
 // ---- trees ----
@@ -245,7 +245,7 @@ export class Coastal {
     this.opt = { float: 0 };
     this.view = new Float32Array(3);
     this.top = new Float32Array(4);
-    this.stats = { draws: 0, tris: 0, trees: 0, treeTris: 0, glows: 0, built: 0, buildMs: 0 };
+    this.stats = { draws: 0, tris: 0, trees: 0, treeTris: 0, treeLod: [0, 0, 0, 0], glows: 0, built: 0, buildMs: 0 };
     this.prog = null;
     this.levels = null;              // the trees' meshes as textures, shared by every course
     this.vid = null;
@@ -539,7 +539,7 @@ export class Coastal {
     const G = this.G;
     if (!G) return;
     const gl = this.gl, app = this.game.app, cam = app.cam.pos, mat = this.mat, st = this.stats, t = app.time;
-    st.draws = 0; st.tris = 0; st.trees = 0; st.treeTris = 0;
+    st.draws = 0; st.tris = 0; st.trees = 0; st.treeTris = 0; st.treeLod.fill(0);
     // ---- fixed things: quays, piers, buildings ----
     const o = this.opt;
     o.float = 0;
@@ -589,7 +589,7 @@ export class Coastal {
         gl.vertexAttribPointer(1, 4, gl.FLOAT, false, FLOATS * 4, c.start * FLOATS * 4);
         gl.vertexAttribPointer(2, 4, gl.FLOAT, false, FLOATS * 4, c.start * FLOATS * 4 + 16);
         gl.drawArraysInstanced(gl.TRIANGLES, 0, L.verts, c.count);
-        st.draws++; st.trees += c.count; st.treeTris += c.count * L.tris;
+        st.draws++; st.trees += c.count; st.treeTris += c.count * L.tris; st.treeLod[l] += c.count;
       };
       const far3 = TREE_LOD[2] * k;
       for (const B of T.blocks) {
