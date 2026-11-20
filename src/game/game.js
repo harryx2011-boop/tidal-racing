@@ -20,6 +20,7 @@ import { Wildlife } from './wildlife.js';
 import { Land } from './land.js';
 import { Collisions } from './collide.js';
 import { Coastal } from './coastal.js';
+import { GameSound } from './sfx.js';
 
 const STEP = 1 / 120;          // physics step (s)
 const COUNTDOWN = 3.6;         // seconds from the start of the count to GO
@@ -87,6 +88,7 @@ export class Game {
     this.systems.push(new Scenery(this));
     this.systems.push(new Wildlife(this));
     this.systems.push(new Coastal(this));
+    this.systems.push(new GameSound(this));   // engine, water and race-cue sound (sfx.js, enginesound.js)
     this.state = 'menu';        // menu | countdown | racing | finished
     this.paused = false;
     this.camMode = 'chase';

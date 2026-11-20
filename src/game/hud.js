@@ -140,6 +140,8 @@ export class HUD {
             <div class="srow"><px-t id="set-qnote" f="t" w="176"></px-t><button class="btn hide" id="set-reload">${T('Reload now', 'f=t')}</button></div></div>
           <div class="sec">${T('Sound and effects', 'f=t c=accent')}
             ${row('Volume', `<input type="range" id="set-vol" min="0" max="100" step="1" aria-label="Master volume"><span class="val"><px-t id="set-volv" f="t"></px-t></span><button class="btn" id="set-mute" style="padding:2em 4em"><px-t id="set-mutet" f="t">Mute</px-t></button>`)}
+            ${row('Engine', `<input type="range" id="set-evol" min="0" max="100" step="1" aria-label="Engine volume"><span class="val"><px-t id="set-evolv" f="t"></px-t></span>`)}
+            ${row('Effects', `<input type="range" id="set-svol" min="0" max="100" step="1" aria-label="Effects volume"><span class="val"><px-t id="set-svolv" f="t"></px-t></span>`)}
             ${row('Speed effects', onoff('sfx'), 'Camera shake and edge blur that grow with speed and boost')}</div>
           <div class="sec">${T('Performance', 'f=t c=accent')}
             ${row('Automatic', onoff('auto'))}
@@ -194,6 +196,8 @@ export class HUD {
     }, true);
     q('#set-q').addEventListener('click', (e) => { const b = e.target.closest('[data-q]'); if (b) { S.update({ quality: b.dataset.q }); this.syncSettings(); } });
     q('#set-vol').addEventListener('input', (e) => { S.update({ volume: e.target.value / 100 }); this.syncSettings(); });
+    q('#set-evol').addEventListener('input', (e) => { S.update({ engineVol: e.target.value / 100 }); this.syncSettings(); });
+    q('#set-svol').addEventListener('input', (e) => { S.update({ sfxVol: e.target.value / 100 }); this.syncSettings(); });
     q('#set-mute').addEventListener('click', () => { S.update({ muted: !S.muted }); this.syncSettings(); });
     for (const b of root.querySelectorAll('[data-sfx]')) b.addEventListener('click', () => { S.update({ speedFx: b.dataset.sfx === '1' }); this.syncSettings(); });
     for (const b of root.querySelectorAll('[data-auto]')) b.addEventListener('click', () => {
@@ -224,6 +228,8 @@ export class HUD {
       : `Running ${S.active}. A change applies after a reload.`;
     q('#set-vol').value = Math.round(S.volume * 100);
     q('#set-volv').textContent = `${Math.round(S.volume * 100)}%`;
+    q('#set-evol').value = Math.round(S.engineVol * 100); q('#set-evolv').textContent = `${Math.round(S.engineVol * 100)}%`;
+    q('#set-svol').value = Math.round(S.sfxVol * 100); q('#set-svolv').textContent = `${Math.round(S.sfxVol * 100)}%`;
     q('#set-mute').classList.toggle('sel', S.muted);
     q('#set-mutet').textContent = S.muted ? 'Muted' : 'Mute';
     for (const b of this.root.querySelectorAll('[data-sfx]')) b.classList.toggle('sel', (b.dataset.sfx === '1') === S.speedFx);

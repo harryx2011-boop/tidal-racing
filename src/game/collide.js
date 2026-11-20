@@ -131,6 +131,7 @@ export class Collisions {
     this.hits++;
     boat.pos[0] += nx * pen; boat.pos[2] += nz * pen;
     const vn = boat.vel[0] * nx + boat.vel[2] * nz;
+    if (vn < -1.5 && this.game.sound) this.game.sound.hit(Math.min(-vn / 20, 1));   // sfx.js: the thud
     if (vn < 0) { boat.vel[0] -= (1 + BOUNCE) * vn * nx; boat.vel[2] -= (1 + BOUNCE) * vn * nz; }
   }
 }
