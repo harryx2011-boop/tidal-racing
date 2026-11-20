@@ -21,6 +21,7 @@ import { Land } from './land.js';
 import { Collisions } from './collide.js';
 import { Contact } from './contact.js';
 import { Draft } from './draft.js';
+import { DebugRival } from './debugrival.js';
 import { Coastal } from './coastal.js';
 
 const STEP = 1 / 120;          // physics step (s)
@@ -97,6 +98,7 @@ export class Game {
     this.model = new Float32Array(16);
     this.collisions = new Collisions(this);
     this.contact = new Contact(this); this.draft = new Draft(this);   // rivals: contact, PIT, bump draft, slipstream
+    const dbg = new URLSearchParams(location.search).get('rival'); if (dbg) this.debugRival = new DebugRival(this, +dbg);   // debug aid: ?rival=1
     this.sample = { h: 0, sx: 0, sz: 0 };
     this.sea = (i, x, z) => {
       const r = this.probe.result[i], s = this.sample;
@@ -179,6 +181,7 @@ export class Game {
       if (inp.pressed.has('reset') && this.state === 'racing') this.place(this.progress.respawn());
     }
     if (this.paused || !ot) return;
+    this.debugRival?.update(dt);
     if (app.fade < 1) app.fade = Math.min((app.fade ?? 1) + dt * 1.6, 1);
 
     // sea under the hull (and under the camera), a little ahead in time
