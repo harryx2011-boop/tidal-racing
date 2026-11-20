@@ -142,7 +142,7 @@ class MarkProbe {
     this.target = new Target(gl, [this.tex]);
     this.pbo = gl.createBuffer();
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.pbo);
-    gl.bufferData(gl.PIXEL_PACK_BUFFER, PN * 32, gl.STREAM_READ);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, PN * 32, gl.STREAM_COPY);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
     this.data = new Float32Array(PN * 8);
     this.flat = new Float32Array(PN * 2);
