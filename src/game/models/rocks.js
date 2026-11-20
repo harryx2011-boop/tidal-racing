@@ -183,8 +183,8 @@ export function stackGeo(f, terrainR, lod = 0) {
     for (const q of joints) { const da = Math.abs(((th - q[0] - 0.05 * Math.sin(y * 0.4 + q[3]) + Math.PI * 3) % TAU) - Math.PI); r -= q[2] * smooth(q[1], 0, da) * (0.6 + 0.4 * vn(q[3], y * 0.5, 1)); }
     return Math.max(r, 0.5) * b.k;
   };
-  sheet(g, rows.length, cols + 1, (i, j, out) => {
-    const [y, b, cap] = rows[i], th = ((j % cols) / cols) * TAU, c = Math.cos(th), s = Math.sin(th);
+  const node = (row, j, out) => {
+    const [y, b, cap] = row, th = ((j % cols) / cols) * TAU, c = Math.cos(th), s = Math.sin(th);
     let rr, ox = 0, oz = 0;
     let yy = y;
     if (!b) {
@@ -204,7 +204,19 @@ export function stackGeo(f, terrainR, lod = 0) {
     if (yy > -0.5 && yy < H - 0.5) { const tr = terrainR(th, b ? b.y0 : yy); if (tr > 0) rr = Math.max(rr, tr + 0.7 + Math.hypot(ox, oz)); }
     const l = lean * Math.max(yy, 0);
     out[0] = c * rr + ox + Math.cos(leanA) * l; out[1] = yy; out[2] = s * rr + oz + Math.sin(leanA) * l;
-  }, [1, 1, 1], ROCK, { wrap: true, flat: 0.93 });
+  };
+  // The wall of a bed is one smooth sheet and the ledge between two beds another, so light breaks on the ledges'
+  // edges and nowhere else (one sheet for all of it shades the beds into cushions; a faceted one into a chequer).
+  if (lod === 2) sheet(g, rows.length, cols + 1, (i, j, out) => node(rows[i], j, out), [1, 1, 1], ROCK, { wrap: true, flat: 0.6 });
+  else {
+    let i0 = 0;
+    const part = (a, b2, flat) => { if (b2 > a) sheet(g, b2 - a + 1, cols + 1, (i, j, out) => node(rows[a + i], j, out), [1, 1, 1], ROCK, { wrap: true, flat }); };
+    for (let i = 1; i < rows.length; i++) {
+      // a new bed (or the cap) starts at row i: the sheet so far ends at i - 1, and the ledge joins i - 1 to i
+      if (rows[i][1] !== rows[i - 1][1] && rows[i - 1][1] || rows[i][2] !== undefined && rows[i - 1][2] === undefined) { part(i0, i - 1, 0.3); part(i - 1, i, 0); i0 = i; }
+    }
+    part(i0, rows.length - 1, 0);
+  }
   // tone; guano on the ledges where birds sit; turf on the cap and the ledges of the crown
   paint(g, 0, (P, N, C, i) => {
     const y = P[i + 1], t = y / H;
@@ -300,7 +312,7 @@ export function cliffGeo(field, t, origin, lod = 0) {
       let tt = u - k;                                   // 0 at the foot of this bed's riser .. 1 at the foot of the next
       // joints down the face: the bed is in blocks, a few metres long, staggered from bed to bed
       const jsp = 3.5 + 4.5 * hash1(k * 7 + 1, 5);
-      const blk = (al, o) => { const ja = al / jsp + 7.3 * hash1(k, 9 + o), cell = Math.floor(ja), fr = ja - cell, hb = hash1(cell * 3 + 1 + o, k * 5 + 2); return (hb < 0.16 ? 0.3 : 0.6 + 0.4 * hash1(cell * 11 + 5, k * 3 + 7 + o)) * (1 - 0.45 * smooth(0.5 / jsp, 0, Math.min(fr, 1 - fr))); };
+      const blk = (al, o) => { const ja = al / jsp + 7.3 * hash1(k, 9 + o), cell = Math.floor(ja), fr = ja - cell, hb = hash1(cell * 3 + 1 + o, k * 5 + 2); return (hb < 0.12 ? 0.55 : 0.8 + 0.2 * hash1(cell * 11 + 5, k * 3 + 7 + o)) * (1 - 0.3 * smooth(0.5 / jsp, 0, Math.min(fr, 1 - fr))); };
       const m = (wz < 1 ? blk(x, 0) * (1 - wz) : 0) + (wz > 0 ? blk(z, 50) * wz : 0);
       // a node in a riser goes to its foot or its head, one just under the next riser to that one's foot: the
       // risers are walls and the ledges' edges run true, whatever way the mesh lies
@@ -310,7 +322,7 @@ export function cliffGeo(field, t, origin, lod = 0) {
       const mv = clamp(dt * run, -0.5 * c, 0.5 * c);
       x += ux * mv; z += uz * mv; tt += mv / run;
       const lift = (Math.min(1, Math.max(tt, 0) / RISER) - tt) * tk * m;
-      const rough = 0.5 * (vn(x * 0.83 + 3.1, h * 0.83, z * 0.83) - 0.5) + 0.3 * (vn(x * 2.3, h * 2.3 + 5.7, z * 2.3) - 0.5);
+      const rough = 0.45 * (vn(x * 0.6 + 3.1, h * 0.6, z * 0.6) - 0.5) + 0.1 * (vn(x * 1.7, h * 1.7 + 5.7, z * 1.7) - 0.5);
       y = field.heightAt(x, z) + (but * gr + Math.max(lift, 0) + rough * Math.min(1, c * 1.5)) * w - 0.6 * (1 - w);
       // (never above the ground a few metres up the slope: at the brow the last ledge runs into the turf, and no
       // block stands up over the cliff top like a tooth)
@@ -335,10 +347,11 @@ export function cliffGeo(field, t, origin, lod = 0) {
   const pt = (q) => [P[q * 3], P[q * 3 + 1], P[q * 3 + 2]];
   const tri = (a, b, d) => {
     const pa = pt(a), pb = pt(b), pd = pt(d);
-    // (half faceted: a riser and its ledge do not shade into one another)
+    // (smooth where the surface runs on, creased where it turns: a riser and its ledge do not shade into one
+    // another, and a rough wall is not a chequer of facets)
     let fx = (pb[1] - pa[1]) * (pd[2] - pa[2]) - (pb[2] - pa[2]) * (pd[1] - pa[1]), fy = (pb[2] - pa[2]) * (pd[0] - pa[0]) - (pb[0] - pa[0]) * (pd[2] - pa[2]), fz = (pb[0] - pa[0]) * (pd[1] - pa[1]) - (pb[1] - pa[1]) * (pd[0] - pa[0]);
     const fl = Math.hypot(fx, fy, fz) || 1; fx /= fl; fy /= fl; fz /= fl;
-    const nn = (q) => { const x = lerp(Nn[q * 3], fx, 0.7), y = lerp(Nn[q * 3 + 1], fy, 0.7), z = lerp(Nn[q * 3 + 2], fz, 0.7), l = Math.hypot(x, y, z) || 1; return [x / l, y / l, z / l]; };
+    const nn = (q) => { const k = 1 - smooth(0.72, 0.9, Nn[q * 3] * fx + Nn[q * 3 + 1] * fy + Nn[q * 3 + 2] * fz), x = lerp(Nn[q * 3], fx, k), y = lerp(Nn[q * 3 + 1], fy, k), z = lerp(Nn[q * 3 + 2], fz, k), l = Math.hypot(x, y, z) || 1; return [x / l, y / l, z / l]; };
     const i0 = g.nv;
     g.tri(pa, pb, pd, nn(a), nn(b), nn(d), [1, 1, 1], BED);
     [a, b, d].forEach((q, k) => {
