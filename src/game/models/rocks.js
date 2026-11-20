@@ -42,7 +42,7 @@ export function rockProto(seed, lod = 0, style = 'boulder', tint = 'sea') {
   const ce = Math.cos(ea), se = Math.sin(ea);
   // the bedding: its normal leans along the lump's long axis; the plane that is the top; the beds' thickness
   const dip = lerp(S.dip[0], S.dip[1], R()), nb = [Math.sin(dip) * ce, Math.cos(dip), Math.sin(dip) * se], slab = lerp(S.slab[0], S.slab[1], R()) * top;
-  const tb = 0.13 + 0.12 * R(), bph = R(), boff = (b) => -hash1(b * 5 + 1, seed * 3 + 2) * 0.17;
+  const tb = 0.16 + 0.14 * R(), bph = R(), boff = (b) => -hash1(b * 5 + 1, seed * 3 + 2) * 0.2;
   // joints: planes near enough square to the bedding, each cutting a face off one side
   const cuts = [];
   for (let k = 0; k < S.cuts; k++) {
@@ -71,11 +71,12 @@ export function rockProto(seed, lod = 0, style = 'boulder', tint = 'sea') {
       const rise = smooth(0, 0.25, y);
       // the top: everything above the bedding plane is gone (a parting, not a saw cut: a little stays proud)
       let e = x * nb[0] + yy * nb[1] + z * nb[2] - slab;
-      if (e > 0) yy -= 0.93 * e / nb[1];      // (straight down onto it: nothing overhangs the foot)
+      // (straight down onto it: nothing overhangs the foot; and the slab is the top bed, as far in as that bed is)
+      if (e > 0) { yy -= 0.93 * e / nb[1]; const k = 1 + boff(Math.floor(slab / tb + bph - 0.5)) * rise; x *= k; z *= k; }
       else {
         // the sides: the ends of the beds under it, each out or back from the last
         const sb = (x * nb[0] + yy * nb[1] + z * nb[2]) / tb + bph, b = Math.floor(sb), f = sb - b;
-        const k = 1 + lerp(boff(b), boff(b + 1), smooth(0.8, 1, f)) * rise;
+        const k = 1 + lerp(boff(b), boff(b + 1), smooth(0.86, 1, f)) * rise;
         x *= k; z *= k;
       }
       // the joints (they too keep a tenth of what stood proud, so no two faces meet in a ruled line)
