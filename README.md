@@ -7,7 +7,12 @@ Status: **solo time trial is playable** on three courses that run along a coast,
 code-built boat and driver, wake and spray, navigation buoys and a start gantry, lighthouses,
 breakwaters and other vessels, seabirds and dolphins, sunrise and sunset, and a pixel-art
 interface. Multiplayer (up to four players, peer to peer) is built; see "Multiplayer" below and
-[`docs/NEXT_SESSION.md`](docs/NEXT_SESSION.md). It has not yet been run on a real GPU or over a real network.
+[`docs/NEXT_SESSION.md`](docs/NEXT_SESSION.md).
+
+**Play it: https://harryx2011-boop.github.io/tidal-racing/** (a desktop browser with a dedicated GPU). The
+first visit compiles the shaders and the tab stands still for about a minute; later visits start in seconds.
+It runs at 53 to 57 fps at 1080p on an RTX 2070 Super (medium tier). Multiplayer passes its checks on one
+machine; a race between two machines through the public broker has not been run yet.
 
 ## Run
 

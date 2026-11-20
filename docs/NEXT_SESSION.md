@@ -142,6 +142,22 @@ storm still taken straight after `game.start` comes out almost black.
 - **The repo is public and Pages is on** (the owner's choice, 20 November), built from this branch:
   https://harryx2011-boop.github.io/tidal-racing/ . At release Pages moves to `main`.
 
+### Shipped as it stands (20 November, the owner's call: "ship the game as it is")
+
+The owner stopped the agents to save usage and asked for the game to ship as it is. It is live at
+https://harryx2011-boop.github.io/tidal-racing/ from this branch, with a pull request into `main` open.
+Not done, in the order it would be picked up again:
+
+1. The 78 s cold-load freeze (no fix merged; partial, uncommitted work in the `local/load` worktree).
+2. Real recorded sound (not started beyond sourcing; the game still plays the synthesized sound).
+3. The music player (not started; see the NCS licence note below).
+4. Two-machine multiplayer through the public broker, and the known multiplayer faults (step 6).
+5. 3D: land and coast was judged **FAIL** (`docs/verdicts/P-land-r1.md`; lowest score 3, trees and ground
+   up close). Sky and sea were not judged. Objects' five defects (`Q-objects-r2.md`) are not fixed.
+6. Performance (clouds cost 6.8 to 7.4 ms of 16.7), feel and sound tuning with the owner, steps 7 and 8.
+
+The answers below still bind when the work resumes.
+
 ### The owner's answers on 20 November (PC session; do not re-ask)
 
 | Topic | Answer |
