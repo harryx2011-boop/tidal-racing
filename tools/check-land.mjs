@@ -23,6 +23,8 @@ function solidDist(c, x, z) {
 }
 
 const sceneryMod = await import('../src/game/scenery.js').catch(() => ({}));
+const planMod = await import('../src/game/models/coastplan.js').catch(() => ({}));
+const villageMod = await import('../src/game/models/village.js').catch(() => ({}));
 const structMod = await import('../src/game/models/structures.js').catch(() => ({}));
 const { buildLayout } = sceneryMod;
 
@@ -120,6 +122,44 @@ for (const course of COURSES) {
       if (!ok) fail(`${course.id} ${it.kind} at ${it.x.toFixed(0)},${it.z.toFixed(0)}: water ${d.toFixed(1)} m (needs ${it.need})`);
     }
     console.log(`  ${items.length} scenery items checked`);
+  }
+
+  // ---- what the coastal system plants and builds: nothing in the water, on a pier or on a quay's working strip ----
+  if (planMod.planCoast) {
+    const P = planMod.planCoast(course), piers = featureColliders(course.id).filter((c) => c.kind === 'pier');
+    const onPier = (x, z, m) => piers.some((c) => { const cs = Math.cos(c.yaw), sn = Math.sin(c.yaw), dx = x - c.x, dz = z - c.z; return Math.abs(cs * dx + sn * dz) < c.hx + m && Math.abs(-sn * dx + cs * dz) < c.hz + m; });
+    let wetB = 0, pierB = 0, quayB = 0;
+    for (const b of P.buildings) {
+      const F = (villageMod.FOOT || {})[b.type] || [5, 5], c = Math.cos(b.yaw), sn = Math.sin(b.yaw);
+      // the building itself (its garden may run down a bank): the middle six tenths of its plot
+      for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]]) {
+        const x = b.x + c * u * F[0] * 0.6 - sn * v * F[1] * 0.45, z = b.z + sn * u * F[0] * 0.6 + c * v * F[1] * 0.45;
+        if (f.heightAt(x, z) < 0.6) wetB++;
+        if (onPier(x, z, 1)) pierB++;
+        if (P.quays.some((q) => { const L = q.local(x, z); return q.inside(x, z, 0) && L[1] < 17.5; })) quayB++;
+      }
+    }
+    if (wetB) fail(`${course.id} ${wetB} building corners stand in or at the water`);
+    if (pierB) fail(`${course.id} ${pierB} building corners stand on a pier`);
+    if (quayB) fail(`${course.id} ${quayB} building corners stand on a quay's working strip or roadway`);
+    const T = P.trees;
+    let wetT = 0, pierT = 0, quayT = 0, lowT = 1e9;
+    for (let i = 0; i < T.count; i++) {
+      const x = T.data[i * 8], z = T.data[i * 8 + 2], h = f.heightAt(x, z);
+      lowT = Math.min(lowT, h);
+      if (h < 2) wetT++;
+      if (onPier(x, z, 2)) pierT++;
+      if (P.quays.some((q) => q.inside(x, z, 1))) quayT++;
+    }
+    if (wetT) fail(`${course.id} ${wetT} trees stand in the water or on the beach`);
+    if (pierT) fail(`${course.id} ${pierT} trees stand on a pier`);
+    if (quayT) fail(`${course.id} ${quayT} trees stand on a quay`);
+    let wetR = 0;
+    for (const r of P.rocks) if (f.heightAt(r.x, r.z) < -0.35) wetR++;      // loose rock has no collider: it must stand where a hull cannot float
+    if (wetR) fail(`${course.id} ${wetR} loose rocks stand in water a boat could reach`);
+    for (const p of P.piers) if (p.t0 > 3 && !p.quay) fail(`${course.id} pier at ${p.x},${p.z}: its deck starts ${p.t0.toFixed(1)} m out from its root`);
+    for (const q of P.quays) if (q.yq < 1.5 || q.yq > 4.6) fail(`${course.id} quay at ${q.x},${q.z}: deck level ${q.yq.toFixed(1)} m`);
+    console.log(`  coast: ${P.buildings.length} buildings, ${T.count} trees (lowest ground ${lowT.toFixed(1)} m), ${P.rocks.length} loose rocks, ${P.moorings.length} moored craft, ${P.quays.length} quay (deck ${P.quays.map((q) => q.yq.toFixed(1)).join(', ')} m), ${P.piers.length} piers, ${P.slips.length} slipways`);
   }
 
   // ---- how close the line runs to things ----
