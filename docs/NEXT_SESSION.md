@@ -55,9 +55,12 @@ the branch is the latest word.
 | Tests and fixes | Merged | `node tools/check-all.mjs`: 91 unit tests plus land, collide and contact checks. CI workflow added, not yet run on GitHub. |
 | Multiplayer (`src/game/net/`, `lobby.js`, vendored PeerJS 1.5.5) | Merged | `tools/check-net.mjs` over the local transport and over WebRTC on loopback. **The public PeerJS broker was never reached.** |
 
-Possibly still to come from the cloud session (check `git log`): the judge's verdict on objects round 2,
-and round 1 of sky, land and coast, and sea and shore, each with one judge verdict. If a verdict is
-missing for a stream, run the judge yourself before fixing.
+Judge verdicts are kept in `docs/verdicts/`. **Objects round 2: FAIL** (`Q-objects-r2.md`; that was its
+second and last judged round, so fix its five defects and report, without another judge unless the owner
+asks). Possibly still to come from the cloud session (check `git log`): round 1 of sky, land and coast,
+and sea and shore, each with one verdict. If a verdict is missing for a stream, run the judge yourself
+before fixing. Storm stills need a few half-second frames first: auto-exposure adapts over time and a
+storm still taken straight after `game.start` comes out almost black.
 
 ### What to do, in this order
 
