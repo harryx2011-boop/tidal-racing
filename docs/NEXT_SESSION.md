@@ -197,6 +197,7 @@ The answers below still bind when the work resumes.
 | Music | A music player in the game. The owner asked for NCS tracks; NCS's usage policy (ncs.io/usage-policy, read 20 November) says a game needs a licence from NCS and that "music players" are not free use. So NCS files are not bundled until the owner holds a licence; the player takes its tracks from a manifest. |
 | 3D polish | One judged round per area, a builder only where a score is under 7. Sea and shore gets a builder either way (it never had one). Objects: fix the five defects of `docs/verdicts/Q-objects-r2.md`, no further judge. |
 | Publishing | Repo public and Pages on now, from the work branch, so multiplayer can be tested on the real address. |
+| Catch-up | "make sure theres ways to catch up like if ur behind - u go faster". Built in `src/game/catchup.js`: beyond 40 m behind the leader a boat loses up to 14% of its water drag (whole at 400 m), added to the slipstream, capped at 30% together. Multiplayer only; solo is untouched. Checked by `tests/catchup.test.mjs` (4 tests); **not yet seen in a real two-player race**, and the numbers (`MIN`, `FULL`, `CATCH_CUT`) are first guesses for the owner to tune. |
 | The owner's view | "the game quality is amazing"; sound, multiplayer and finishing come first. |
 
 ### Step 2: the three readouts (20 November, autopilot, breeze, day, seed 12345, 38 s from the start)

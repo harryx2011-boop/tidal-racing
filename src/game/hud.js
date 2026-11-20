@@ -308,11 +308,11 @@ export class HUD {
     const on = Math.round(boat.boost * BOOST_CELLS);
     if (on !== this.cellsOn) { this.cellsOn = on; this.cells.forEach((c, i) => c.classList.toggle('on', i < on)); }
     e.boost.classList.toggle('on', boat.boosting);
-    // draft: shown only while there are rivals; fills with the slipstream, lights the accent after a slingshot or a bump
+    // draft: shown only while there are rivals; fills with the slipstream or the catch-up, lights the accent after a slingshot or a bump
     const rv = g.rivals.length > 0;
     e.draft.classList.toggle('hide', !rv); e.drl.classList.toggle('hide', !rv);
     if (rv) {
-      const dn = Math.round(Math.max(g.draft.level, g.draft.stored * 0.6, g.contact.bump) * DRAFT_CELLS);
+      const dn = Math.round(Math.max(g.draft.level, g.draft.stored * 0.6, g.contact.bump, g.draft.catch * 0.6) * DRAFT_CELLS);
       if (dn !== this.draftOn) { this.draftOn = dn; this.dcells = this.dcells || Array.from(e.draft.children); this.dcells.forEach((c, i) => c.classList.toggle('on', i < dn)); }
       e.draft.classList.toggle('hot', g.draft.sling > 0 || g.contact.bump > 0.3);
     }

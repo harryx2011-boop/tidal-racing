@@ -51,6 +51,10 @@ races on the same waves (the host sends the seed and a start instant; no wave da
 simulates only their own boat; poses go out 20 times a second and other boats are drawn about 100 ms in the
 past. The host decides the places and the results table. Esc opens the menu without stopping the race.
 
+Catching up: close behind a rival the slipstream cuts your drag (within 25 m) and leaving it gives a slingshot.
+Further back, a boat more than 40 m behind the leader gets a growing drag cut (whole at 400 m, about 3 m/s more
+top speed), so nobody is out of the race on the straights. The leader is never slowed. Constants: `src/game/catchup.js`.
+
 Signalling uses the free PeerJS broker, then the players talk directly over WebRTC (the host relays). There
 is no server of ours. A strict firewall or symmetric NAT can block a direct link; the game then says so.
 
