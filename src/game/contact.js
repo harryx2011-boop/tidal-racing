@@ -117,6 +117,7 @@ export class Contact {
       const pen = Math.min(RR - cl.d + 0.01, 1.5);
       boat.pos[0] += nx * pen; boat.pos[2] += nz * pen;
       if (closing > 0) {
+        if (closing > 1.5 && this.game.sound) this.game.sound.hit(Math.min(closing / 20, 1));   // sfx.js: the thud
         const dv = (1 + E) * closing * 0.5;
         boat.vel[0] += nx * dv; boat.vel[2] += nz * dv;
         if (m.t >= HOLD + FADE) { m.x = 0; m.z = 0; }
