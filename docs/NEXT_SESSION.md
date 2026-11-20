@@ -24,67 +24,94 @@ Read this first. It records what was decided, what exists, and what to build nex
 | Camera | Chase and helm, `C` toggles (built). |
 | Hardware | Gaming PC is the baseline. `?q=low` exists for laptops. |
 | Controls | Keyboard and gamepad (built). |
-| Pace | The owner wants usage kept light. Build one milestone, verify, stop. |
+| Pace | Superseded on 20 November: finish through to release, builders in parallel. |
 
-## Detail upgrade: where it stands (read this first)
+## Handover to a local session (20 November): read this first
 
-The owner looked at stills and said "Everything needs more detail". Decisions (do not re-ask): all four
-areas (land and coast; vessels, structures and people; sea and shore; sky and clouds); courses brought
-close to the coast; **Fable builders for fidelity, each looped against an independent judge, up to three
-rounds; Sonnet 5.5 builders for game code, optimisation, bug fixes and testing.** The brief for all of it
-is `docs/BRIEF_DETAIL.md` (rubric, budgets, the judge loop, the O-to-P `features` contract). It stopped
-because the Fable limit was reached (it resets at 06:00 UTC) and the owner asked to stop and save usage.
+The work moves from a cloud container (software rendering, minutes per still) to the owner's PC
+(RTX 2070 Super, 1080p). Branch: `claude/beautiful-planck-m9jlwl`. Pull requests go into `main`.
+`git pull` before starting: the cloud session may still push 3D work to this branch, and this file on
+the branch is the latest word.
 
-**Merged and pushed to `claude/gracious-curie-8x4a1z` (HEAD `10de871` plus this handoff):**
-- Stream O, courses close to the coast: all three courses pass piers, quays, moorings, boulder fields,
-  stacks, cliffs and the breakwater head at 20 to 40 m; per-course `features` in `models/coast.js`
-  (with `mooringSpots`, `rockSpots`, `featureColliders`) and colliders in `collide.js`;
-  `tools/check-land.mjs` reports close passes and `tools/check-collide.mjs` drives a boat into every
-  solid (both end "all clear"); best-time key is now `tidal.best3.`. The container ship was routed through
-  hills on every course; it now steams in open water (`buildLayout`). Autopilot laps: no hits.
+### Decisions (the owner's; do not re-ask)
 
-**Unmerged work, saved in `handoff/builders.bundle` (the container is ephemeral and the branches were
-never pushed). Restore with:**
-```bash
-git fetch handoff/builders.bundle 'refs/heads/*:refs/heads/*'
-```
-Each merges cleanly into the dev branch on its own (checked with `git merge-tree`); Q and P together
-were not tested together (P was started from Q round 1 and Q has since done round 2). Squash-merge, fix,
-verify with a headless render, commit, push. Delete `handoff/` once the branches are restored and merged.
+- Finish everything through to release on GitHub Pages.
+- Fable builders for 3D work (objects, sky, land, sea); Sonnet builders for everything else.
+- Each 3D stream gets at most two judged rounds by an independent judge (rubric in
+  `docs/BRIEF_DETAIL.md`: 1280x720, `q=medium&scale=1`, five scores of 1 to 10, pass is every score 7
+  or more). Round 1 belongs to the cloud session; round 2 is yours.
+- `main` exists (created from the old default branch). One pull request into `main` per milestone.
+  The owner merges, sets `main` as the default branch and turns Pages on.
+- The decisions table at the top of this file and the one in `docs/BRIEF_DETAIL.md` still bind.
+- When the scope of something is unclear, ask the owner rather than guess.
 
-| Branch | Stream | State |
+### What is merged on the branch
+
+| Area | State | Verified how |
 | --- | --- | --- |
-| `build/Q-objects` | Q, fidelity: vessels, structures, marks, people (`models/kit.js` is its building kit) | Round 1 judged **FAIL**; round 2 committed (`c9270e6`) but **never judged or reviewed**. |
-| `build/S-sky` | S, fidelity: sky and clouds (`src/sky/clouds.js`, `sky.js`, a little in `main.js`) | Builder was stopped mid-work; last commit is an unreviewed WIP commit. **Never judged.** Its stills are in the old scratchpad only, so re-render. |
-| `build/P-land` | P, fidelity: land and coast (terrain shading, `coastal.js`, trees, rocks, harbours, piers, moorings, buildings) | Builder stopped by the limit; 4 commits, the last a WIP commit. **Never judged or reviewed.** Needs one registration line in `game.js`. |
+| Objects round 2, land and coast, sky (the saved builder branches) | Merged as they were | Both course checks "all clear"; headless stills only. Not yet judged. |
+| Contact, PIT, slipstream, slingshot, bump draft (`contact.js`, `draft.js`) | Merged | `tools/check-contact.mjs` in Node. Never seen in a browser. `?rival=1` and `?rival=2` spawn a scripted rival. |
+| Sound (`enginesound.js`, `sfx.js`) | Merged | 69 offline signal checks. **Nobody has heard it.** |
+| Tests and fixes | Merged | `node tools/check-all.mjs`: 91 unit tests plus land, collide and contact checks. CI workflow added, not yet run on GitHub. |
+| Multiplayer (`src/game/net/`, `lobby.js`, vendored PeerJS 1.5.5) | Merged | `tools/check-net.mjs` over the local transport and over WebRTC on loopback. **The public PeerJS broker was never reached.** |
 
-Not started: **R** (Fable, sea and shore: near-boat wave detail, breaking surf, foam, far wake, foam rings
-round the new rocks and piles; `water.js`, `wake.js`, `boatspray.js`; `land.js` `fixedFor()` only reads
-scenery colliders, so piers, stacks and boulders get no foam ring yet: a one-line hook with
-`featureColliders`) and **U** (Sonnet: optimisation, bug fixes, tests; see the untried candidates below).
+Possibly still to come from the cloud session (check `git log`): the judge's verdict on objects round 2,
+and round 1 of sky, land and coast, and sea and shore, each with one judge verdict. If a verdict is
+missing for a stream, run the judge yourself before fixing.
 
-**Judge round 1 on Q: the five worst defects (round 2 claims to address these; verify, do not trust)**
-1. People at 4 to 5 m are mannequins: tube limbs, mitten hands, no face features, one all-yellow figure,
-   no shadows. 2. The safety RIB hovers above a calm sea, outboard leg in the air; other hulls ride high;
-   no wet line or foam at hulls. 3. Storm: the tower banner becomes a white slab, round discs for lit
-   windows and lamps, glows oversized by day. 4. Thin wires (shrouds, stays, guy wires, truss lacing)
-   render as dotted lines. 5. Flat, bare surfaces (cruiser cabin, committee wheelhouse, course-side
-   breakwater crown wall) and no cast shadows on close assets. Also the lighthouse stands at y = 0 on
-   ground 6 to 9.6 m high, so its rock and base are buried (seat it on `heightAt`).
+### What to do, in this order
 
-**To finish the upgrade, in this order (keep usage light; run one render at a time):**
-1. Restore the branches. Run fresh Fable judges on Q round 2 and S (the rubric is in `BRIEF_DETAIL.md`:
-   1280x720, `q=medium&scale=1`, scores 1 to 10, pass is all 7 or more, at most three rounds in total).
-2. Review and merge Q, S, P (judge P and send its verdict back through the same loop), re-run
-   `check-land.mjs` and `check-collide.mjs`, render combined views at 1280x720 medium on all three courses,
-   commit, push.
-3. Launch R (Fable) and U (Sonnet) from `BRIEF_DETAIL.md`; judge R; merge.
-4. Optimise from a **real measurement**: the owner has not yet run the game on the RTX 2070 Super. Ask
-   for the F3 readout (frame time, meshes versus sea, per-system draws and triangles) before spending
-   effort. The detail added here (about 600 containers on the ship, 300 armour stones per breakwater chunk,
-   trees, buildings) is large and its cost on a real GPU is unknown.
-5. Update this file, `README.md`, and send the owner 1280x720 medium stills (the earlier ones were
-   800x450 low, which is part of why the world looked plain).
+1. **First real run.** `node tools/serve.mjs 5173`, open http://localhost:5173 in Chrome at 1080p.
+   Nothing has ever run on a real GPU, so expect first-run faults: shader compile errors on a real
+   driver, the "WebGL: too many errors" message the smoke test printed once (source unknown), and the
+   sea-height readback (`probe.js`, `marks.js`, `scenery.js` now use `STREAM_COPY`; confirm the boat
+   rides the waves normally). Fix what is broken before anything else.
+2. **Measure.** Press `F3` on each course, drive 30 s along the coast, copy the readout (frame time,
+   meshes versus sea, draws and triangles per system) and save the three readouts in this file.
+3. **Make rendering fast for yourself.** `tools/drive.mjs` forces software rendering (the swiftshader
+   flags) and loads Playwright from `/usr/lib/node_modules`. Add a switch that launches Chromium on
+   the real GPU and resolves Playwright locally. Then stills take a moment and `T.sim` no longer
+   starves (in the container the readback fence almost never signalled, so physics barely advanced;
+   `tools/smoke.mjs` works round it with a blocking readback: check whether that is still needed).
+4. **Finish the 3D streams** (Fable builders, one judge per stream, round 2 only): apply each
+   verdict's five worst defects, re-judge once, report what is left. Known before judging: clouds read
+   as hard-edged puffs; the lighthouse base was buried; objects round 1 failed on mannequin people,
+   hovering hulls, dotted wires and bare surfaces (round 2 claims fixes, unverified); sea and shore
+   had no foam rings round piers, stacks and boulders.
+5. **Performance** (Sonnet), from the readouts only. Target 60 fps at 1080p on the medium tier, with
+   the governor's thresholds set from real numbers. Prime suspects: 61,301 trees on the circuit and
+   35,713 on the oval, about 120 buildings, 600 containers on the ship, 300 armour stones per
+   breakwater chunk, 60 to 150 terrain chunk draws, one draw per lamp glow, the sea shader.
+6. **Multiplayer for real** (Sonnet). Two tabs with `?transport=local` on both, then two browsers or
+   two machines through the public PeerJS broker. Look at every screen nobody has seen: join by code,
+   results table, place text in the HUD, the multiplayer pause menu. Race full laps (finishes were
+   staged in the tests). Known faults: the lobby shows two different default names for one player; a
+   background tab stops sending so its boat freezes for others; contacts can look 3 to 4 m early or
+   late at speed (rivals are drawn 100 ms in the past, collisions use a pose extrapolated by
+   `game.contact.lead`); one reliable ordered channel carries poses, so a lost packet stalls them.
+7. **Feel and sound, with the owner.** Contact and drafting constants are at the top of
+   `src/game/contact.js` and `draft.js` (`PIT_SPIN`, `DRAG_CUT`, `SLING_ACC`); sound constants in
+   `TUNE` at the top of `src/game/enginesound.js` and `LEVEL` in `sfx.js`. Check the Settings panel
+   layout (two new slider rows). Ask the owner to play and listen; tune from what they say.
+8. **Smaller known faults.** Near and far height fields disagree by up to 14 m about 1 km beyond the
+   last gate; a boat more than 60 m inland is pushed along +x; no "wrong gate" state or sound; the
+   driver casts no shadow; true night is untuned; `tools/smoke.mjs --full` (a full lap) never ran.
+9. **Release.** `node tools/check-all.mjs` and the smoke test green; README and this file updated;
+   pull request into `main`; ask the owner to merge, set `main` as default and enable Pages (Settings,
+   Pages, deploy from `main`, root). Then test the live URL, including a `?room=` link between two
+   machines.
+
+### Rules
+
+- `node tools/check-all.mjs` must pass before every commit; run `tools/check-net.mjs` and
+  `tools/check-sound.mjs` after touching net or sound.
+- Commit often, push to `claude/beautiful-planck-m9jlwl`, never commit stills or audio clips.
+- No build step, no runtime dependencies beyond the vendored PeerJS file, no art files.
+- Solo handling must stay bit-for-bit unchanged when `game.rivals` is empty (best times and ghosts
+  depend on it; `check-contact.mjs` asserts it).
+- Report honestly: what was seen on screen, what was only checked by number, what was not checked.
+- The container-only conventions in `docs/BRIEF_DETAIL.md` (`tools/shot.sh`, the `/tmp` lock files,
+  the worktree paths, the scratchpad paths) do not apply on the owner's PC.
 
 ## What exists
 
