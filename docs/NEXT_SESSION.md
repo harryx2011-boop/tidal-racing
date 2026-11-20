@@ -113,6 +113,16 @@ missing for a stream, run the judge yourself before fixing.
 - The container-only conventions in `docs/BRIEF_DETAIL.md` (`tools/shot.sh`, the `/tmp` lock files,
   the worktree paths, the scratchpad paths) do not apply on the owner's PC.
 
+### On the PC so far (20 November)
+
+- Cloned to `C:\tidal-racing` (Windows 11, Node 24.15). `node tools/check-all.mjs` passes: all 4 steps.
+- `tools/check-contact.mjs` skipped its solo baseline on Windows (a URL pathname used as `cwd`). Fixed;
+  it now reports "4800 steps compared on a rough sea, 0 differences".
+- `tools/serve.mjs` serves the game; `index.html` and `src/main.js` answer 200. **Nothing has been opened
+  in a browser yet**: step 1 is untouched.
+- Still container-only (step 3): `drive.mjs`, `smoke.mjs` and `check-sound.mjs` load Playwright from
+  `/usr/lib/node_modules`. Playwright 1.64.1 is installed globally on the PC (`npm root -g`).
+
 ## What exists
 
 Milestones 1 and 2 (solo time trial), the visual upgrade in `docs/BRIEF_VISUAL_UPGRADE.md` and

@@ -7,7 +7,7 @@ import { execSync } from 'node:child_process';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Boat } from '../src/game/boat.js';
 import { Contact, closest, RR, PIT_IMMUNE } from '../src/game/contact.js';
 import { Draft, strengthOf, DRAG_CUT } from '../src/game/draft.js';
@@ -256,8 +256,8 @@ console.log('solo is unchanged (no rivals): bit for bit against the boat before 
   let base = null;
   try {
     const dir = mkdtempSync(join(tmpdir(), 'tidal-base-'));
-    const src = execSync('git show 5bae82a:src/game/boat.js', { cwd: new URL('..', import.meta.url).pathname }).toString()
-      .replace("from '../math.js'", `from '${pathToFileURL(new URL('../src/math.js', import.meta.url).pathname).href}'`);
+    const src = execSync('git show 5bae82a:src/game/boat.js', { cwd: fileURLToPath(new URL('..', import.meta.url)) }).toString()
+      .replace("from '../math.js'", `from '${new URL('../src/math.js', import.meta.url).href}'`);
     writeFileSync(join(dir, 'boat0.mjs'), src);
     base = (await import(pathToFileURL(join(dir, 'boat0.mjs')).href)).Boat;
   } catch (e) { console.log('  (baseline not available: ' + e.message.split('\n')[0] + ')'); }
