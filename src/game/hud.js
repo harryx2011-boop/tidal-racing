@@ -4,6 +4,7 @@
 import { COURSES, CONDITIONS, TIMES } from './courses.js';
 import { settings, SWATCHES, STRIPES, TIERS } from './settings.js';
 import { COASTS, rockSpots } from './models/coast.js';
+import { ghostStore } from './ghost.js';
 import { T, dither, unit, Bitmap, PAPER, INK, ACCENT } from './pixel.js';
 
 const DITHER = 'background-size: 4em 4em; background-attachment: fixed; image-rendering: pixelated;';
@@ -250,6 +251,8 @@ export class HUD {
     q('#set-num').textContent = String(S.number).padStart(2, '0');
   }
 
+  settingsOpen() { return !this.setEl.classList.contains('hide'); }
+
   closeSettings(restore) {
     if (this.setEl.classList.contains('hide')) return;
     this.setEl.classList.add('hide');
@@ -261,7 +264,7 @@ export class HUD {
     for (const b of this.root.querySelectorAll('[data-cond]')) b.classList.toggle('sel', b.dataset.cond === this.sel.cond);
     for (const b of this.root.querySelectorAll('[data-tod]')) b.classList.toggle('sel', b.dataset.tod === this.sel.tod);
     let best = null;
-    if (this.sel.cond !== 'random') { try { best = JSON.parse(localStorage.getItem(`tidal.best.${this.sel.course}.${this.sel.cond}`)); } catch { /* none */ } }
+    if (this.sel.cond !== 'random') { try { best = JSON.parse(localStorage.getItem(ghostStore().key(this.sel.course, this.sel.cond))); } catch { /* none */ } }
     this.el.best.textContent = this.sel.cond === 'random' ? 'Random rolls the sea for each race. Best times are kept per sea condition, whatever the time of day.' : best ? `Your best: ${fmt(best.time)} (you race its ghost)` : 'No time set in these conditions yet.';
   }
 

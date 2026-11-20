@@ -42,7 +42,11 @@ export class MultiProbe {
     this.target = new Target(gl, [this.tex]);
     this.pbo = gl.createBuffer();
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.pbo);
-    gl.bufferData(gl.PIXEL_PACK_BUFFER, MAX_POINTS * 16, gl.STREAM_READ);
+    // STREAM_COPY, not STREAM_READ: Chrome treats a READ-usage buffer that the GPU writes and the page then fences as
+    // one to keep a shadow copy of, and logs a performance warning ("READ-usage buffer was written, then fenced, but
+    // written again before being read back") on every readback. The readback itself is the same (measured in
+    // Chromium: same latency, same data, no warning).
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, MAX_POINTS * 16, gl.STREAM_COPY);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
     this.data = new Float32Array(MAX_POINTS * 4);
     this.pending = null;

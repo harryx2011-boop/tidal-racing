@@ -10,10 +10,35 @@
     html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
     canvas#c { display: block; width: 100vw; height: 100vh; }
     .err { position: fixed; inset: 16px; color: #f88; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; z-index: 9; }
+    .fatal { position: fixed; inset: 0; display: grid; place-content: center; padding: 24px; z-index: 9; background: #05070a; color: #dfe6ee; font: 15px/1.5 system-ui, sans-serif; text-align: center; }
+    .fatal h1 { margin: 0 0 8px; font-size: 20px; color: #fff; }
+    .fatal p { margin: 4px auto; max-width: 34em; }
+    .fatal pre { margin: 12px auto 0; max-width: 44em; color: #f88; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; text-align: left; }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
+  <noscript><div class="fatal"><div><h1>Tidal Racing needs JavaScript</h1><p>Turn JavaScript on for this page and reload.</p></div></div></noscript>
+  <script>
+    // A message instead of a blank page when the game cannot start: no WebGL2, a missing extension, a module that
+    // would not load, a shader the driver refused. main.js calls window.fatal(); errors before the game is up land here too.
+    window.fatal = function (title, hint, detail) {
+      if (document.querySelector('.fatal')) return;
+      var d = document.createElement('div'); d.className = 'fatal';
+      var w = document.createElement('div'), h = document.createElement('h1'), p = document.createElement('p');
+      h.textContent = title; p.textContent = hint; w.appendChild(h); w.appendChild(p);
+      if (detail) { var pre = document.createElement('pre'); pre.textContent = String(detail).slice(0, 1500); w.appendChild(pre); }
+      d.appendChild(w); document.body.appendChild(d);
+    };
+    var early = function (e) {
+      if (window.app) return;
+      var m = (e && (e.message || (e.reason && (e.reason.message || e.reason)))) || (e && e.target && e.target.src ? 'Could not load ' + e.target.src : 'unknown error');
+      window.fatal('Tidal Racing could not start', 'Reload the page. If it keeps failing, try a current desktop Chrome, Edge or Firefox with hardware acceleration turned on.', m);
+    };
+    window.addEventListener('error', early, true);
+    window.addEventListener('unhandledrejection', early);
+  </script>
+  <script nomodule>window.fatal('This browser is too old', 'Tidal Racing needs a current desktop browser: Chrome, Edge, Firefox or Safari.');</script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

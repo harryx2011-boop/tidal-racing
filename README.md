@@ -37,6 +37,31 @@ Pass between each pair of marks (red to port, green to starboard) in order. Thre
 sea states, and day, sunrise or sunset. Every race in the same conditions runs on the same waves,
 so your best run races beside you as a ghost. Land, marks and anchored boats are solid.
 
+## Test
+
+```bash
+node tools/check-all.mjs          # everything that needs no browser (this is what CI runs)
+node --test                       # just the unit tests (tests/*.test.mjs, Node's own runner, no dependencies)
+```
+
+`check-all` runs the unit tests (boat physics, courses and lap logic, collisions and grounding, the land height
+field, settings and best-time storage, input, the wake field, the frame-rate governor), then
+`tools/check-land.mjs` (every gate, leg and scenery item has water under it) and `tools/check-collide.mjs` (a boat
+is driven into every solid), and `tools/check-contact.mjs` once that exists. It exits non-zero if any step fails.
+`.github/workflows/test.yml` runs it on every push and pull request.
+
+The browser smoke test needs Chromium and Playwright, so it is not part of CI. It serves the game under the
+sub-path `/tidal-racing/` (as GitHub Pages does), boots it headless, races the first gates of each course (a lap with `--full`) with the
+autopilot under a fixed seed and renders two frames of each, and fails on page errors, shader errors, failed
+requests, a hard hit, grounding, the boat over land, a blank frame, or a blocked `localStorage`; it also checks
+that a browser with no WebGL2 gets a message instead of a blank page. It is slow in software GL (a quarter of an
+hour or more for a full lap, a few minutes for the default short segment of each course), so on the shared
+container run it on the test lane (a `flock` convention only; the render slots of `tools/shot.sh` are for stills):
+
+```bash
+flock /tmp/tidal-test.lock node tools/smoke.mjs     # SMOKE_COURSES=oval, --full, SMOKE_WALL=seconds, SMOKE_Q=medium
+```
+
 ## Layout
 
 ```
@@ -54,7 +79,8 @@ src/ocean/         FFT wave cascades, foam, sea surface shading               (o
 src/sky/           atmosphere, volumetric clouds, cirrus                      (open-water)
 src/fx/            rain, wind spray, lightning, post-processing               (open-water)
 src/audio/         synthesized sea and wind, recorded rain and thunder        (open-water)
-tools/             dev server, headless test driver, course clearance check (check-land.mjs)
+tools/             dev server (BASE=/sub/path/ to serve under one), headless test driver, smoke test, checks (check-all.mjs)
+tests/             unit tests (node --test)
 ```
 
 ## Credits
