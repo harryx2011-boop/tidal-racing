@@ -132,6 +132,26 @@ storm still taken straight after `game.start` comes out almost black.
   appear. The sea probe answers every frame (`probe.fresh` true in every sample) and the boat pitches and
   rolls with the waves at 33 to 37 m/s. Not yet seen: a headed Chrome window, and anything by the owner.
 
+- **First-run fault found: a cold load freezes the tab for 78 s.** 72 s of it is shader compile and link
+  on Direct3D (46 programs, one after another; five take about 10 s each). A warm profile loads in about
+  3 s, so `tools/drive.mjs` now keeps its browser profile (`PW_PROFILE`). The fix (parallel compile, a
+  loading screen with real progress) is in work on `local/load`.
+- **Checks on the PC:** `check-sound.mjs` passes; `check-net.mjs` passes over the local transport
+  (3 players, 37 checks). The public PeerJS broker answers from here (`0.peerjs.com`, 0.17 s) but no race
+  has run through it yet.
+- **The repo is public and Pages is on** (the owner's choice, 20 November), built from this branch:
+  https://harryx2011-boop.github.io/tidal-racing/ . At release Pages moves to `main`.
+
+### The owner's answers on 20 November (PC session; do not re-ask)
+
+| Topic | Answer |
+| --- | --- |
+| Sound | Real recordings, chosen and checked with earshot: outboard engine loops by rev level, hull wash, slaps, impacts, a start signal. CC0 and CC BY only, credited. The synth stays as the fallback. This replaces "no art files" for audio. Why: earshot read all 16 synth clips as code-made (full throttle "a vacuum cleaner", p_real 0.02). |
+| Music | A music player in the game. The owner asked for NCS tracks; NCS's usage policy (ncs.io/usage-policy, read 20 November) says a game needs a licence from NCS and that "music players" are not free use. So NCS files are not bundled until the owner holds a licence; the player takes its tracks from a manifest. |
+| 3D polish | One judged round per area, a builder only where a score is under 7. Sea and shore gets a builder either way (it never had one). Objects: fix the five defects of `docs/verdicts/Q-objects-r2.md`, no further judge. |
+| Publishing | Repo public and Pages on now, from the work branch, so multiplayer can be tested on the real address. |
+| The owner's view | "the game quality is amazing"; sound, multiplayer and finishing come first. |
+
 ### Step 2: the three readouts (20 November, autopilot, breeze, day, seed 12345, 38 s from the start)
 
 Frame rate is capped at the display's 60 Hz, so read the GPU times: the frame costs 15.6 to 16.3 ms of
