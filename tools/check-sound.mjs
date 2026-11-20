@@ -5,13 +5,14 @@
 // for the owner to listen to later.
 //   PORT=5187 node tools/serve.mjs &
 //   flock /tmp/tidal-shot-2.lock node tools/check-sound.mjs      (PORT=5187 by default)
-import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadPlaywright } from './pw.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { EngineModel, spatial, TUNE } from '../src/game/enginesound.js';
-const require = createRequire('/usr/lib/node_modules/');
-let pw; try { pw = require('playwright'); } catch { pw = (await import('playwright')).default; }
+const pw = await loadPlaywright();
 const PORT = process.env.PORT || 5187;
-const OUT = process.env.SOUND_OUT || '/tmp/claude-0/-home-user-tidal-racing/a31e5a31-6cd0-5b81-a9f4-b9e9d9bad626/scratchpad/review3/sound';
+const OUT = process.env.SOUND_OUT || join(tmpdir(), 'tidal-sound');
 mkdirSync(OUT, { recursive: true });
 const SR = 44100;
 
