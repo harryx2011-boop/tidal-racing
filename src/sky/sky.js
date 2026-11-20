@@ -81,7 +81,9 @@ vec3 deckGap(vec3 d) {
   vec3 sky = skyRadiance(normalize(vec3(dh.x, 0.03, dh.y)));
   float ls = max(dot(sky, vec3(0.2126, 0.7152, 0.0722)), 1e-7);
   float lf = dot(fogRadiance(d, 0.0), vec3(0.2126, 0.7152, 0.0722));
-  return mix(vec3(1.0), sky / ls, 0.75) * lf * 3.2 * band * open * uGap;
+  // (it is not one even band: stretches of it lie behind rain too far off to show as shafts)
+  float behind = mix(0.5, 1.0, smoothstep(0.25, 0.75, fogNoise2(dh * 2.3 + 5.7)));
+  return mix(vec3(1.0), sky / ls, 0.75) * lf * 2.4 * behind * band * open * uGap;
 }
 // Rain seen against the sky. The fog (applyFog) thickens in shower cells but is lit evenly, so a
 // curtain of rain was only a paler patch. Under the heart of a shower the light is dimmer (the cloud
