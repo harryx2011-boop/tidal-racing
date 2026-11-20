@@ -22,6 +22,15 @@ function loadPeerJS() {
   return loading;
 }
 
+// ?peerserver=host:port points PeerJS at another signalling server (a local `peer` server for testing)
+// instead of the public broker.
+function brokerOptions() {
+  const v = new URLSearchParams(location.search).get('peerserver');
+  if (!v) return {};
+  const [host, port] = v.split(':');
+  return { host, port: Number(port) || 9000, path: '/', secure: false };
+}
+
 // PeerJS error types -> our codes
 function mapError(err) {
   const t = err && err.type;
@@ -41,7 +50,7 @@ export class PeerTransport extends Transport {
     return new Promise((res, rej) => {
       let done = false;
       const timer = setTimeout(() => { if (!done) { done = true; try { peer.destroy(); } catch { /* */ } rej(fail('broker', 'signalling server did not answer')); } }, 12000);
-      const peer = id ? new Peer(id) : new Peer();
+      const peer = id ? new Peer(id, brokerOptions()) : new Peer(brokerOptions());
       this.peer = peer;
       peer.on('open', (pid) => { if (done) return; done = true; clearTimeout(timer); this.id = pid; res(peer); });
       peer.on('error', (err) => {

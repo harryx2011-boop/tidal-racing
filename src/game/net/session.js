@@ -112,7 +112,7 @@ export class NetSession {
     this.lastHost = performance.now();
     const answer = new Promise((res, rej) => { this.welcome = { res, rej }; setTimeout(() => rej(Object.assign(new Error('timeout'), { code: 'timeout' })), 8000); });
     this.t.send({ t: 'hello', v: PROTOCOL, ...this.clean(profile) });
-    try { await answer; } catch (e) { this.close(); throw e; }
+    try { await answer; } catch (e) { this.shutdown('closed'); throw e; }
     await this.resync(6);
     this.timer = this.virtual ? null : setInterval(() => this.housekeeping(), 1000);
   }
@@ -415,7 +415,7 @@ export class NetSession {
     this.results = rows; this.phase = 'done';
     const g = this.game;
     // a boat still racing when the host closes the results is out of it
-    if (g.state === 'racing' || g.state === 'countdown') { g.state = 'finished'; g.hud.show('finished'); }
+    if (g.state === 'racing' || g.state === 'countdown') { const t = g.raceTime; g.state = 'finished'; g.finishTime = t; g.hud.show('finished'); }
     this.emit('results', rows);
   }
 
