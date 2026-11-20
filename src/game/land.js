@@ -45,6 +45,7 @@ import { Program, Texture, makeMesh } from '../gl.js';
 import { SKY_LOOKUP_GLSL } from '../sky/atmosphere.js';
 import { LAND_COMMON_GLSL, LAND_COVER_GLSL } from './landgl.js';
 import { landFor, waveAtt } from './landfield.js';
+import { featureColliders } from './models/coast.js';
 export { GROUND } from './models/cover.js';
 
 const CHUNK = 256;
@@ -247,7 +248,7 @@ vec3 rockLook(vec3 P, vec3 Ng, float fp, float n1, float n2, float bedded, out f
   if (bedded > 0.5) {
     // a cliff's skin has these beds built into it as ledges (models/rocks.js, bedU: the same formula, and no
     // noise in it that the two sides could disagree on): a bed's seam lies along the foot of its riser
-    float sA = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 1.1 * sin(P.x * 0.031 + 1.3) * sin(P.z * 0.027 + 0.4);
+    float sA = P.y * 0.55 + P.x * 0.07 - P.z * 0.04 + 1.1 * sin(P.x * 0.031 + 1.3) * sin(P.z * 0.027 + 0.4) + 0.45 * sin(P.x * 0.093 + 2.1) * sin(P.z * 0.081 + 1.7);
     s0 = sA * 0.4 + 0.2 * sin(sA * 0.9 + 1.0);
     s = sA + 0.25 * n2 + 0.35 * (vn3(P * 0.6 + 5.0) - 0.5) * fo1;
   }
@@ -422,7 +423,8 @@ void main() {
   float earth = steep * smoothstep(0.45, 0.7, vnf(p + 91.0, 0.33, fp));
   grass = mix(grass, vec3(0.115, 0.082, 0.052) * (0.8 + 0.5 * n1), earth * 0.8);
   float scree = smoothstep(0.14, 0.22, sl + 0.08 * n2) * (1.0 - rock) * smoothstep(0.3, 0.6, vnf(p + 57.0, 0.12, fp));
-  vec3 screeC = vec3(0.2, 0.185, 0.16) * (0.7 + 0.6 * mix(0.5, h12(floor(p * 2.2)), 1.0 - smoothstep(0.1, 0.35, fp * 2.2)));
+  // (stones in space, not squares in plan: a plan pattern smears down a bank)
+  vec3 screeC = vec3(0.2, 0.185, 0.16) * (0.7 + 0.6 * mix(0.5, smoothstep(0.3, 0.7, vn3(P3 * 2.9) * 0.6 + vn3(P3 * 7.3 + 5.0) * 0.4), 1.0 - smoothstep(0.1, 0.35, fp * 2.9)));
   grass = mix(grass, screeC, scree * 0.8);
   grass *= 1.0 - 0.12 * steep * (0.5 + 0.5 * sin(h * 5.0 + n2 * 6.0)) * (1.0 - smoothstep(0.15, 0.5, fp));
 
@@ -444,7 +446,7 @@ void main() {
   vec3 sandC = mix(vec3(0.3, 0.245, 0.15), vec3(0.37, 0.31, 0.2), smoothstep(-0.2, 0.2, n2)) * (0.88 + 0.5 * n1);
   sandC *= mix(0.92, 1.08, smoothstep(0.9, 1.6, h));
   float sh = smoothstep(0.5, 0.62, vnf(p + 19.0, 0.045, fp) * 0.7 + vnf(p + 3.0, 0.31, fp) * 0.3) * smoothstep(0.5, 1.1, h);
-  float peb = mix(0.5, h12(floor(p * 7.0)), 1.0 - smoothstep(0.1, 0.3, fp * 7.0)) * 0.6 + mix(0.5, h12(floor(p * 2.3 + 0.5)), 1.0 - smoothstep(0.1, 0.3, fp * 2.3)) * 0.4;
+  float peb = mix(0.5, smoothstep(0.25, 0.75, vn(p * 9.0)), 1.0 - smoothstep(0.1, 0.3, fp * 9.0)) * 0.6 + mix(0.5, smoothstep(0.3, 0.7, vn(p * 3.1 + 0.5)), 1.0 - smoothstep(0.1, 0.3, fp * 3.1)) * 0.4;
   sandC = mix(sandC, mix(vec3(0.13, 0.125, 0.12), vec3(0.34, 0.32, 0.29), peb), sh * 0.9);
   // the wrack line: weed and litter left at the top of the last tide, and a fainter older one above
   float wl = h + 0.25 * n2 + 0.1 * n1;
@@ -726,7 +728,7 @@ export class Land {
   }
 
   // The fixed structures nearest the point just ahead of the camera, as foam rings for the sea shader:
-  // x, z, radius, strength. A breakwater is a chain of circles, a platform four legs, a beacon one pile.
+  // x, z, radius, strength. A breakwater is a chain of circles, a platform four legs, a beacon one pile, a boulder itself.
   fixedFor() {
     const sc = this.scenery || (this.scenery = this.game.systems.find((s) => s.colliders && s.models));
     const out = this.fixed, cam = this.game.app.cam;
@@ -758,6 +760,8 @@ export class Land {
           default:
         }
       }
+      // the boulders of the course's rock fields break the swell too (a stack is in the height field: the shore's own foam finds it)
+      for (const c of featureColliders(this.course.id)) if (c.kind === 'rock') put(c.x, c.z, c.r * 0.95, 0.85);
       for (let k = 0; k < n; k++) { const b = best[k]; out[k * 4] = b.x; out[k * 4 + 1] = b.z; out[k * 4 + 2] = b.r; out[k * 4 + 3] = b.w; }
     }
     this.fixedN = n;

@@ -93,13 +93,14 @@ export function treeGeo(kind, lod = 0, seed = 1) {
     crown = [0, 0.78, 0, 0.3, 0.22, 0.3];
   } else if (kind === 'spruce') {
     trunk([[0, -0.03, 0], [0, 0.5, 0], [0, 0.97, 0]], 0.028, 0.004);
-    // tiers of skirts, each drooping at its edge, smaller toward the tip
-    const n = lod === 0 ? 7 : lod === 1 ? 6 : 2, m = lod === 0 ? 9 : lod === 1 ? 8 : 5;
+    // whorls of boughs: each a skirt whose rim runs out to the tips of its boughs and back between them, drooping
+    // at the tips; smaller and closer toward the leader, none two alike, so the outline is a saw's and not a cone's
+    const n = lod === 0 ? 11 : lod === 1 ? 7 : 2, m = lod === 0 ? 12 : lod === 1 ? 10 : 5;
     for (let k = 0; k < n; k++) {
-      const t0 = k / n, y0 = lerp(0.1, 0.92, t0), y1 = lerp(0.1, 0.92, (k + 1.35) / n), r0 = 0.25 * (1 - t0 * 0.86) * (0.9 + 0.2 * R()), sd = seed + k * 2.3, col = tone(0.8 + 0.4 * R());
+      const t0 = k / n, y0 = lerp(0.1, 0.93, Math.pow(t0, 0.9)), y1 = lerp(0.1, 0.93, Math.pow((k + 1.45) / n, 0.9)), r0 = 0.235 * (1 - t0 * 0.88) * (0.82 + 0.36 * R()), sd = seed + k * 2.3, col = tone(0.78 + 0.44 * R()), tw = R() * TAU;
       sheet(g, 3, m + 1, (i, j, out) => {
-        const th = ((j % m) / m) * TAU + k * 0.7, kk = 0.8 + 0.4 * vn(Math.cos(th) * 2 + sd, k, Math.sin(th) * 2), r = i === 0 ? r0 * kk : i === 1 ? r0 * 0.45 : 0.004;
-        out[0] = Math.cos(th) * r; out[1] = i === 0 ? y0 - 0.02 * kk : i === 1 ? lerp(y0, y1, 0.42) : Math.min(y1, 1); out[2] = Math.sin(th) * r;
+        const jj = j % m, th = (jj / m) * TAU + tw, tip = lod < 2 && (jj & 1) ? 0.58 : 1.08, kk = tip * (0.8 + 0.4 * vn(Math.cos(th) * 2 + sd, k, Math.sin(th) * 2)), r = i === 0 ? r0 * kk : i === 1 ? r0 * 0.42 : 0.004;
+        out[0] = Math.cos(th) * r; out[1] = i === 0 ? y0 - 0.035 * kk * (1 - t0 * 0.6) : i === 1 ? lerp(y0, y1, 0.42) : Math.min(y1, 1); out[2] = Math.sin(th) * r;
       }, col, LEAF, { wrap: true });
     }
     crown = [0, 0.52, 0, 0.24, 0.5, 0.24];

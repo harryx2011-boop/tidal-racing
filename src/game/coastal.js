@@ -128,7 +128,7 @@ void main() {
     vec3 Ng = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
     float rim = 1.0 - abs(dot(Ng, V));
     float near = 1.0 - smoothstep(0.08, 0.22, fp);
-    if (cut < (0.16 + rim * sqrt(rim) * 0.95) * near) discard;
+    if (cut < (0.24 + rim * sqrt(rim) * 0.95) * near) discard;
     float gap = mix(1.0, smoothstep(0.3, 0.6, cut), near);
     albedo *= (0.68 + 0.64 * n1) * (0.66 + 0.68 * n2);
     shade *= (0.5 + 0.5 * gap) * (gl_FrontFacing ? 1.0 : 0.6);
