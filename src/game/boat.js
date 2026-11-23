@@ -10,6 +10,7 @@ const DRAFT = 0.36;
 const KB = G / DRAFT;         // buoyancy per metre of immersion, summed over the points: floats at DRAFT
 const TOP = 36, THRUST = 9.0; // m/s, m/s^2
 const C1 = 0.05, C2 = (THRUST - C1 * TOP) / (TOP * TOP);
+export const SPIN_DECAY = 2.5; // 1/s: a spin imparted by contact dies away with this rate
 export const BOOST_THRUST = 1.6, BOOST_SECONDS = 3.5;
 
 export class Boat {
@@ -23,6 +24,8 @@ export class Boat {
     this.boost = 0; this.boosting = false;
     this.wet = 1; this.airTime = 0; this.lastAir = 0; this.slam = 0;
     this.ground = 0;   // 0..1: how hard the hull is aground (collide.js)
+    this.spin = 0;     // extra yaw rate (rad/s) from a PIT or a hard hit (contact.js); decays on its own
+    this.dragCut = 0;  // 0..1: share of the water drag taken off by a rival's slipstream (draft.js)
     this.throttle = 0; this.steer = 0;
     this.settle = true; // drop onto the sea surface on the next step
   }
@@ -113,7 +116,7 @@ export class Boat {
     if (this.boosting) this.boost = Math.max(this.boost - dt / BOOST_SECONDS, 0);
     let af = (thr >= 0 ? thr * THRUST * (this.boosting ? BOOST_THRUST : 1) : thr * THRUST * 0.45) * sternWet;
     const dragK = 0.04 + 0.96 * wet;
-    af -= (C1 * vf + C2 * vf * Math.abs(vf)) * dragK;
+    af -= (C1 * vf + C2 * vf * Math.abs(vf)) * dragK * (this.dragCut > 0 ? 1 - this.dragCut : 1);
     if (Math.abs(thr) < 0.02) af -= 0.12 * vf * wet;
     // sideslip bleeds away in the water; in the air the boat keeps its heading and its motion
     const al = -vl * 3.2 * wet;
@@ -129,6 +132,7 @@ export class Boat {
     const target = st * 1.05 * authority;
     this.wYaw += (target - this.wYaw) * (1 - Math.exp(-dt * 5.5)) * Math.max(sternWet, 0.08);
     this.yaw += this.wYaw * dt;
+    if (this.spin !== 0) { this.yaw += this.spin * dt; this.spin *= Math.exp(-dt * SPIN_DECAY); if (Math.abs(this.spin) < 1e-3) this.spin = 0; }
 
     // trim: thrust lifts the bow, a turn banks the hull into it, the air levels it gently
     aPitch += thr * 0.9 * sternWet * (1 - clamp(Math.abs(vf) / 40, 0, 0.8));
